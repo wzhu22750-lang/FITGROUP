@@ -1,0 +1,70 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitive Definition
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // User Profile Rules
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.displayName is string && data.displayName.size() <= 50
+            && (data.photoURL == null || (data.photoURL is string && data.photoURL.size() <= 500))
+            && (data.email == null || (data.email is string && data.email.size() <= 100))
+            && (data.streak == null || data.streak is number)
+            && (data.totalWorkouts == null || data.totalWorkouts is number);
+      }
+
+      allow get: if isSignedIn();
+      allow list: if isSignedIn(); // Social app, need to find users
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming())
+                   && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'streak', 'lastWorkoutDate', 'totalWorkouts', 'prs']);
+    }
+
+    // WorkoutLog Rules
+    match /workoutLogs/{logId} {
+      function isValidLog(data) {
+        return data.userId == request.auth.uid
+            && data.userName is string
+            && data.timestamp == request.time
+            && data.category in ['Shoulders', 'Chest', 'Back', 'Legs', 'Cardio', 'Others']
+            && data.exercises is list && data.exercises.size() <= 50
+            && (data.note == null || (data.note is string && data.note.size() <= 500))
+            && (data.photoUrl == null || (data.photoUrl is string && data.photoUrl.size() <= 500))
+            && (data.likesCount == null || data.likesCount is number)
+            && (data.commentsCount == null || data.commentsCount is number);
+      }
+
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(logId) && isValidLog(incoming());
+      allow update: if (isOwner(existing().userId) && isValidLog(incoming())
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['category', 'exercises', 'note', 'photoUrl']))
+                 || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'commentsCount']));
+      allow delete: if isOwner(existing().userId);
+
+      // Subcollections
+      match /likes/{likeId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && isOwner(incoming().userId) && isValidId(likeId);
+        allow delete: if isOwner(existing().userId);
+      }
+
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && isOwner(incoming().userId) && isValidId(commentId);
+        allow delete: if isOwner(existing().userId);
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "FitGroup",
+  "description": "A social fitness tracking app for friends to log workouts, share progress, and stay motivated together.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": []
+}
