@@ -4,16 +4,13 @@
  */
 
 import { useState, useEffect, useRef, ReactNode } from 'react';
-import { supabase, registerWithPhone, loginWithPhone, autoLogin, logout, onAuthStateChanged, syncUserToDatabase } from './supabase';
+import { registerWithPhone, loginWithPhone, autoLogin, logout, onAuthStateChangedFn, syncUserToDatabase } from './firebase';
 import { WorkoutCategory, UserProfile } from './types';
 import {
   Dumbbell,
-  History,
   BarChart3,
   User as UserIcon,
   Plus,
-  LogOut,
-  Flame,
   Layout,
   Phone,
   UserPlus,
@@ -22,11 +19,12 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-// Components (to be created)
 import Feed from './components/Feed';
 import WorkoutLogger from './components/WorkoutLogger';
 import Statistics from './components/Statistics';
 import Profile from './components/Profile';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { ToastProvider, useToast } from './components/Toast';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -44,14 +42,14 @@ export default function App() {
     };
     init();
 
-    const subscription = onAuthStateChanged(async (supabaseUser) => {
-      if (supabaseUser) {
-        setUser(supabaseUser);
+    const unsub = onAuthStateChangedFn(async (fbUser) => {
+      if (fbUser) {
+        setUser(fbUser);
       } else {
         setUser(null);
       }
     });
-    return () => subscription?.unsubscribe?.();
+    return () => unsub?.();
   }, []);
 
   if (loading) {
@@ -69,11 +67,19 @@ export default function App() {
   }
 
   if (!user) {
-    return <LoginScreen />;
+    return (
+      <ErrorBoundary>
+        <ToastProvider>
+          <LoginScreen />
+        </ToastProvider>
+      </ErrorBoundary>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-paper pb-24 max-w-lg mx-auto border-x-4 border-ink relative">
+    <ErrorBoundary>
+      <ToastProvider>
+        <div className="min-h-screen bg-paper pb-24 max-w-lg mx-auto border-x-4 border-ink relative">
       <header className="sticky top-0 z-30 bg-paper border-b-4 border-ink flex items-center justify-between px-6 py-4">
         <div className="flex items-center gap-2">
           <div className="bg-ink p-1">
@@ -125,6 +131,8 @@ export default function App() {
         <NavButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} icon={<UserIcon size={24} />} label="我的" />
       </nav>
     </div>
+    </ToastProvider>
+    </ErrorBoundary>
   );
 }
 

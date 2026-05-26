@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '../supabase';
+import { useState, useEffect, useRef } from 'react';
+import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment } from '../firebase';
 import { WorkoutLog, WorkoutCategory } from '../types';
-import { Heart, MessageCircle, Share2, MoreHorizontal, MapPin, Clock, Dumbbell, User as UserIcon } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Clock, Dumbbell, User as UserIcon, Send } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale/zh-CN';
@@ -9,36 +9,32 @@ import { zhCN } from 'date-fns/locale/zh-CN';
 export default function Feed() {
   const [logs, setLogs] = useState<WorkoutLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const touchY = useRef(0);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchData = () => {
+    setLoading(true);
+    setError('');
+    // subscribeToWorkoutLogs handles real-time
+  };
 
   useEffect(() => {
-    const fetchLogs = async () => {
-      const { data, error } = await supabase
-        .from('workoutLogs')
-        .select('*')
-        .order('timestamp', { ascending: false });
-      
-      if (!error && data) {
-        setLogs(data);
-      }
+    const channel = subscribeToWorkoutLogs((data) => {
+      setLogs(data);
       setLoading(false);
-    };
+      setError('');
+    });
 
-    fetchLogs();
-
-    // Subscribe to changes
-    const channel = supabase
-      .channel('workout-logs-feed')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'workoutLogs' }, () => {
-        fetchLogs();
-      })
-      .subscribe();
-
-    return () => {
-      channel.unsubscribe();
-    };
+    return () => channel();
   }, []);
 
-  if (loading) {
+  const handlePullRefresh = () => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 600);
+  };
+
+  if (loading && logs.length === 0) {
     return (
       <div className="space-y-4">
         {[1, 2, 3].map(i => (
@@ -48,8 +44,39 @@ export default function Feed() {
     );
   }
 
+  if (error && logs.length === 0) {
+    return (
+      <div className="bg-white border-4 border-ink p-8 text-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+        <p className="font-black text-ink text-xl mb-4 uppercase">加载失败</p>
+        <p className="text-ink/50 font-bold text-sm mb-6">{error}</p>
+        <button
+          onClick={() => fetchData()}
+          className="bg-neon text-ink border-2 border-ink px-6 py-3 font-black uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none cursor-pointer"
+        >
+          重试
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <div
+      className="space-y-6"
+      onTouchStart={(e) => { touchY.current = e.touches[0].clientY; }}
+      onTouchEnd={(e) => {
+        if (e.changedTouches[0].clientY - touchY.current > 80 && window.scrollY < 10) {
+          handlePullRefresh();
+        }
+      }}
+    >
+      {refreshing && (
+        <div className="text-center py-2">
+          <motion.div animate={{ rotate: 360 }} transition={{ duration: 0.6, repeat: Infinity, ease: 'linear' }} className="inline-block">
+            <Dumbbell size={20} className="text-neon" />
+          </motion.div>
+        </div>
+      )}
+
       {logs.length === 0 ? (
         <div className="text-center py-20 bg-white rounded-3xl border border-slate-100 italic text-slate-400">
           还没有人打卡，快来做第一个"卷王"吧！
@@ -61,64 +88,57 @@ export default function Feed() {
   );
 }
 
-function LogCard({ log }: { log: WorkoutLog; key?: string }) {
+function LogCard({ log }: { log: WorkoutLog; key?: never }) {
   const [hasLiked, setHasLiked] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const [comments, setComments] = useState<any[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
-    const checkLike = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !log.id) return;
-
-      const { data } = await supabase
-        .from('likes')
-        .select('id')
-        .eq('workoutLogId', log.id)
-        .eq('userId', user.id);
-      
-      setHasLiked(data && data.length > 0);
-    };
-    checkLike();
+    const user = getCurrentUser();
+    if (!user || !log.id) return;
+    checkUserLike(log.id, user.uid).then(setHasLiked);
   }, [log.id]);
 
-  const toggleLike = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user || !log.id) return;
+  useEffect(() => {
+    if (!showComments || !log.id) return;
+    const unsub = subscribeToComments(log.id, setComments);
+    return () => unsub();
+  }, [showComments, log.id]);
 
-    if (hasLiked) {
-      setHasLiked(false);
-      await supabase
-        .from('likes')
-        .delete()
-        .eq('workoutLogId', log.id)
-        .eq('userId', user.id);
-      
-      const { data } = await supabase
-        .from('workoutLogs')
-        .select('likesCount')
-        .eq('id', log.id)
-        .single();
-      
-      await supabase
-        .from('workoutLogs')
-        .update({ likesCount: Math.max(0, (data?.likesCount || 1) - 1) })
-        .eq('id', log.id);
+  const handleToggleLike = async () => {
+    const user = getCurrentUser();
+    if (!user || !log.id) return;
+    const prev = hasLiked;
+    setHasLiked(!prev);
+    try {
+      await toggleLike(log.id, user.uid, prev);
+    } catch {
+      setHasLiked(prev);
+    }
+  };
+
+  const handleSendComment = async () => {
+    const user = getCurrentUser();
+    if (!user || !log.id || !commentText.trim()) return;
+    setSending(true);
+    try {
+      await addComment(log.id, user.uid, user.displayName || 'User', user.photoURL || '', commentText.trim());
+      setCommentText('');
+    } catch (e) {
+      console.error('Comment failed:', e);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleShare = () => {
+    const text = `${log.userName} 刚完成了 ${log.category} 训练！${log.note ? `"${log.note}"` : ''}`;
+    if (navigator.share) {
+      navigator.share({ title: 'FitGroup 健身打卡', text });
     } else {
-      setHasLiked(true);
-      await supabase
-        .from('likes')
-        .insert([{ workoutLogId: log.id, userId: user.id, timestamp: new Date().toISOString() }]);
-      
-      const { data } = await supabase
-        .from('workoutLogs')
-        .select('likesCount')
-        .eq('id', log.id)
-        .single();
-      
-      await supabase
-        .from('workoutLogs')
-        .update({ likesCount: (data?.likesCount || 0) + 1 })
-        .eq('id', log.id);
+      navigator.clipboard.writeText(text).catch(() => {});
     }
   };
 
@@ -134,7 +154,7 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
   };
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, x: -20 }}
       whileInView={{ opacity: 1, x: 0 }}
       viewport={{ once: true }}
@@ -209,25 +229,77 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
 
         <div className="flex items-center justify-between pt-4 border-t-2 border-ink/10">
           <div className="flex items-center gap-2">
-            <button 
-              onClick={toggleLike}
+            <button
+              onClick={handleToggleLike}
               className={`flex items-center gap-2 text-xs font-black px-3 py-1 border-2 border-ink transition-all cursor-pointer ${hasLiked ? 'bg-ink text-neon' : 'bg-white text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'}`}
             >
               <Heart size={16} fill={hasLiked ? 'currentColor' : 'none'} />
               <span>{log.likesCount || 0}</span>
             </button>
-            <button 
-               onClick={() => setShowComments(!showComments)}
-               className="flex items-center gap-2 text-xs font-black px-3 py-1 border-2 border-ink bg-white text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none cursor-pointer"
+            <button
+              onClick={() => setShowComments(!showComments)}
+              className={`flex items-center gap-2 text-xs font-black px-3 py-1 border-2 border-ink transition-all cursor-pointer ${showComments ? 'bg-ink text-neon' : 'bg-white text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'}`}
             >
               <MessageCircle size={16} />
               <span>{log.commentsCount || 0}</span>
             </button>
           </div>
-          <button className="bg-paper p-1 border-2 border-ink hover:bg-neon transition-colors cursor-pointer">
+          <button onClick={handleShare} className="bg-paper p-1 border-2 border-ink hover:bg-neon transition-colors cursor-pointer">
             <Share2 size={16} />
           </button>
         </div>
+
+        <AnimatePresence>
+          {showComments && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden mt-4 border-t-2 border-ink pt-4"
+            >
+              <div className="space-y-3 mb-4 max-h-60 overflow-y-auto">
+                {comments.length === 0 ? (
+                  <p className="text-[10px] font-black text-ink/30 uppercase italic text-center py-4">还没有评论</p>
+                ) : (
+                  comments.map(c => (
+                    <div key={c.id} className="flex gap-2 items-start">
+                      <div className="border border-ink w-6 h-6 flex-shrink-0">
+                        {c.userPhoto ? (
+                          <img src={c.userPhoto} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-paper flex items-center justify-center">
+                            <UserIcon size={10} className="text-ink/30" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[10px] font-black text-ink uppercase">{c.userName}</span>
+                        <p className="text-xs text-ink/70 break-words">{c.content}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  placeholder="说点什么..."
+                  className="flex-1 bg-paper border-2 border-ink p-2 text-xs font-black text-ink outline-none focus:bg-white uppercase placeholder:opacity-30"
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSendComment(); }}
+                />
+                <button
+                  onClick={handleSendComment}
+                  disabled={sending || !commentText.trim()}
+                  className="bg-neon text-ink border-2 border-ink px-3 py-2 font-black text-xs uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none disabled:opacity-50 cursor-pointer"
+                >
+                  <Send size={14} />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.div>
   );

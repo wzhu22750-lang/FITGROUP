@@ -1,30 +1,23 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../supabase';
-import { UserProfile, WorkoutLog, WorkoutCategory } from '../types';
+import { getCurrentUser, getUserProfile, getLeaderboard } from '../firebase';
+import { UserProfile, WorkoutCategory } from '../types';
 import {
   Trophy,
   Flame,
   Target,
   TrendingUp,
-  History,
-  Calendar,
   Award,
-  User as UserIcon
+  User as UserIcon,
+  Activity,
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
+import {
   RadarChart,
   PolarGrid,
   PolarAngleAxis,
   PolarRadiusAxis,
-  Radar
+  Radar,
+  ResponsiveContainer,
 } from 'recharts';
 
 export default function Statistics() {
@@ -34,51 +27,70 @@ export default function Statistics() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      
-      // Fetch user profile
-      const { data: userData } = await supabase
-        .from('users')
-        .select('*')
-        .eq('uid', user.id)
-        .single();
-      
-      if (userData) {
-        setUserProfile(userData);
-      }
+      const user = getCurrentUser();
+      if (!user) { setLoading(false); return; }
 
-      // Fetch group leaderboard (top 5 by streak)
-      const { data: groupData } = await supabase
-        .from('users')
-        .select('*')
-        .order('streak', { ascending: false })
-        .limit(5);
-      
-      if (groupData) {
-        setGroupStats(groupData);
-      }
+      try {
+        const profile = await getUserProfile(user.uid);
+        setUserProfile(profile);
+      } catch { /* user not found */ }
+
+      try {
+        const leaderboard = await getLeaderboard(5);
+        setGroupStats(leaderboard);
+      } catch { /* leaderboard fetch failed */ }
 
       setLoading(false);
     };
     fetchData();
   }, []);
 
-  const radarData = [
-    { subject: '肩膀', A: 80, fullMark: 100 },
-    { subject: '胸部', A: 90, fullMark: 100 },
-    { subject: '背部', A: 70, fullMark: 100 },
-    { subject: '腿部', A: 40, fullMark: 100 },
-    { subject: '有氧', A: 60, fullMark: 100 },
-    { subject: '其他', A: 50, fullMark: 100 },
-  ];
+  const computeRadarData = () => {
+    const prs = (userProfile?.prs || {}) as Record<string, number>;
+    if (Object.keys(prs).length === 0) return null;
 
-  if (loading) return <div className="p-4 text-center text-slate-400">数据加载中...</div>;
+    const values = Object.values(prs) as number[];
+    const maxWeight = Math.max(...values, 1);
+
+    return Object.values(WorkoutCategory).map(cat => {
+      const catPrs = Object.entries(prs)
+        .filter(([name]) => {
+          // Simple category mapping by exercise name keywords
+          const n = name.toLowerCase();
+          switch (cat) {
+            case WorkoutCategory.Chest: return n.includes('bench') || n.includes('chest') || n.includes('卧推') || n.includes('胸');
+            case WorkoutCategory.Back: return n.includes('deadlift') || n.includes('pull') || n.includes('row') || n.includes('硬拉') || n.includes('背') || n.includes('划船');
+            case WorkoutCategory.Legs: return n.includes('squat') || n.includes('leg') || n.includes('lunge') || n.includes('蹲') || n.includes('腿');
+            case WorkoutCategory.Shoulders: return n.includes('shoulder') || n.includes('press') || n.includes('推举') || n.includes('肩');
+            case WorkoutCategory.Cardio: return n.includes('run') || n.includes('跑步') || n.includes('cardio');
+            default: return false;
+          }
+        });
+
+      const score = catPrs.length > 0
+        ? Math.round((Math.max(...catPrs.map(([, w]) => w as number)) / maxWeight) * 100)
+        : 0;
+
+      return { subject: cat, A: score, fullMark: 100 };
+    });
+  };
+
+  const radarData = computeRadarData();
+
+  if (loading) return (
+    <div className="p-8 text-center">
+      <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="inline-block">
+        <Activity size={32} className="text-ink" />
+      </motion.div>
+    </div>
+  );
+
+  const isNewUser = !userProfile || userProfile.totalWorkouts === 0;
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4">
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           className="bg-neon p-6 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-ink"
@@ -90,7 +102,7 @@ export default function Statistics() {
           <div className="text-4xl font-black italic">{userProfile?.streak || 0} DAYS</div>
         </motion.div>
 
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.1 }}
@@ -111,22 +123,26 @@ export default function Statistics() {
             Ability Radar / 能力分布
           </h3>
         </div>
-        <div className="h-[250px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
-              <PolarGrid stroke="#000" strokeWidth={1} />
-              <PolarAngleAxis dataKey="subject" tick={{ fill: '#000', fontSize: 10, fontWeight: '900' }} />
-              <Radar
-                name="能力值"
-                dataKey="A"
-                stroke="#000"
-                fill="#DFFF00"
-                fillOpacity={0.8}
-                strokeWidth={3}
-              />
-            </RadarChart>
-          </ResponsiveContainer>
-        </div>
+        {radarData ? (
+          <div className="h-[250px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
+                <PolarGrid stroke="#000" strokeWidth={1} />
+                <PolarAngleAxis dataKey="subject" tick={{ fill: '#000', fontSize: 10, fontWeight: '900' }} />
+                <Radar name="能力值" dataKey="A" stroke="#000" fill="#DFFF00" fillOpacity={0.8} strokeWidth={3} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="h-[250px] flex items-center justify-center border-2 border-dashed border-ink/20">
+            <div className="text-center">
+              <Target size={32} className="text-ink/20 mx-auto mb-3" />
+              <p className="font-black text-ink/30 uppercase text-sm italic">
+                {isNewUser ? '完成第一次打卡后解锁' : '完成不同部位的训练后解锁'}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="bg-white p-6 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
@@ -143,7 +159,12 @@ export default function Statistics() {
               </div>
             ))
           ) : (
-            <div className="text-center py-4 text-ink italic font-bold">NO RECORDS YET_</div>
+            <div className="text-center py-8 border-2 border-dashed border-ink/20">
+              <Award size={24} className="text-ink/20 mx-auto mb-2" />
+              <p className="text-ink/30 font-black uppercase text-sm italic">
+                {isNewUser ? '打卡记录新重量自动追踪 PR' : 'NO RECORDS YET_'}
+              </p>
+            </div>
           )}
         </div>
       </div>
@@ -154,7 +175,7 @@ export default function Statistics() {
           LEADERBOARD / 群组榜单
         </h3>
         <div className="space-y-4">
-          {groupStats.map((u, i) => (
+          {groupStats.length > 0 ? groupStats.map((u, i) => (
             <div key={u.uid} className="flex items-center justify-between border-b-2 border-paper pb-2 last:border-0 last:pb-0">
               <div className="flex items-center gap-3">
                 <div className={`w-6 h-6 border-2 border-ink flex items-center justify-center font-black text-xs ${i === 0 ? 'bg-neon' : 'bg-paper text-ink'}`}>
@@ -176,7 +197,9 @@ export default function Statistics() {
                 <span>{u.streak}</span>
               </div>
             </div>
-          ))}
+          )) : (
+            <p className="text-center py-4 text-ink/30 font-black italic text-sm uppercase">暂无数据</p>
+          )}
         </div>
       </div>
     </div>

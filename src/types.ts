@@ -24,7 +24,7 @@ export interface WorkoutLog {
   userId: string;
   userName: string;
   userPhoto: string;
-  timestamp: any; // Firestore Timestamp
+  timestamp: string;
   category: WorkoutCategory;
   exercises: Exercise[];
   photoUrl?: string;
