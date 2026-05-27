@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getCurrentUser, getUserProfile, getLeaderboard } from '../firebase';
+import { getCurrentUser, getUserProfile, getLeaderboard } from '../pocketbase';
 import { UserProfile, WorkoutCategory } from '../types';
 import {
   Trophy,

@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef, ReactNode } from 'react';
-import { registerWithPhone, loginWithPhone, autoLogin, logout, onAuthStateChangedFn, syncUserToDatabase } from './firebase';
+import { registerWithPhone, loginWithPhone, autoLogin, logout, onAuthStateChangedFn, syncUserToDatabase } from './pocketbase';
 import { WorkoutCategory, UserProfile } from './types';
 import {
   Dumbbell,

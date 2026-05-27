@@ -1,5 +1,5 @@
 import { useState, useRef, FormEvent, ChangeEvent } from 'react';
-import { createWorkoutLog, getCurrentUser, getUserProfile, updateUserProfileFn, uploadWorkoutPhoto } from '../firebase';
+import { createWorkoutLog, getCurrentUser, getUserProfile, updateUserProfileFn, uploadWorkoutPhoto } from '../pocketbase';
 import { WorkoutCategory, Exercise } from '../types';
 import { Plus, Trash2, Camera, Send, X, Dumbbell, Timer, Image as ImageIcon, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';

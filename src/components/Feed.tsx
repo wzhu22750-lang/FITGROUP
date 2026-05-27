@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment, getUserProfile } from '../firebase';
+import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment, getUserProfile } from '../pocketbase';
 import { WorkoutLog, WorkoutCategory } from '../types';
 import { Heart, MessageCircle, Share2, Clock, Dumbbell, User as UserIcon, Send } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';

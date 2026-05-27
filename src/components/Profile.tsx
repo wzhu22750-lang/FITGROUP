@@ -1,5 +1,5 @@
 import { useState, useRef, ChangeEvent } from 'react';
-import { getCurrentUser, updateUserProfileFn, uploadAvatar } from '../firebase';
+import { getCurrentUser, updateUserProfileFn, uploadAvatar } from '../pocketbase';
 import { LogOut, User as UserIcon, Shield, Settings, HelpCircle, Bell, ChevronLeft, Camera, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
