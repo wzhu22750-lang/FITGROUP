@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment } from '../firebase';
+import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment, getUserProfile } from '../firebase';
 import { WorkoutLog, WorkoutCategory } from '../types';
 import { Heart, MessageCircle, Share2, Clock, Dumbbell, User as UserIcon, Send } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale/zh-CN';
+import SharePosterModal from './SharePosterModal';
 
 export default function Feed() {
   const [logs, setLogs] = useState<WorkoutLog[]>([]);
@@ -94,6 +95,8 @@ function LogCard({ log }: { log: WorkoutLog; key?: never }) {
   const [comments, setComments] = useState<any[]>([]);
   const [commentText, setCommentText] = useState('');
   const [sending, setSending] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [userStats, setUserStats] = useState<{ streak: number; totalWorkouts: number } | null>(null);
 
   useEffect(() => {
     const user = getCurrentUser();
@@ -133,13 +136,20 @@ function LogCard({ log }: { log: WorkoutLog; key?: never }) {
     }
   };
 
-  const handleShare = () => {
-    const text = `${log.userName} 刚完成了 ${log.category} 训练！${log.note ? `"${log.note}"` : ''}`;
-    if (navigator.share) {
-      navigator.share({ title: 'FitGroup 健身打卡', text });
-    } else {
-      navigator.clipboard.writeText(text).catch(() => {});
+  const handleShare = async () => {
+    try {
+      const user = getCurrentUser();
+      if (user) {
+        const profile = await getUserProfile(user.uid);
+        setUserStats({
+          streak: profile.streak ?? 0,
+          totalWorkouts: profile.totalWorkouts ?? 0,
+        });
+      }
+    } catch {
+      setUserStats(null);
     }
+    setShowShareModal(true);
   };
 
   const getCategoryColor = (cat: WorkoutCategory) => {
@@ -301,6 +311,16 @@ function LogCard({ log }: { log: WorkoutLog; key?: never }) {
           )}
         </AnimatePresence>
       </div>
+
+      <AnimatePresence>
+        {showShareModal && (
+          <SharePosterModal
+            log={log}
+            userStats={userStats}
+            onClose={() => setShowShareModal(false)}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
