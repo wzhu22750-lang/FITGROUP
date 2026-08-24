@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getCurrentUser, getUserProfile, getLeaderboard } from '../pocketbase';
+import { getCurrentUser, getUserProfile, getLeaderboard } from '../firebase';
 import { UserProfile, WorkoutCategory } from '../types';
 import {
   Trophy,
@@ -125,7 +125,7 @@ export default function Statistics() {
         </div>
         {radarData ? (
           <div className="h-[250px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
               <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
                 <PolarGrid stroke="#000" strokeWidth={1} />
                 <PolarAngleAxis dataKey="subject" tick={{ fill: '#000', fontSize: 10, fontWeight: '900' }} />

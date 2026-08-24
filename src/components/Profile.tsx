@@ -1,5 +1,5 @@
 import { useState, useRef, ChangeEvent } from 'react';
-import { getCurrentUser, updateUserProfileFn, uploadAvatar } from '../pocketbase';
+import { getCurrentUser, updateUserProfileFn, uploadAvatar } from '../firebase';
 import { LogOut, User as UserIcon, Shield, Settings, HelpCircle, Bell, ChevronLeft, Camera, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -49,7 +49,7 @@ export default function Profile({ user, onLogout }: ProfileProps) {
             className="w-full bg-ink text-neon p-5 border-4 border-ink font-black uppercase italic text-xl flex items-center justify-center gap-4 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-1 active:translate-y-1 active:shadow-none transition-all cursor-pointer"
           >
             <LogOut size={24} />
-            Logout / 退出
+            退出登录
           </button>
 
           <div className="text-center text-[10px] font-black text-ink uppercase tracking-[0.4em] py-4 italic">
@@ -85,7 +85,8 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
     try {
       let photoURL = user.photoURL;
       if (photoFile) {
-        photoURL = await uploadAvatar(currentUser.uid, photoFile);
+        const uploaded = await uploadAvatar(currentUser.uid, photoFile);
+        if (uploaded) photoURL = uploaded;
       }
 
       await updateUserProfileFn(currentUser.uid, {

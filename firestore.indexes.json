@@ -1,0 +1,23 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "workoutLogs",
+      "queryScope": "COLLECTION",
+      "density": "DENSE",
+      "fields": [{ "fieldPath": "timestamp", "order": "DESCENDING" }]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "density": "DENSE",
+      "fields": [{ "fieldPath": "streak", "order": "DESCENDING" }]
+    },
+    {
+      "collectionGroup": "comments",
+      "queryScope": "COLLECTION",
+      "density": "DENSE",
+      "fields": [{ "fieldPath": "timestamp", "order": "ASCENDING" }]
+    }
+  ],
+  "fieldOverrides": []
+}

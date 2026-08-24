@@ -71,7 +71,7 @@ export default function SharePoster({ log, statLabel, statValue, statIcon }: Sha
 
       {/* Exercise Cards */}
       <div className="space-y-2 mb-3">
-        {log.exercises.map((ex) => (
+        {(log.exercises || []).map((ex) => (
           <div key={ex.id} className="bg-paper border-2 border-ink p-3">
             <div className="flex items-center gap-2 mb-2">
               <div className="bg-ink p-1 flex-shrink-0">

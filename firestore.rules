@@ -2,67 +2,242 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 0. Global Safety Net
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: Firebase Auth uid
+    // Fields:
+    //   - displayName: string (required, 1-50) — public nickname
+    //   - photoURL: string (required, 0-500, empty or http(s))
+    //   - streak: number (required, 0-100000)
+    //   - totalWorkouts: number (required, 0-1000000)
+    //   - lastWorkoutDate: timestamp (optional)
+    //   - prs: map (required, <= 50 keys) — exercise name -> weight
+    // Notes: email/phone stay in Firebase Auth only. No role fields.
+    //
+    // Collection: workoutLogs
+    // Document ID: client-generated [a-zA-Z0-9_-] <= 128
+    // Fields:
+    //   - userId: string (required, immutable, == auth.uid)
+    //   - userName: string (required, 1-50)
+    //   - userPhoto: string (required, 0-500, empty or http(s))
+    //   - timestamp: timestamp (required, server time on create)
+    //   - category: string enum Shoulders|Chest|Back|Legs|Cardio|Others
+    //   - exercises: list (required, 1-50 maps)
+    //   - note: string (required, 0-500)
+    //   - photoUrl: string (required, 0-500, empty or http(s))
+    //   - likesCount: number (required, 0-1000000)
+    //   - commentsCount: number (required, 0-1000000)
+    //
+    // Subcollection: workoutLogs/{logId}/likes
+    // Document ID: auth.uid
+    // Fields:
+    //   - userId: string (required, == auth.uid, immutable)
+    //
+    // Subcollection: workoutLogs/{logId}/comments
+    // Document ID: client-generated [a-zA-Z0-9_-] <= 128
+    // Fields:
+    //   - userId: string (required, == auth.uid, immutable)
+    //   - userName: string (required, 1-50)
+    //   - userPhoto: string (required, 0-500, empty or http(s))
+    //   - content: string (required, 1-300)
+    //   - timestamp: timestamp (required, server time on create)
+    //
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128
+        && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isEmptyOrHttpUrl(value) {
+      return value is string && value.size() <= 500
+        && (value.size() == 0
+          || value.matches('^https://.*')
+          || value.matches('^http://.*'));
+    }
+
+    function isNonNegInt(value, maxVal) {
+      return value is number && value >= 0 && value <= maxVal;
+    }
+
+    function isRecentTimestamp(value) {
+      return value is timestamp
+        && value <= request.time
+        && value > request.time - duration.value(5, 'm');
+    }
+
+    function uidUnchanged() {
+      return !('uid' in incoming()) || incoming().uid == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return !('uid' in incoming()) || incoming().uid == existing().uid;
+    }
+
+    function isValidExercise(ex) {
+      return ex is map
+        && ex.keys().hasOnly(['id', 'name', 'type', 'weight', 'sets', 'reps', 'duration', 'distance', 'calories'])
+        && ex.id is string && ex.id.size() > 0 && ex.id.size() <= 64
+        && ex.name is string && ex.name.size() > 0 && ex.name.size() <= 80
+        && ex.type in ['strength', 'cardio']
+        && (!('weight' in ex) || (ex.weight is number && ex.weight >= 0 && ex.weight <= 2000))
+        && (!('sets' in ex) || (ex.sets is number && ex.sets >= 0 && ex.sets <= 100))
+        && (!('reps' in ex) || (ex.reps is number && ex.reps >= 0 && ex.reps <= 1000))
+        && (!('duration' in ex) || (ex.duration is number && ex.duration >= 0 && ex.duration <= 1440))
+        && (!('distance' in ex) || (ex.distance is number && ex.distance >= 0 && ex.distance <= 1000))
+        && (!('calories' in ex) || (ex.calories is number && ex.calories >= 0 && ex.calories <= 20000));
+    }
+
+    function isValidExercises(list) {
+      return list is list && list.size() >= 1 && list.size() <= 50
+        && (list.size() < 1 || isValidExercise(list[0]))
+        && (list.size() < 2 || isValidExercise(list[1]))
+        && (list.size() < 3 || isValidExercise(list[2]))
+        && (list.size() < 4 || isValidExercise(list[3]))
+        && (list.size() < 5 || isValidExercise(list[4]))
+        && (list.size() < 6 || isValidExercise(list[5]))
+        && (list.size() < 7 || isValidExercise(list[6]))
+        && (list.size() < 8 || isValidExercise(list[7]))
+        && (list.size() < 9 || isValidExercise(list[8]))
+        && (list.size() < 10 || isValidExercise(list[9]));
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasOnly(['displayName', 'photoURL', 'streak', 'totalWorkouts', 'lastWorkoutDate', 'prs'])
+        && data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 50
+        && isEmptyOrHttpUrl(data.photoURL)
+        && isNonNegInt(data.streak, 100000)
+        && isNonNegInt(data.totalWorkouts, 1000000)
+        && data.prs is map && data.prs.size() <= 50
+        && (!('lastWorkoutDate' in data) || data.lastWorkoutDate is timestamp);
+    }
+
+    function isValidLog(data) {
+      return data.keys().hasOnly(['userId', 'userName', 'userPhoto', 'timestamp', 'category', 'exercises', 'note', 'photoUrl', 'likesCount', 'commentsCount'])
+        && data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128
+        && data.userName is string && data.userName.size() > 0 && data.userName.size() <= 50
+        && isEmptyOrHttpUrl(data.userPhoto)
+        && data.timestamp is timestamp
+        && data.category in ['Shoulders', 'Chest', 'Back', 'Legs', 'Cardio', 'Others']
+        && isValidExercises(data.exercises)
+        && data.note is string && data.note.size() <= 500
+        && isEmptyOrHttpUrl(data.photoUrl)
+        && isNonNegInt(data.likesCount, 1000000)
+        && isNonNegInt(data.commentsCount, 1000000);
+    }
+
+    function isValidLike(data) {
+      return data.keys().hasOnly(['userId'])
+        && data.userId == request.auth.uid;
+    }
+
+    function isValidComment(data) {
+      return data.keys().hasOnly(['userId', 'userName', 'userPhoto', 'content', 'timestamp'])
+        && data.userId == request.auth.uid
+        && data.userName is string && data.userName.size() > 0 && data.userName.size() <= 50
+        && isEmptyOrHttpUrl(data.userPhoto)
+        && data.content is string && data.content.size() > 0 && data.content.size() <= 300
+        && data.timestamp is timestamp;
+    }
+
+    function isValidLikeCounterUpdate(logId) {
+      return incoming().diff(existing()).affectedKeys().hasOnly(['likesCount'])
+        && isValidLog(incoming())
+        && incoming().userId == existing().userId
+        && incoming().timestamp == existing().timestamp
+        && math.abs(incoming().likesCount - existing().likesCount) == 1
+        && (
+          (incoming().likesCount == existing().likesCount + 1
+            && !exists(/databases/$(database)/documents/workoutLogs/$(logId)/likes/$(request.auth.uid))
+            && getAfter(/databases/$(database)/documents/workoutLogs/$(logId)/likes/$(request.auth.uid)) != null)
+          ||
+          (incoming().likesCount == existing().likesCount - 1
+            && exists(/databases/$(database)/documents/workoutLogs/$(logId)/likes/$(request.auth.uid))
+            && getAfter(/databases/$(database)/documents/workoutLogs/$(logId)/likes/$(request.auth.uid)) == null)
+        );
+    }
+
+    function isValidCommentCounterUpdate() {
+      return incoming().diff(existing()).affectedKeys().hasOnly(['commentsCount'])
+        && isValidLog(incoming())
+        && incoming().userId == existing().userId
+        && incoming().timestamp == existing().timestamp
+        && incoming().commentsCount == existing().commentsCount + 1;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Phase 3: Primitive Definition
-    function isSignedIn() { return request.auth != null; }
-    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
-    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
-    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
-    function incoming() { return request.resource.data; }
-    function existing() { return resource.data; }
-
-    // User Profile Rules
     match /users/{userId} {
-      function isValidUser(data) {
-        return data.displayName is string && data.displayName.size() <= 50
-            && (data.photoURL == null || (data.photoURL is string && data.photoURL.size() <= 500))
-            && (data.email == null || (data.email is string && data.email.size() <= 100))
-            && (data.streak == null || data.streak is number)
-            && (data.totalWorkouts == null || data.totalWorkouts is number);
-      }
-
-      allow get: if isSignedIn();
-      allow list: if isSignedIn(); // Social app, need to find users
-      allow create: if isOwner(userId) && isValidUser(incoming());
-      allow update: if isOwner(userId) && isValidUser(incoming())
-                   && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'streak', 'lastWorkoutDate', 'totalWorkouts', 'prs']);
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidUser(incoming()) && uidUnchanged();
+      allow update: if isOwner(userId) && isValidUser(incoming()) && uidNotModified();
+      allow delete: if false;
     }
 
-    // WorkoutLog Rules
     match /workoutLogs/{logId} {
-      function isValidLog(data) {
-        return data.userId == request.auth.uid
-            && data.userName is string
-            && data.timestamp == request.time
-            && data.category in ['Shoulders', 'Chest', 'Back', 'Legs', 'Cardio', 'Others']
-            && data.exercises is list && data.exercises.size() <= 50
-            && (data.note == null || (data.note is string && data.note.size() <= 500))
-            && (data.photoUrl == null || (data.photoUrl is string && data.photoUrl.size() <= 500))
-            && (data.likesCount == null || data.likesCount is number)
-            && (data.commentsCount == null || data.commentsCount is number);
-      }
-
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(logId) && isValidLog(incoming());
-      allow update: if (isOwner(existing().userId) && isValidLog(incoming())
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['category', 'exercises', 'note', 'photoUrl']))
-                 || (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likesCount', 'commentsCount']));
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && isValidId(logId)
+        && isValidLog(incoming())
+        && incoming().userId == request.auth.uid
+        && incoming().likesCount == 0
+        && incoming().commentsCount == 0
+        && isRecentTimestamp(incoming().timestamp);
+      allow update: if isAuthenticated() && (
+        (isOwner(existing().userId)
+          && isValidLog(incoming())
+          && incoming().userId == existing().userId
+          && incoming().timestamp == existing().timestamp
+          && incoming().likesCount == existing().likesCount
+          && incoming().commentsCount == existing().commentsCount
+          && incoming().diff(existing()).affectedKeys()
+            .hasOnly(['category', 'exercises', 'note', 'photoUrl', 'userName', 'userPhoto']))
+        || isValidLikeCounterUpdate(logId)
+        || isValidCommentCounterUpdate()
+      );
       allow delete: if isOwner(existing().userId);
 
-      // Subcollections
       match /likes/{likeId} {
-        allow read: if isSignedIn();
-        allow create: if isSignedIn() && isOwner(incoming().userId) && isValidId(likeId);
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated()
+          && exists(/databases/$(database)/documents/workoutLogs/$(logId))
+          && likeId == request.auth.uid
+          && isValidLike(incoming());
+        allow update: if false;
         allow delete: if isOwner(existing().userId);
       }
 
       match /comments/{commentId} {
-        allow read: if isSignedIn();
-        allow create: if isSignedIn() && isOwner(incoming().userId) && isValidId(commentId);
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated()
+          && exists(/databases/$(database)/documents/workoutLogs/$(logId))
+          && isValidId(commentId)
+          && isValidComment(incoming())
+          && isRecentTimestamp(incoming().timestamp);
+        allow update: if false;
         allow delete: if isOwner(existing().userId);
       }
     }

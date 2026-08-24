@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment, getUserProfile } from '../pocketbase';
+import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment, getUserProfile } from '../firebase';
 import { WorkoutLog, WorkoutCategory } from '../types';
 import { Heart, MessageCircle, Share2, Clock, Dumbbell, User as UserIcon, Send } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -14,13 +14,8 @@ export default function Feed() {
   const touchY = useRef(0);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchData = () => {
-    setLoading(true);
-    setError('');
-    // subscribeToWorkoutLogs handles real-time
-  };
-
   useEffect(() => {
+    setLoading(true);
     const channel = subscribeToWorkoutLogs((data) => {
       setLogs(data);
       setLoading(false);
@@ -32,7 +27,13 @@ export default function Feed() {
 
   const handlePullRefresh = () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 600);
+    const stop = subscribeToWorkoutLogs((data) => {
+      setLogs(data);
+      setLoading(false);
+      setError('');
+      setRefreshing(false);
+      stop();
+    });
   };
 
   if (loading && logs.length === 0) {
@@ -51,7 +52,7 @@ export default function Feed() {
         <p className="font-black text-ink text-xl mb-4 uppercase">加载失败</p>
         <p className="text-ink/50 font-bold text-sm mb-6">{error}</p>
         <button
-          onClick={() => fetchData()}
+          onClick={handlePullRefresh}
           className="bg-neon text-ink border-2 border-ink px-6 py-3 font-black uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none cursor-pointer"
         >
           重试
@@ -89,7 +90,7 @@ export default function Feed() {
   );
 }
 
-function LogCard({ log }: { log: WorkoutLog; key?: never }) {
+function LogCard({ log }: { log: WorkoutLog }) {
   const [hasLiked, setHasLiked] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<any[]>([]);
@@ -200,7 +201,7 @@ function LogCard({ log }: { log: WorkoutLog; key?: never }) {
         )}
 
         <div className="space-y-2 mb-4">
-          {log.exercises.map((ex) => (
+          {(log.exercises || []).map((ex) => (
             <div key={ex.id} className="bg-paper border-2 border-ink p-3 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="bg-ink p-1">

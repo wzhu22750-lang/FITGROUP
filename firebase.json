@@ -1,0 +1,35 @@
+{
+  "auth": {
+    "authorizedDomains": [
+      "localhost",
+      "gen-lang-client-0285368146.web.app",
+      "gen-lang-client-0285368146.firebaseapp.com",
+      "gen-lang-client-0285368146-1f12b.web.app",
+      "gen-lang-client-0285368146-1f12b.firebaseapp.com"
+    ],
+    "providers": {
+      "emailPassword": true
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json",
+    "edition": "enterprise",
+    "database": "ai-studio-320fe0bc-75e3-4038-a995-52950cbd787e",
+    "location": "asia-southeast1"
+  },
+  "hosting": [
+    {
+      "site": "gen-lang-client-0285368146",
+      "public": "dist",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "rewrites": [{ "source": "**", "destination": "/index.html" }]
+    },
+    {
+      "site": "gen-lang-client-0285368146-1f12b",
+      "public": "dist",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "rewrites": [{ "source": "**", "destination": "/index.html" }]
+    }
+  ]
+}

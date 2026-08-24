@@ -6,6 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+.firebase/
+firestore-rules-analysis.md
 
 # Android
 android/app/build/
@@ -17,3 +19,16 @@ android/local.properties
 
 # Capacitor
 .capacitor/
+
+# PocketBase (migrated to Firebase)
+pb_data/
+pb_data.zip
+pb_migrations/
+pocketbase
+
+# Tooling & local artifacts
+.playwright-mcp/
+cf_output.txt
+lt_url.txt
+.firebase/
+

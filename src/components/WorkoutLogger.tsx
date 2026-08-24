@@ -1,5 +1,5 @@
 import { useState, useRef, FormEvent, ChangeEvent } from 'react';
-import { createWorkoutLog, getCurrentUser, getUserProfile, updateUserProfileFn, uploadWorkoutPhoto } from '../pocketbase';
+import { createWorkoutLog, getCurrentUser, getUserProfile, updateUserProfileFn, uploadWorkoutPhoto } from '../firebase';
 import { WorkoutCategory, Exercise } from '../types';
 import { Plus, Trash2, Camera, Send, X, Dumbbell, Timer, Image as ImageIcon, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -213,30 +213,30 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="text-[10px] font-black text-ink uppercase block mb-1">KG</label>
-                    <input type="number" value={ex.weight || ''} onChange={(e) => updateExercise(ex.id, { weight: parseFloat(e.target.value) })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
+                    <input type="number" min="0" step="0.5" value={ex.weight || ''} onChange={(e) => updateExercise(ex.id, { weight: Number(e.target.value) || 0 })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
                   </div>
                   <div>
                     <label className="text-[10px] font-black text-ink uppercase block mb-1">Sets</label>
-                    <input type="number" value={ex.sets || ''} onChange={(e) => updateExercise(ex.id, { sets: parseInt(e.target.value) })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
+                    <input type="number" min="0" value={ex.sets || ''} onChange={(e) => updateExercise(ex.id, { sets: Number(e.target.value) || 0 })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
                   </div>
                   <div>
                     <label className="text-[10px] font-black text-ink uppercase block mb-1">Reps</label>
-                    <input type="number" value={ex.reps || ''} onChange={(e) => updateExercise(ex.id, { reps: parseInt(e.target.value) })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
+                    <input type="number" min="0" value={ex.reps || ''} onChange={(e) => updateExercise(ex.id, { reps: Number(e.target.value) || 0 })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
                   </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="text-[10px] font-black text-ink uppercase block mb-1">Min</label>
-                    <input type="number" value={ex.duration || ''} onChange={(e) => updateExercise(ex.id, { duration: parseFloat(e.target.value) })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
+                    <input type="number" min="0" step="0.1" value={ex.duration || ''} onChange={(e) => updateExercise(ex.id, { duration: Number(e.target.value) || 0 })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
                   </div>
                   <div>
                     <label className="text-[10px] font-black text-ink uppercase block mb-1">Km</label>
-                    <input type="number" value={ex.distance || ''} onChange={(e) => updateExercise(ex.id, { distance: parseFloat(e.target.value) })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
+                    <input type="number" min="0" step="0.1" value={ex.distance || ''} onChange={(e) => updateExercise(ex.id, { distance: Number(e.target.value) || 0 })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
                   </div>
                   <div>
                     <label className="text-[10px] font-black text-ink uppercase block mb-1">Kcal</label>
-                    <input type="number" value={ex.calories || ''} onChange={(e) => updateExercise(ex.id, { calories: parseFloat(e.target.value) })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
+                    <input type="number" min="0" value={ex.calories || ''} onChange={(e) => updateExercise(ex.id, { calories: Number(e.target.value) || 0 })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
                   </div>
                 </div>
               )}
