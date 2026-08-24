@@ -6,6 +6,7 @@ export default function AuthScreen() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -17,9 +18,15 @@ export default function AuthScreen() {
       setError('请填写邮箱和密码');
       return;
     }
-    if (mode === 'register' && password.length < 6) {
-      setError('密码至少需要 6 位');
-      return;
+    if (mode === 'register') {
+      if (password.length < 6) {
+        setError('密码至少需要 6 位');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError('两次密码不一致，请重新输入');
+        return;
+      }
     }
     setBusy(true);
     try {
@@ -88,6 +95,20 @@ export default function AuthScreen() {
               required
             />
           </div>
+          {mode === 'register' && (
+            <div>
+              <label className="block text-[10px] font-black uppercase mb-2">确认密码</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="brutalist-input"
+                placeholder="再次输入密码"
+                autoComplete="new-password"
+                required
+              />
+            </div>
+          )}
 
           {error && (
             <p className="bg-ink text-neon text-xs font-black p-3 border-2 border-ink">{error}</p>
