@@ -53,7 +53,7 @@ export default function SharePoster({ log, statLabel, statValue, statIcon }: Sha
       <div className="flex items-center gap-3 mb-3">
         <div className="border-2 border-ink p-0.5 bg-paper flex-shrink-0">
           {log.userPhoto ? (
-            <img src={log.userPhoto} className="w-12 h-12 object-cover" alt="" />
+            <img src={log.userPhoto} className="w-12 h-12 object-cover" alt="" crossOrigin="anonymous" />
           ) : (
             <div className="w-12 h-12 bg-paper flex items-center justify-center">
               <UserIcon size={24} className="text-ink/30" />
@@ -114,7 +114,7 @@ export default function SharePoster({ log, statLabel, statValue, statIcon }: Sha
       {/* Photo */}
       {log.photoUrl && (
         <div className="border-4 border-ink aspect-[4/3] overflow-hidden bg-paper my-3">
-          <img src={log.photoUrl} className="w-full h-full object-cover grayscale contrast-125" alt="" />
+          <img src={log.photoUrl} className="w-full h-full object-cover grayscale contrast-125" alt="" crossOrigin="anonymous" />
         </div>
       )}
 

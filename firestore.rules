@@ -161,11 +161,20 @@ service cloud.firestore {
         && data.timestamp is timestamp;
     }
 
+    function logIdentityUnchanged() {
+      return incoming().userId == existing().userId
+        && incoming().userName == existing().userName
+        && incoming().userPhoto == existing().userPhoto
+        && incoming().category == existing().category
+        && incoming().note == existing().note
+        && incoming().photoUrl == existing().photoUrl
+        && incoming().exercises == existing().exercises;
+    }
+
     function isValidLikeCounterUpdate(logId) {
-      return incoming().diff(existing()).affectedKeys().hasOnly(['likesCount'])
-        && isValidLog(incoming())
-        && incoming().userId == existing().userId
-        && incoming().timestamp == existing().timestamp
+      return logIdentityUnchanged()
+        && incoming().commentsCount == existing().commentsCount
+        && isNonNegInt(incoming().likesCount, 1000000)
         && math.abs(incoming().likesCount - existing().likesCount) == 1
         && (
           (incoming().likesCount == existing().likesCount + 1
@@ -179,10 +188,9 @@ service cloud.firestore {
     }
 
     function isValidCommentCounterUpdate() {
-      return incoming().diff(existing()).affectedKeys().hasOnly(['commentsCount'])
-        && isValidLog(incoming())
-        && incoming().userId == existing().userId
-        && incoming().timestamp == existing().timestamp
+      return logIdentityUnchanged()
+        && incoming().likesCount == existing().likesCount
+        && isNonNegInt(incoming().commentsCount, 1000000)
         && incoming().commentsCount == existing().commentsCount + 1;
     }
 

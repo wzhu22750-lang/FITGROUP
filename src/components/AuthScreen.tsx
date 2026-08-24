@@ -43,7 +43,7 @@ export default function AuthScreen() {
   };
 
   return (
-    <div className="min-h-screen bg-paper flex items-center justify-center p-4">
+    <div className="auth-shell min-h-screen bg-paper flex items-center justify-center p-4">
       <div className="w-full max-w-sm bg-white border-4 border-ink shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] p-6">
         <div className="flex items-center gap-2 mb-6">
           <div className="bg-ink p-1">

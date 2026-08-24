@@ -10,9 +10,51 @@
 }
 
 @layer base {
+  :root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --keyboard-height: 0px;
+  }
+
+  html,
   body {
     @apply bg-paper text-ink font-sans;
+    min-height: 100dvh;
   }
+
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+.app-header {
+  padding-top: max(1rem, var(--safe-top));
+}
+
+.app-tabbar {
+  padding-bottom: max(1rem, var(--safe-bottom));
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+
+.app-shell {
+  padding-bottom: calc(6.5rem + var(--safe-bottom) + var(--keyboard-height));
+}
+
+.keyboard-open .app-tabbar {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(100%);
+}
+
+.keyboard-open .app-shell {
+  padding-bottom: calc(1rem + var(--keyboard-height));
+}
+
+.auth-shell {
+  padding-top: var(--safe-top);
+  padding-bottom: max(1rem, var(--safe-bottom));
 }
 
 @layer components {

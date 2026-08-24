@@ -4,6 +4,8 @@ import { WorkoutCategory, Exercise } from '../types';
 import { Plus, Trash2, Camera, Send, X, Dumbbell, Timer, Image as ImageIcon, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
+import { isNative, pickFromCamera, pickFromGallery } from '../native';
+import PhotoSourceSheet from './PhotoSourceSheet';
 
 interface WorkoutLoggerProps {
   onSuccess: () => void;
@@ -20,7 +22,9 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const captureInputRef = useRef<HTMLInputElement>(null);
 
   const showToast = (msg: string) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2500); };
 
@@ -47,13 +51,40 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
     setExercises(exercises.map(e => e.id === id ? { ...e, ...updates } : e));
   };
 
-  const handlePhotoSelect = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const applyPhotoFile = (file: File) => {
     setPhotoFile(file);
     const reader = new FileReader();
     reader.onload = () => { setPhotoPreview(reader.result as string); setPhotoUrl(''); };
     reader.readAsDataURL(file);
+  };
+
+  const handlePhotoSelect = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    applyPhotoFile(file);
+  };
+
+  const openPhotoPicker = () => setPickerOpen(true);
+
+  const handleNativeCamera = async () => {
+    setPickerOpen(false);
+    if (!isNative()) {
+      captureInputRef.current?.click();
+      return;
+    }
+    const file = await pickFromCamera();
+    if (file) applyPhotoFile(file);
+  };
+
+  const handleNativeGallery = async () => {
+    setPickerOpen(false);
+    if (!isNative()) {
+      fileInputRef.current?.click();
+      return;
+    }
+    const file = await pickFromGallery();
+    if (file) applyPhotoFile(file);
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -135,7 +166,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       onSuccess();
     } catch (error) {
       console.error('保存失败:', error);
-      showToast('保存失败，请重试');
+      showToast((error as Error)?.message || '保存失败，请重试');
     } finally {
       setIsSubmitting(false);
       setUploading(false);
@@ -263,7 +294,8 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
           className="w-full bg-paper border-4 border-ink p-4 font-black text-ink min-h-[100px] outline-none focus:bg-white transition-all mb-4 uppercase placeholder:opacity-30"
         />
 
-        <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoSelect} />
+        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoSelect} />
+        <input ref={captureInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoSelect} />
 
         {photoPreview ? (
           <div className="mb-4">
@@ -273,7 +305,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
             <button type="button" onClick={() => { setPhotoPreview(''); setPhotoFile(null); }} className="text-[10px] font-black text-ink uppercase underline cursor-pointer">移除照片</button>
           </div>
         ) : (
-          <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full flex items-center gap-2 bg-paper border-2 border-ink p-3 hover:bg-neon transition-colors cursor-pointer mb-4">
+          <button type="button" onClick={openPhotoPicker} className="w-full flex items-center gap-2 bg-paper border-2 border-ink p-3 hover:bg-neon transition-colors cursor-pointer mb-4">
             <ImageIcon size={18} className="text-ink/40" />
             <span className="font-black text-ink uppercase text-xs">拍摄/选择照片</span>
           </button>
@@ -305,6 +337,13 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       >
         {uploading ? 'Uploading Photo...' : isSubmitting ? 'Saving...' : (<><Send size={24} /> Post to Feed</>)}
       </button>
+
+      <PhotoSourceSheet
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onCamera={handleNativeCamera}
+        onGallery={handleNativeGallery}
+      />
     </form>
   );
 }

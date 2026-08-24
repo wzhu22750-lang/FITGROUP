@@ -28,6 +28,7 @@ pocketbase
 
 # Tooling & local artifacts
 .playwright-mcp/
+.playwright-cli/
 cf_output.txt
 lt_url.txt
 .firebase/

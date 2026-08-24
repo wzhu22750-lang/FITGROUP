@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { pushBackHandler } from '../backStack';
 import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment, getUserProfile } from '../firebase';
 import { WorkoutLog, WorkoutCategory } from '../types';
 import { Heart, MessageCircle, Share2, Clock, Dumbbell, User as UserIcon, Send } from 'lucide-react';
@@ -20,6 +21,9 @@ export default function Feed() {
       setLogs(data);
       setLoading(false);
       setError('');
+    }, (err) => {
+      setError(err.message || '网络异常，请稍后重试');
+      setLoading(false);
     });
 
     return () => channel();
@@ -31,6 +35,10 @@ export default function Feed() {
       setLogs(data);
       setLoading(false);
       setError('');
+      setRefreshing(false);
+      stop();
+    }, (err) => {
+      setError(err.message || '网络异常，请稍后重试');
       setRefreshing(false);
       stop();
     });
@@ -96,6 +104,7 @@ function LogCard({ log }: { log: WorkoutLog }) {
   const [comments, setComments] = useState<any[]>([]);
   const [commentText, setCommentText] = useState('');
   const [sending, setSending] = useState(false);
+  const [commentError, setCommentError] = useState('');
   const [showShareModal, setShowShareModal] = useState(false);
   const [userStats, setUserStats] = useState<{ streak: number; totalWorkouts: number } | null>(null);
 
@@ -110,6 +119,14 @@ function LogCard({ log }: { log: WorkoutLog }) {
     const unsub = subscribeToComments(log.id, setComments);
     return () => unsub();
   }, [showComments, log.id]);
+
+  useEffect(() => {
+    if (!showComments) return;
+    return pushBackHandler(() => {
+      setShowComments(false);
+      return true;
+    });
+  }, [showComments]);
 
   const handleToggleLike = async () => {
     const user = getCurrentUser();
@@ -127,11 +144,13 @@ function LogCard({ log }: { log: WorkoutLog }) {
     const user = getCurrentUser();
     if (!user || !log.id || !commentText.trim()) return;
     setSending(true);
+    setCommentError('');
     try {
       await addComment(log.id, user.uid, user.displayName || 'User', user.photoURL || '', commentText.trim());
       setCommentText('');
     } catch (e) {
       console.error('Comment failed:', e);
+      setCommentError('评论发送失败，请重试');
     } finally {
       setSending(false);
     }
@@ -291,13 +310,16 @@ function LogCard({ log }: { log: WorkoutLog }) {
                   ))
                 )}
               </div>
+              {commentError && (
+                <p className="text-[10px] font-black text-red-600 uppercase mb-2">{commentError}</p>
+              )}
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
+                  onChange={(e) => { setCommentText(e.target.value); setCommentError(''); }}
                   placeholder="说点什么..."
-                  className="flex-1 bg-paper border-2 border-ink p-2 text-xs font-black text-ink outline-none focus:bg-white uppercase placeholder:opacity-30"
+                  className="flex-1 bg-paper border-2 border-ink p-2 text-base font-black text-ink outline-none focus:bg-white uppercase placeholder:opacity-30"
                   onKeyDown={(e) => { if (e.key === 'Enter') handleSendComment(); }}
                 />
                 <button

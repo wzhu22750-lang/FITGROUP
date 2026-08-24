@@ -1,7 +1,11 @@
-import { useState, useRef, ChangeEvent } from 'react';
+import { useState, useRef, useEffect, ChangeEvent } from 'react';
 import { getCurrentUser, updateUserProfileFn, uploadAvatar } from '../firebase';
 import { LogOut, User as UserIcon, Shield, Settings, HelpCircle, Bell, ChevronLeft, Camera, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { pushBackHandler } from '../backStack';
+import { isNative, pickFromCamera, pickFromGallery } from '../native';
+import PhotoSourceSheet from './PhotoSourceSheet';
+import { useToast } from './Toast';
 
 interface ProfileProps {
   user: any;
@@ -16,6 +20,14 @@ export default function Profile({ user, onLogout }: ProfileProps) {
     setPlaceholderTitle(title);
     setPage('placeholder');
   };
+
+  useEffect(() => {
+    if (page === 'main') return;
+    return pushBackHandler(() => {
+      setPage('main');
+      return true;
+    });
+  }, [page]);
 
   return (
     <AnimatePresence mode="wait">
@@ -53,7 +65,7 @@ export default function Profile({ user, onLogout }: ProfileProps) {
           </button>
 
           <div className="text-center text-[10px] font-black text-ink uppercase tracking-[0.4em] py-4 italic">
-            FitGroup // ver_1.1.0
+            FitGroup // ver_1.2.0
           </div>
         </motion.div>
       )}
@@ -75,7 +87,10 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const captureRef = useRef<HTMLInputElement>(null);
+  const { showToast } = useToast();
 
   const handleSave = async () => {
     const currentUser = getCurrentUser();
@@ -98,18 +113,44 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       console.error('Save settings failed:', e);
+      showToast((e as Error)?.message || '保存失败，请重试', 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  const handlePhotoSelect = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const applyPhotoFile = (file: File) => {
     setPhotoFile(file);
     const reader = new FileReader();
     reader.onload = () => setPhotoPreview(reader.result as string);
     reader.readAsDataURL(file);
+  };
+
+  const handlePhotoSelect = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    applyPhotoFile(file);
+  };
+
+  const handleNativeCamera = async () => {
+    setPickerOpen(false);
+    if (!isNative()) {
+      captureRef.current?.click();
+      return;
+    }
+    const file = await pickFromCamera();
+    if (file) applyPhotoFile(file);
+  };
+
+  const handleNativeGallery = async () => {
+    setPickerOpen(false);
+    if (!isNative()) {
+      fileRef.current?.click();
+      return;
+    }
+    const file = await pickFromGallery();
+    if (file) applyPhotoFile(file);
   };
 
   return (
@@ -124,8 +165,9 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
         <div className="space-y-6">
           <div className="flex flex-col items-center gap-4 mb-6">
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoSelect} />
+            <input ref={captureRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handlePhotoSelect} />
             <div
-              onClick={() => fileRef.current?.click()}
+              onClick={() => setPickerOpen(true)}
               className="border-4 border-ink p-1 bg-white cursor-pointer hover:bg-neon transition-colors relative group"
             >
               {photoPreview ? (
@@ -163,6 +205,13 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
           </button>
         </div>
       </div>
+
+      <PhotoSourceSheet
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onCamera={handleNativeCamera}
+        onGallery={handleNativeGallery}
+      />
     </motion.div>
   );
 }

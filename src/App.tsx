@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, ReactNode } from 'react';
+import { useState, useEffect, useRef, ReactNode } from 'react';
 import { logout, onAuthStateChangedFn, waitForAuthReady } from './firebase';
+import { exitApp, hideSplash, listenAndroidBack } from './native';
 import AuthScreen from './components/AuthScreen';
 import {
   Dumbbell,
@@ -26,11 +27,14 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'feed' | 'log' | 'stats' | 'profile'>('feed');
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
 
   useEffect(() => {
     waitForAuthReady().then((next) => {
       setUser(next);
       setLoading(false);
+      void hideSplash();
     });
 
     const unsub = onAuthStateChangedFn((next) => {
@@ -38,6 +42,20 @@ export default function App() {
     });
     return () => unsub?.();
   }, []);
+
+  useEffect(() => {
+    return listenAndroidBack(() => {
+      if (!user) {
+        void exitApp();
+        return;
+      }
+      if (activeTabRef.current !== 'feed') {
+        setActiveTab('feed');
+        return;
+      }
+      void exitApp();
+    });
+  }, [user]);
 
   if (loading) {
     return (
@@ -60,8 +78,8 @@ export default function App() {
   return (
     <ErrorBoundary>
       <ToastProvider>
-        <div className="min-h-screen bg-paper pb-24 max-w-lg mx-auto border-x-4 border-ink relative">
-      <header className="sticky top-0 z-30 bg-paper border-b-4 border-ink flex items-center justify-between px-6 py-4">
+        <div className="app-shell min-h-screen bg-paper max-w-lg mx-auto border-x-4 border-ink relative">
+      <header className="app-header sticky top-0 z-30 bg-paper border-b-4 border-ink flex items-center justify-between px-6 pb-4">
         <div className="flex items-center gap-2">
           <div className="bg-ink p-1">
             <Dumbbell className="text-neon" size={24} />
@@ -105,7 +123,7 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t-4 border-ink px-2 py-4 flex items-center justify-around max-w-[calc(32rem-8px)] mx-auto z-40">
+      <nav className="app-tabbar fixed bottom-0 left-0 right-0 bg-white border-t-4 border-ink px-2 pt-4 flex items-center justify-around max-w-[calc(32rem-8px)] mx-auto z-40">
         <NavButton active={activeTab === 'feed'} onClick={() => setActiveTab('feed')} icon={<Layout size={24} />} label="发现" />
         <NavButton active={activeTab === 'log'} onClick={() => setActiveTab('log')} icon={<Dumbbell size={24} />} label="打卡" />
         <NavButton active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} icon={<BarChart3 size={24} />} label="统计" />

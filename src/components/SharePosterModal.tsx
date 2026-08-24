@@ -1,8 +1,11 @@
-import { useEffect } from 'react';
-import { X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Share2, X } from 'lucide-react';
 import { motion } from 'motion/react';
+import { toPng } from 'html-to-image';
 import { WorkoutLog } from '../types';
 import SharePoster from './SharePoster';
+import { pushBackHandler } from '../backStack';
+import { shareImageDataUrl } from '../native';
 
 interface SharePosterModalProps {
   log: WorkoutLog;
@@ -14,6 +17,10 @@ interface SharePosterModalProps {
 }
 
 export default function SharePosterModal({ log, userStats, onClose }: SharePosterModalProps) {
+  const posterRef = useRef<HTMLDivElement>(null);
+  const [sharing, setSharing] = useState(false);
+  const [error, setError] = useState('');
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -21,6 +28,11 @@ export default function SharePosterModal({ log, userStats, onClose }: SharePoste
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
   }, [onClose]);
+
+  useEffect(() => pushBackHandler(() => {
+    onClose();
+    return true;
+  }), [onClose]);
 
   const getStatInfo = () => {
     if (userStats && userStats.streak > 0) {
@@ -46,43 +58,75 @@ export default function SharePosterModal({ log, userStats, onClose }: SharePoste
 
   const stat = getStatInfo();
 
+  const handleShare = async () => {
+    if (!posterRef.current || sharing) return;
+    setSharing(true);
+    setError('');
+    try {
+      const dataUrl = await toPng(posterRef.current, {
+        pixelRatio: 2,
+        cacheBust: true,
+        backgroundColor: '#ffffff',
+      });
+      await shareImageDataUrl(dataUrl, `fitgroup-${Date.now()}.png`);
+    } catch (err) {
+      if ((err as { name?: string }).name === 'AbortError') return;
+      console.error('Share poster failed:', err);
+      setError('系统分享失败，请长按海报截图保存');
+    } finally {
+      setSharing(false);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-ink/60 p-4"
+      style={{ paddingTop: 'calc(1rem + var(--safe-top))', paddingBottom: 'calc(1rem + var(--safe-bottom))' }}
       onClick={onClose}
     >
-      {/* Close button (top) */}
       <button
         onClick={onClose}
-        className="absolute top-4 right-4 bg-white border-2 border-ink p-2 font-black text-xs uppercase cursor-pointer hover:bg-neon transition-colors"
+        className="absolute right-4 bg-white border-2 border-ink p-2 font-black text-xs uppercase cursor-pointer hover:bg-neon transition-colors"
+        style={{ top: 'calc(1rem + var(--safe-top))' }}
       >
         <X size={16} />
       </button>
 
-      {/* Poster */}
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.9 }}
         transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-        className="max-h-[85vh] overflow-y-auto"
+        className="max-h-[70vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <SharePoster
-          log={log}
-          statLabel={stat.label}
-          statValue={stat.value}
-          statIcon={stat.icon}
-        />
+        <div ref={posterRef}>
+          <SharePoster
+            log={log}
+            statLabel={stat.label}
+            statValue={stat.value}
+            statIcon={stat.icon}
+          />
+        </div>
       </motion.div>
 
-      {/* Bottom hint */}
-      <p className="text-neon text-[10px] font-black uppercase tracking-widest text-center mt-4 drop-shadow-[0_0_4px_rgba(0,0,0,0.8)]">
-        截图保存到相册即可分享
-      </p>
+      {error && (
+        <p className="text-neon text-[10px] font-black uppercase tracking-widest text-center mt-3">
+          {error}
+        </p>
+      )}
+
+      <button
+        onClick={(e) => { e.stopPropagation(); void handleShare(); }}
+        disabled={sharing}
+        className="mt-4 bg-neon text-ink border-2 border-ink px-8 py-3 font-black uppercase text-sm cursor-pointer hover:bg-white transition-colors flex items-center gap-2 disabled:opacity-60"
+      >
+        <Share2 size={16} />
+        {sharing ? '生成海报中...' : '系统分享'}
+      </button>
       <button
         onClick={onClose}
         className="mt-3 bg-ink text-neon border-2 border-ink px-8 py-3 font-black uppercase text-sm cursor-pointer hover:bg-white hover:text-ink transition-colors"

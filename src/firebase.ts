@@ -1,11 +1,14 @@
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
+  initializeAuth,
+  indexedDBLocalPersistence,
   onAuthStateChanged,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
+  type Auth,
   type User,
 } from 'firebase/auth';
 import {
@@ -22,9 +25,12 @@ import {
   onSnapshot,
   serverTimestamp,
   Timestamp,
+  increment,
   writeBatch,
   type DocumentData,
 } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { Capacitor } from '@capacitor/core';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyALpuhcfQXxu87fIsiOEfRUkpQ6uORnTtY',
@@ -38,8 +44,21 @@ const firebaseConfig = {
 const FIRESTORE_DB_ID = 'ai-studio-320fe0bc-75e3-4038-a995-52950cbd787e';
 
 export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+
+function createAuth(): Auth {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      return initializeAuth(app, { persistence: indexedDBLocalPersistence });
+    } catch {
+      return getAuth(app);
+    }
+  }
+  return getAuth(app);
+}
+
+export const auth = createAuth();
 export const db = getFirestore(app, FIRESTORE_DB_ID);
+export const storage = getStorage(app);
 
 export type AppUser = {
   id: string;
@@ -209,8 +228,13 @@ export const updateUserProfileFn = async (userId: string, updates: Record<string
 
   await updateDoc(doc(db, 'users', userId), payload);
 
-  if (auth.currentUser && auth.currentUser.uid === userId && typeof payload.displayName === 'string') {
-    await updateProfile(auth.currentUser, { displayName: payload.displayName });
+  if (auth.currentUser && auth.currentUser.uid === userId) {
+    const profilePatch: { displayName?: string; photoURL?: string } = {};
+    if (typeof payload.displayName === 'string') profilePatch.displayName = payload.displayName;
+    if (typeof payload.photoURL === 'string') profilePatch.photoURL = payload.photoURL;
+    if (Object.keys(profilePatch).length > 0) {
+      await updateProfile(auth.currentUser, profilePatch);
+    }
   }
   if (cachedUser && cachedUser.uid === userId) {
     cachedUser = {
@@ -254,12 +278,16 @@ function normalizeLog(id: string, data: DocumentData) {
 }
 
 // Realtime listener: the feed must update when anyone checks in.
-export const subscribeToWorkoutLogs = (callback: (logs: unknown[]) => void) => {
+export const subscribeToWorkoutLogs = (
+  callback: (logs: unknown[]) => void,
+  onError?: (error: Error) => void,
+) => {
   const q = query(collection(db, 'workoutLogs'), orderBy('timestamp', 'desc'));
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map((d) => normalizeLog(d.id, d.data())));
   }, (e) => {
     console.error('Workout logs listen error:', e);
+    onError?.(e instanceof Error ? e : new Error('动态加载失败'));
     callback([]);
   });
 };
@@ -274,15 +302,14 @@ export const toggleLike = async (workoutLogId: string, userId: string, hasLiked:
   const likeRef = doc(db, 'workoutLogs', workoutLogId, 'likes', userId);
   const logSnap = await getDoc(logRef);
   if (!logSnap.exists()) throw new Error('Log not found');
-  const current = Number(logSnap.data().likesCount || 0);
 
   const batch = writeBatch(db);
   if (hasLiked) {
     batch.delete(likeRef);
-    batch.update(logRef, { likesCount: Math.max(0, current - 1) });
+    batch.update(logRef, { likesCount: increment(-1) });
   } else {
     batch.set(likeRef, { userId });
-    batch.update(logRef, { likesCount: current + 1 });
+    batch.update(logRef, { likesCount: increment(1) });
   }
   await batch.commit();
 };
@@ -323,20 +350,83 @@ export const addComment = async (
     content: content.slice(0, 300),
     timestamp: serverTimestamp(),
   });
-  batch.update(logRef, { commentsCount: Number(logSnap.data().commentsCount || 0) + 1 });
+  batch.update(logRef, { commentsCount: increment(1) });
   await batch.commit();
 };
 
-export const uploadPhoto = async (_file: File, _path?: string): Promise<string> => {
-  return '';
+async function compressImage(file: File, maxDim = 1280, quality = 0.82): Promise<File> {
+  if (!file.type.startsWith('image/')) return file;
+
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return file;
+  ctx.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (next) => (next ? resolve(next) : reject(new Error('图片压缩失败'))),
+      'image/jpeg',
+      quality,
+    );
+  });
+  return new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' });
+}
+
+function mapStorageError(error: unknown): Error {
+  const code = (error as { code?: string })?.code || '';
+  const messages: Record<string, string> = {
+    'storage/unauthorized': '没有权限上传照片，请重新登录',
+    'storage/canceled': '已取消上传',
+    'storage/retry-limit-exceeded': '网络不稳定，照片上传失败',
+    'storage/quota-exceeded': '存储空间已满，请稍后再试',
+    'storage/unauthenticated': '请先登录后再上传照片',
+    'storage/unknown': '照片上传失败，请检查网络后重试',
+  };
+  return new Error(messages[code] || (error as Error)?.message || '照片上传失败，请重试');
+}
+
+async function uploadImage(file: File, path: string): Promise<string> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('未登录');
+
+  try {
+    const compressed = await compressImage(file);
+    const storageRef = ref(storage, path);
+    const snap = await uploadBytes(storageRef, compressed, {
+      contentType: compressed.type || 'image/jpeg',
+      cacheControl: 'public,max-age=31536000',
+    });
+    const url = await getDownloadURL(snap.ref);
+    if (url.length > 500) {
+      throw new Error('照片地址过长，请换一张图再试');
+    }
+    return url;
+  } catch (error) {
+    throw mapStorageError(error);
+  }
+}
+
+export const uploadPhoto = async (file: File, path?: string): Promise<string> => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('未登录');
+  return uploadImage(file, path || `u/${user.uid}/w/${newId('p')}.jpg`);
 };
 
-export const uploadAvatar = async (_userId: string, _file: File): Promise<string> => {
-  return '';
+export const uploadAvatar = async (userId: string, file: File): Promise<string> => {
+  if (!auth.currentUser || auth.currentUser.uid !== userId) throw new Error('未登录');
+  return uploadImage(file, `u/${userId}/a/${newId('a')}.jpg`);
 };
 
-export const uploadWorkoutPhoto = async (_userId: string, _file: File): Promise<string> => {
-  return '';
+export const uploadWorkoutPhoto = async (userId: string, file: File): Promise<string> => {
+  if (!auth.currentUser || auth.currentUser.uid !== userId) throw new Error('未登录');
+  return uploadImage(file, `u/${userId}/w/${newId('w')}.jpg`);
 };
 
 export const getLeaderboard = async (maxCount = 10) => {
