@@ -1,10 +1,8 @@
-import { useState, useRef, useEffect, ChangeEvent } from 'react';
-import { getCurrentUser, updateUserProfileFn, uploadAvatar } from '../firebase';
-import { LogOut, User as UserIcon, Shield, Settings, HelpCircle, Bell, ChevronLeft, Camera, Check } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { getCurrentUser, updateUserProfileFn } from '../firebase';
+import { LogOut, User as UserIcon, Shield, Settings, HelpCircle, Bell, ChevronLeft, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { pushBackHandler } from '../backStack';
-import { isNative, pickFromCamera, pickFromGallery } from '../native';
-import PhotoSourceSheet from './PhotoSourceSheet';
 import { useToast } from './Toast';
 
 interface ProfileProps {
@@ -83,13 +81,8 @@ export default function Profile({ user, onLogout }: ProfileProps) {
 
 function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
   const [displayName, setDisplayName] = useState(user?.displayName || '');
-  const [photoPreview, setPhotoPreview] = useState(user?.photoURL || '');
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const captureRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
 
   const handleSave = async () => {
@@ -98,15 +91,8 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
     setSaving(true);
 
     try {
-      let photoURL = user.photoURL;
-      if (photoFile) {
-        const uploaded = await uploadAvatar(currentUser.uid, photoFile);
-        if (uploaded) photoURL = uploaded;
-      }
-
       await updateUserProfileFn(currentUser.uid, {
         displayName: displayName.trim(),
-        photoURL,
       });
 
       setSaved(true);
@@ -116,48 +102,6 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
       showToast((e as Error)?.message || '保存失败，请重试', 'error');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const applyPhotoFile = (file: File) => {
-    setPhotoFile(file);
-    const reader = new FileReader();
-    reader.onload = () => setPhotoPreview(reader.result as string);
-    reader.readAsDataURL(file);
-  };
-
-  const handlePhotoSelect = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    applyPhotoFile(file);
-  };
-
-  const handleNativeCamera = async () => {
-    setPickerOpen(false);
-    if (!isNative()) {
-      captureRef.current?.click();
-      return;
-    }
-    const file = await pickFromCamera();
-    if (file) {
-      applyPhotoFile(file);
-    } else {
-      captureRef.current?.click();
-    }
-  };
-
-  const handleNativeGallery = async () => {
-    setPickerOpen(false);
-    if (!isNative()) {
-      fileRef.current?.click();
-      return;
-    }
-    const file = await pickFromGallery();
-    if (file) {
-      applyPhotoFile(file);
-    } else {
-      fileRef.current?.click();
     }
   };
 
@@ -171,27 +115,6 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
         <h2 className="font-black text-ink uppercase tracking-tighter text-xl mb-6 italic">Settings / 设置</h2>
 
         <div className="space-y-6">
-          <div className="flex flex-col items-center gap-4 mb-6">
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoSelect} />
-            <input ref={captureRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handlePhotoSelect} />
-            <div
-              onClick={() => setPickerOpen(true)}
-              className="border-4 border-ink p-1 bg-white cursor-pointer hover:bg-neon transition-colors relative group"
-            >
-              {photoPreview ? (
-                <img src={photoPreview} className="w-24 h-24 object-cover" />
-              ) : (
-                <div className="w-24 h-24 bg-paper flex items-center justify-center">
-                  <UserIcon size={40} className="text-ink/30" />
-                </div>
-              )}
-              <div className="absolute inset-0 bg-ink/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <Camera size={24} className="text-neon" />
-              </div>
-            </div>
-            <span className="text-[10px] font-black text-ink/30 uppercase">点击更换头像</span>
-          </div>
-
           <div>
             <label className="block text-[10px] font-black text-ink uppercase mb-2">昵称</label>
             <input
@@ -213,13 +136,6 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
           </button>
         </div>
       </div>
-
-      <PhotoSourceSheet
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        onCamera={handleNativeCamera}
-        onGallery={handleNativeGallery}
-      />
     </motion.div>
   );
 }

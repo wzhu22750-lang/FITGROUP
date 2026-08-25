@@ -1,6 +1,5 @@
 import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
-import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Keyboard } from '@capacitor/keyboard';
 import { Share } from '@capacitor/share';
@@ -76,68 +75,6 @@ export async function hideSplash() {
 export async function exitApp() {
   if (!isNative()) return;
   await App.exitApp();
-}
-
-function dataUrlToFile(dataUrl: string, filename = 'photo.jpg'): File {
-  const parts = dataUrl.split(',');
-  const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
-  const byteString = atob(parts[1]);
-  const length = byteString.length;
-  const u8arr = new Uint8Array(length);
-  for (let i = 0; i < length; i++) {
-    u8arr[i] = byteString.charCodeAt(i);
-  }
-  return new File([u8arr], filename, { type: mime });
-}
-
-export async function pickFromCamera(): Promise<File | null> {
-  if (!isNative()) return null;
-  try {
-    const photo = await Camera.getPhoto({
-      quality: 85,
-      allowEditing: false,
-      resultType: CameraResultType.DataUrl,
-      source: CameraSource.Camera,
-      correctOrientation: true,
-      width: 1600,
-      height: 1600,
-    });
-    if (photo.dataUrl) {
-      return dataUrlToFile(photo.dataUrl, 'camera-photo.jpg');
-    }
-    if (photo.base64String) {
-      return dataUrlToFile(`data:image/jpeg;base64,${photo.base64String}`, 'camera-photo.jpg');
-    }
-    return null;
-  } catch (error) {
-    console.warn('pickFromCamera error:', error);
-    return null;
-  }
-}
-
-export async function pickFromGallery(): Promise<File | null> {
-  if (!isNative()) return null;
-  try {
-    const photo = await Camera.getPhoto({
-      quality: 85,
-      allowEditing: false,
-      resultType: CameraResultType.DataUrl,
-      source: CameraSource.Photos,
-      correctOrientation: true,
-      width: 1600,
-      height: 1600,
-    });
-    if (photo.dataUrl) {
-      return dataUrlToFile(photo.dataUrl, 'gallery-photo.jpg');
-    }
-    if (photo.base64String) {
-      return dataUrlToFile(`data:image/jpeg;base64,${photo.base64String}`, 'gallery-photo.jpg');
-    }
-    return null;
-  } catch (error) {
-    console.warn('pickFromGallery error:', error);
-    return null;
-  }
 }
 
 export async function shareImageDataUrl(dataUrl: string, filename = 'fitgroup-poster.png') {

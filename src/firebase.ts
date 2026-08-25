@@ -31,14 +31,12 @@ import {
   writeBatch,
   type DocumentData,
 } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { Capacitor } from '@capacitor/core';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyALpuhcfQXxu87fIsiOEfRUkpQ6uORnTtY',
   authDomain: 'gen-lang-client-0285368146.firebaseapp.com',
   projectId: 'gen-lang-client-0285368146',
-  storageBucket: 'gen-lang-client-0285368146.firebasestorage.app',
   messagingSenderId: '717219904394',
   appId: '1:717219904394:web:0c2423a516b4eb14c9a673',
 };
@@ -60,7 +58,6 @@ function createAuth(): Auth {
 
 export const auth = createAuth();
 export const db = getFirestore(app, FIRESTORE_DB_ID);
-export const storage = getStorage(app);
 
 export type AppUser = {
   id: string;
@@ -382,19 +379,7 @@ export const deleteWorkoutLog = async (workoutLogId: string) => {
     await deleteDoc(logRef);
   }
 
-  // 2. Clean up storage photo if present
-  if (data.photoUrl && typeof data.photoUrl === 'string') {
-    try {
-      if (data.photoUrl.includes('firebasestorage.app') || data.photoUrl.includes('firebasestorage.googleapis.com')) {
-        const photoRef = ref(storage, data.photoUrl);
-        await deleteObject(photoRef).catch(() => {});
-      }
-    } catch {
-      // Non-blocking storage cleanup
-    }
-  }
-
-  // 3. Recalculate stats from remaining logs
+  // 2. Recalculate stats from remaining logs
   await syncUserStatsFromLogs(user.uid).catch((err) => {
     console.warn('Sync user stats after delete failed:', err);
   });
@@ -487,81 +472,6 @@ export const addComment = async (
   });
   batch.update(logRef, { commentsCount: increment(1) });
   await batch.commit();
-};
-
-async function compressImage(file: File, maxDim = 1280, quality = 0.82): Promise<File> {
-  if (!file.type.startsWith('image/')) return file;
-
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
-  const width = Math.max(1, Math.round(bitmap.width * scale));
-  const height = Math.max(1, Math.round(bitmap.height * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return file;
-  ctx.drawImage(bitmap, 0, 0, width, height);
-  bitmap.close();
-
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (next) => (next ? resolve(next) : reject(new Error('图片压缩失败'))),
-      'image/jpeg',
-      quality,
-    );
-  });
-  return new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' });
-}
-
-function mapStorageError(error: unknown): Error {
-  const code = (error as { code?: string })?.code || '';
-  const messages: Record<string, string> = {
-    'storage/unauthorized': '没有权限上传照片，请重新登录',
-    'storage/canceled': '已取消上传',
-    'storage/retry-limit-exceeded': '网络不稳定，照片上传失败',
-    'storage/quota-exceeded': '存储空间已满，请稍后再试',
-    'storage/unauthenticated': '请先登录后再上传照片',
-    'storage/unknown': '照片上传失败，请检查网络后重试',
-  };
-  return new Error(messages[code] || (error as Error)?.message || '照片上传失败，请重试');
-}
-
-async function uploadImage(file: File, path: string): Promise<string> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('未登录');
-
-  try {
-    const compressed = await compressImage(file);
-    const storageRef = ref(storage, path);
-    const snap = await uploadBytes(storageRef, compressed, {
-      contentType: compressed.type || 'image/jpeg',
-      cacheControl: 'public,max-age=31536000',
-    });
-    const url = await getDownloadURL(snap.ref);
-    if (url.length > 500) {
-      throw new Error('照片地址过长，请换一张图再试');
-    }
-    return url;
-  } catch (error) {
-    throw mapStorageError(error);
-  }
-}
-
-export const uploadPhoto = async (file: File, path?: string): Promise<string> => {
-  const user = auth.currentUser;
-  if (!user) throw new Error('未登录');
-  return uploadImage(file, path || `u/${user.uid}/w/${newId('p')}.jpg`);
-};
-
-export const uploadAvatar = async (userId: string, file: File): Promise<string> => {
-  if (!auth.currentUser || auth.currentUser.uid !== userId) throw new Error('未登录');
-  return uploadImage(file, `u/${userId}/a/${newId('a')}.jpg`);
-};
-
-export const uploadWorkoutPhoto = async (userId: string, file: File): Promise<string> => {
-  if (!auth.currentUser || auth.currentUser.uid !== userId) throw new Error('未登录');
-  return uploadImage(file, `u/${userId}/w/${newId('w')}.jpg`);
 };
 
 export const getLeaderboard = async (maxCount = 10) => {

@@ -290,12 +290,6 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
           ))}
         </div>
 
-        {log.photoUrl && (
-          <div className="border-4 border-ink mb-4 aspect-[4/3] bg-paper overflow-hidden">
-            <img src={log.photoUrl} className="w-full h-full object-cover grayscale contrast-125" />
-          </div>
-        )}
-
         <div className="flex items-center justify-between pt-4 border-t-2 border-ink/10">
           <div className="flex items-center gap-2">
             <button
