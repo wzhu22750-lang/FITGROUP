@@ -24,7 +24,7 @@ export default function PhotoSourceSheet({ open, onClose, onCamera, onGallery }:
     <div className="fixed inset-0 z-50 bg-ink/50 flex items-end justify-center" onClick={onClose}>
       <div
         className="w-full max-w-lg bg-white border-t-4 border-ink p-4 space-y-3"
-        style={{ paddingBottom: 'max(1rem, var(--safe-bottom))' }}
+        style={{ paddingBottom: 'calc(var(--safe-bottom) + 1rem)' }}
         onClick={(event) => event.stopPropagation()}
       >
         <p className="text-[10px] font-black uppercase tracking-widest text-ink/40">选择照片来源</p>

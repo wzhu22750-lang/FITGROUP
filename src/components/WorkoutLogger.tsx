@@ -179,7 +179,8 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="fixed top-4 right-4 z-50 bg-ink text-neon border-4 border-ink px-6 py-3 font-black uppercase text-sm shadow-[4px_4px_0px_0px_rgba(223,255,0,0.5)]"
+          className="fixed right-4 z-50 bg-ink text-neon border-4 border-ink px-6 py-3 font-black uppercase text-sm shadow-[4px_4px_0px_0px_rgba(223,255,0,0.5)]"
+          style={{ top: 'calc(var(--safe-top) + 1rem)' }}
         >
           {toastMsg}
         </motion.div>

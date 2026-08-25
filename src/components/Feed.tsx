@@ -18,7 +18,7 @@ export default function Feed() {
   useEffect(() => {
     setLoading(true);
     const channel = subscribeToWorkoutLogs((data) => {
-      setLogs(data);
+      setLogs(data as WorkoutLog[]);
       setLoading(false);
       setError('');
     }, (err) => {
@@ -32,7 +32,7 @@ export default function Feed() {
   const handlePullRefresh = () => {
     setRefreshing(true);
     const stop = subscribeToWorkoutLogs((data) => {
-      setLogs(data);
+      setLogs(data as WorkoutLog[]);
       setLoading(false);
       setError('');
       setRefreshing(false);
@@ -98,7 +98,7 @@ export default function Feed() {
   );
 }
 
-function LogCard({ log }: { log: WorkoutLog }) {
+function LogCard({ log }: { log: WorkoutLog; key?: string }) {
   const [hasLiked, setHasLiked] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<any[]>([]);

@@ -32,7 +32,7 @@ export default function Statistics() {
 
       try {
         const profile = await getUserProfile(user.uid);
-        setUserProfile(profile);
+        setUserProfile(profile as any);
       } catch { /* user not found */ }
 
       try {
