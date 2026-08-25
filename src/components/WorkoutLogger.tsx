@@ -23,12 +23,17 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const mutationIdRef = useRef<string>(Math.random().toString(36).slice(2, 11) + Date.now().toString(36));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const captureInputRef = useRef<HTMLInputElement>(null);
 
   const showToast = (msg: string) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2500); };
 
   const addExercise = (type: 'strength' | 'cardio') => {
+    if (exercises.length >= 10) {
+      showToast('每次打卡最多添加 10 个动作');
+      return;
+    }
     setExercises([...exercises, {
       id: Math.random().toString(36).slice(2, 11),
       name: '',
@@ -89,12 +94,42 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     const user = getCurrentUser();
-    if (!user) return;
+    if (!user) {
+      showToast('请先登录');
+      return;
+    }
 
     if (exercises.length === 0) {
       showToast('请至少添加一个训练项目');
       return;
+    }
+
+    if (exercises.length > 10) {
+      showToast('每次打卡最多支持 10 个项目');
+      return;
+    }
+
+    // Comprehensive validation for every exercise item
+    for (let i = 0; i < exercises.length; i++) {
+      const ex = exercises[i];
+      if (!ex.name.trim()) {
+        showToast(`请填写第 ${i + 1} 个项目的动作名称`);
+        return;
+      }
+      if (ex.type === 'strength') {
+        if (!ex.sets || ex.sets <= 0 || !ex.reps || ex.reps <= 0) {
+          showToast(`「${ex.name}」请填写有效的组数和次数（需大于 0）`);
+          return;
+        }
+      } else if (ex.type === 'cardio') {
+        if ((!ex.duration || ex.duration <= 0) && (!ex.distance || ex.distance <= 0) && (!ex.calories || ex.calories <= 0)) {
+          showToast(`「${ex.name}」请至少填写时长、距离或卡路里之一`);
+          return;
+        }
+      }
     }
 
     setIsSubmitting(true);
@@ -103,11 +138,20 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
 
       if (photoFile) {
         setUploading(true);
-        finalPhotoUrl = await uploadWorkoutPhoto(user.uid, photoFile);
+        try {
+          finalPhotoUrl = await uploadWorkoutPhoto(user.uid, photoFile);
+        } catch (uploadErr) {
+          console.error('Photo upload failed:', uploadErr);
+          showToast('照片上传失败: ' + ((uploadErr as Error)?.message || '请重试'));
+          setIsSubmitting(false);
+          setUploading(false);
+          return;
+        }
         setUploading(false);
       }
 
       await createWorkoutLog({
+        id: mutationIdRef.current,
         userId: user.uid,
         userName: user.displayName || 'Anonymous',
         userPhoto: user.photoURL || '',
@@ -139,6 +183,8 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         }
       }
 
+      // Reset mutation ID for future submits
+      mutationIdRef.current = Math.random().toString(36).slice(2, 11) + Date.now().toString(36);
       onSuccess();
     } catch (error) {
       console.error('保存失败:', error);

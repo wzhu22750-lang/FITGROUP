@@ -7,6 +7,15 @@
       "fields": [{ "fieldPath": "timestamp", "order": "DESCENDING" }]
     },
     {
+      "collectionGroup": "workoutLogs",
+      "queryScope": "COLLECTION",
+      "density": "DENSE",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "users",
       "queryScope": "COLLECTION",
       "density": "DENSE",

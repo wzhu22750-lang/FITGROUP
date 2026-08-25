@@ -3,23 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useRef, ReactNode } from 'react';
+import { useState, useEffect, useRef, ReactNode, lazy, Suspense } from 'react';
 import { logout, onAuthStateChangedFn, waitForAuthReady } from './firebase';
 import { exitApp, hideSplash, listenAndroidBack } from './native';
-import AuthScreen from './components/AuthScreen';
 import {
   Dumbbell,
   BarChart3,
   User as UserIcon,
   Plus,
   Layout,
+  Activity,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-import Feed from './components/Feed';
-import WorkoutLogger from './components/WorkoutLogger';
-import Statistics from './components/Statistics';
-import Profile from './components/Profile';
+const AuthScreen = lazy(() => import('./components/AuthScreen'));
+const Feed = lazy(() => import('./components/Feed'));
+const WorkoutLogger = lazy(() => import('./components/WorkoutLogger'));
+const Statistics = lazy(() => import('./components/Statistics'));
+const Profile = lazy(() => import('./components/Profile'));
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider } from './components/Toast';
 
@@ -72,7 +73,15 @@ export default function App() {
   }
 
   if (!user) {
-    return <AuthScreen />;
+    return (
+      <Suspense fallback={
+        <div className="flex items-center justify-center min-h-screen bg-paper">
+          <Activity size={32} className="text-ink animate-spin" />
+        </div>
+      }>
+        <AuthScreen />
+      </Suspense>
+    );
   }
 
   return (
@@ -99,28 +108,34 @@ export default function App() {
       </header>
 
       <main className="p-4">
-        <AnimatePresence mode="wait">
-          {activeTab === 'feed' && (
-            <motion.div key="feed" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <Feed />
-            </motion.div>
-          )}
-          {activeTab === 'log' && (
-            <motion.div key="log" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
-              <WorkoutLogger onSuccess={() => setActiveTab('feed')} />
-            </motion.div>
-          )}
-          {activeTab === 'stats' && (
-            <motion.div key="stats" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <Statistics />
-            </motion.div>
-          )}
-          {activeTab === 'profile' && (
-            <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <Profile user={user} onLogout={async () => { await logout(); setUser(null); }} />
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <Suspense fallback={
+          <div className="p-8 text-center">
+            <Activity size={32} className="text-ink animate-spin inline-block" />
+          </div>
+        }>
+          <AnimatePresence mode="wait">
+            {activeTab === 'feed' && (
+              <motion.div key="feed" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <Feed />
+              </motion.div>
+            )}
+            {activeTab === 'log' && (
+              <motion.div key="log" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
+                <WorkoutLogger onSuccess={() => setActiveTab('feed')} />
+              </motion.div>
+            )}
+            {activeTab === 'stats' && (
+              <motion.div key="stats" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <Statistics />
+              </motion.div>
+            )}
+            {activeTab === 'profile' && (
+              <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <Profile user={user} onLogout={async () => { await logout(); setUser(null); }} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </Suspense>
       </main>
 
       <nav className="app-tabbar fixed bottom-0 left-0 right-0 bg-white border-t-4 border-ink px-2 pt-3 flex items-center justify-around max-w-[calc(32rem-8px)] mx-auto z-40">

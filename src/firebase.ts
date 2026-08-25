@@ -31,7 +31,7 @@ import {
   writeBatch,
   type DocumentData,
 } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { Capacitor } from '@capacitor/core';
 
 const firebaseConfig = {
@@ -332,7 +332,7 @@ export const createWorkoutLog = async (logData: Record<string, unknown>) => {
   const user = auth.currentUser;
   if (!user) throw new Error('未登录');
 
-  const logId = newId('log');
+  const logId = typeof logData.id === 'string' && logData.id ? logData.id : newId('log');
   const exercises = Array.isArray(logData.exercises) ? logData.exercises : [];
   await setDoc(doc(db, 'workoutLogs', logId), {
     userId: user.uid,
@@ -360,11 +360,41 @@ export const deleteWorkoutLog = async (workoutLogId: string) => {
   const logRef = doc(db, 'workoutLogs', workoutLogId);
   const snap = await getDoc(logRef);
   if (!snap.exists()) return;
-  if (snap.data().userId !== user.uid) {
+  const data = snap.data();
+  if (data.userId !== user.uid) {
     throw new Error('只能删除自己的打卡记录');
   }
-  await deleteDoc(logRef);
 
+  // 1. Clean up likes and comments subcollections in batch
+  try {
+    const [likesSnap, commentsSnap] = await Promise.all([
+      getDocs(collection(db, 'workoutLogs', workoutLogId, 'likes')),
+      getDocs(collection(db, 'workoutLogs', workoutLogId, 'comments')),
+    ]);
+
+    const batch = writeBatch(db);
+    likesSnap.docs.forEach((d) => batch.delete(d.ref));
+    commentsSnap.docs.forEach((d) => batch.delete(d.ref));
+    batch.delete(logRef);
+    await batch.commit();
+  } catch (err) {
+    console.warn('Batch delete subcollections failed, falling back to direct delete:', err);
+    await deleteDoc(logRef);
+  }
+
+  // 2. Clean up storage photo if present
+  if (data.photoUrl && typeof data.photoUrl === 'string') {
+    try {
+      if (data.photoUrl.includes('firebasestorage.app') || data.photoUrl.includes('firebasestorage.googleapis.com')) {
+        const photoRef = ref(storage, data.photoUrl);
+        await deleteObject(photoRef).catch(() => {});
+      }
+    } catch {
+      // Non-blocking storage cleanup
+    }
+  }
+
+  // 3. Recalculate stats from remaining logs
   await syncUserStatsFromLogs(user.uid).catch((err) => {
     console.warn('Sync user stats after delete failed:', err);
   });
@@ -381,12 +411,13 @@ function normalizeLog(id: string, data: DocumentData) {
   };
 }
 
-// Realtime listener: the feed must update when anyone checks in.
+// Realtime listener with query limits
 export const subscribeToWorkoutLogs = (
   callback: (logs: unknown[]) => void,
   onError?: (error: Error) => void,
+  maxCount = 30,
 ) => {
-  const q = query(collection(db, 'workoutLogs'), orderBy('timestamp', 'desc'));
+  const q = query(collection(db, 'workoutLogs'), orderBy('timestamp', 'desc'), limit(maxCount));
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map((d) => normalizeLog(d.id, d.data())));
   }, (e) => {

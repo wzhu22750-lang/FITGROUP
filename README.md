@@ -79,33 +79,35 @@ npm run preview
 
 ```
 src/
-├── App.tsx              # 根组件，Tab 切换 + 认证守卫
-├── firebase.ts          # Firebase Auth + Firestore 封装
-├── pocketbase.ts        # 旧版 PocketBase 适配（迁移后保留）
+├── App.tsx              # 根组件，Tab 切换 + 认证守卫 + 懒加载分包
+├── firebase.ts          # Firebase Auth + Firestore + Storage 封装与统计重算
+├── native.ts            # Capacitor 原生交互（相机/相册/返回键/状态栏）
 ├── types.ts             # TypeScript 类型定义
-├── index.css            # 全局样式（brutalist 主题变量）
+├── index.css            # 全局样式（brutalist 主题变量 + 安全区域适配）
 ├── main.tsx             # 入口
 └── components/
     ├── AuthScreen.tsx       # 登录/注册表单
-    ├── Feed.tsx             # 实时动态流
-    ├── WorkoutLogger.tsx    # 训练打卡表单
-    ├── Statistics.tsx       # 数据统计面板
+    ├── Feed.tsx             # 实时动态流与级联删除
+    ├── WorkoutLogger.tsx    # 训练打卡表单与幂等提交
+    ├── Statistics.tsx       # 数据统计面板与实时排行榜
     ├── Profile.tsx          # 个人中心 + 设置
     ├── SharePoster.tsx      # 战绩海报组件
     ├── SharePosterModal.tsx # 海报预览弹窗
+    ├── PhotoSourceSheet.tsx # 拍照/相册选择底栏
     ├── Toast.tsx            # 通知组件
     └── ErrorBoundary.tsx    # 错误边界
 ```
 
 ---
 
-## 📝 路线图
+## 📝 路线图与特性
 
-- [ ] 照片上传（目前为 stub 实现）
-- [ ] 通知 / 安全 / 帮助页面
-- [ ] 深色模式
-- [ ] 完整榜单（当前仅 Top 5）
-- [ ] Android 应用深度测试
+- [x] 真实图片压缩上传（Firebase Storage）
+- [x] 动态实时流与删除级联清理（Likes, Comments, Storage 图片）
+- [x] 训练记录为单一事实源的自愈统计系统（连续天数、PR、总次数）
+- [x] 提交幂等性防重复记录
+- [x] 生产包代码分割与懒加载优化
+- [x] Android 沉浸式安全区域适配与全自动热更新模式
 
 ---
 

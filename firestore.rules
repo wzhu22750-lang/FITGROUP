@@ -101,16 +101,21 @@ service cloud.firestore {
         && ex.id is string && ex.id.size() > 0 && ex.id.size() <= 64
         && ex.name is string && ex.name.size() > 0 && ex.name.size() <= 80
         && ex.type in ['strength', 'cardio']
-        && (!('weight' in ex) || (ex.weight is number && ex.weight >= 0 && ex.weight <= 2000))
-        && (!('sets' in ex) || (ex.sets is number && ex.sets >= 0 && ex.sets <= 100))
-        && (!('reps' in ex) || (ex.reps is number && ex.reps >= 0 && ex.reps <= 1000))
-        && (!('duration' in ex) || (ex.duration is number && ex.duration >= 0 && ex.duration <= 1440))
-        && (!('distance' in ex) || (ex.distance is number && ex.distance >= 0 && ex.distance <= 1000))
-        && (!('calories' in ex) || (ex.calories is number && ex.calories >= 0 && ex.calories <= 20000));
+        && (
+          (ex.type == 'strength'
+            && (!('weight' in ex) || (ex.weight is number && ex.weight >= 0 && ex.weight <= 2000))
+            && (!('sets' in ex) || (ex.sets is number && ex.sets >= 0 && ex.sets <= 100))
+            && (!('reps' in ex) || (ex.reps is number && ex.reps >= 0 && ex.reps <= 1000)))
+          ||
+          (ex.type == 'cardio'
+            && (!('duration' in ex) || (ex.duration is number && ex.duration >= 0 && ex.duration <= 1440))
+            && (!('distance' in ex) || (ex.distance is number && ex.distance >= 0 && ex.distance <= 1000))
+            && (!('calories' in ex) || (ex.calories is number && ex.calories >= 0 && ex.calories <= 20000)))
+        );
     }
 
     function isValidExercises(list) {
-      return list is list && list.size() >= 1 && list.size() <= 50
+      return list is list && list.size() >= 1 && list.size() <= 10
         && (list.size() < 1 || isValidExercise(list[0]))
         && (list.size() < 2 || isValidExercise(list[1]))
         && (list.size() < 3 || isValidExercise(list[2]))
@@ -173,6 +178,7 @@ service cloud.firestore {
 
     function isValidLikeCounterUpdate(logId) {
       return logIdentityUnchanged()
+        && incoming().keys().hasOnly(['userId', 'userName', 'userPhoto', 'timestamp', 'category', 'exercises', 'note', 'photoUrl', 'likesCount', 'commentsCount'])
         && incoming().commentsCount == existing().commentsCount
         && isNonNegInt(incoming().likesCount, 1000000)
         && math.abs(incoming().likesCount - existing().likesCount) == 1
@@ -189,6 +195,7 @@ service cloud.firestore {
 
     function isValidCommentCounterUpdate() {
       return logIdentityUnchanged()
+        && incoming().keys().hasOnly(['userId', 'userName', 'userPhoto', 'timestamp', 'category', 'exercises', 'note', 'photoUrl', 'likesCount', 'commentsCount'])
         && incoming().likesCount == existing().likesCount
         && isNonNegInt(incoming().commentsCount, 1000000)
         && incoming().commentsCount == existing().commentsCount + 1;
