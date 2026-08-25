@@ -8,8 +8,8 @@ const config: CapacitorConfig = {
     backgroundColor: '#F4F4F4',
   },
   server: {
-    androidScheme: 'https',
-    hostname: 'gen-lang-client-0285368146.firebaseapp.com',
+    url: 'https://gen-lang-client-0285368146.web.app',
+    cleartext: false,
   },
   plugins: {
     SplashScreen: {
