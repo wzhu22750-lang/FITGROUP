@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
-import { Camera, EncodingType, MediaTypeSelection, type MediaResult } from '@capacitor/camera';
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Keyboard } from '@capacitor/keyboard';
 import { Share } from '@capacitor/share';
@@ -78,28 +78,39 @@ export async function exitApp() {
   await App.exitApp();
 }
 
-async function mediaToFile(media: MediaResult): Promise<File | null> {
-  const src = media.webPath || media.uri;
-  if (!src) return null;
-  const response = await fetch(src);
-  const blob = await response.blob();
-  return new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' });
+function dataUrlToFile(dataUrl: string, filename = 'photo.jpg'): File {
+  const parts = dataUrl.split(',');
+  const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+  const byteString = atob(parts[1]);
+  const length = byteString.length;
+  const u8arr = new Uint8Array(length);
+  for (let i = 0; i < length; i++) {
+    u8arr[i] = byteString.charCodeAt(i);
+  }
+  return new File([u8arr], filename, { type: mime });
 }
 
 export async function pickFromCamera(): Promise<File | null> {
   if (!isNative()) return null;
   try {
-    await Camera.requestPermissions({ permissions: ['camera'] });
-    const photo = await Camera.takePhoto({
-      quality: 80,
-      targetWidth: 1600,
-      targetHeight: 1600,
+    const photo = await Camera.getPhoto({
+      quality: 85,
+      allowEditing: false,
+      resultType: CameraResultType.DataUrl,
+      source: CameraSource.Camera,
       correctOrientation: true,
-      encodingType: EncodingType.JPEG,
-      webUseInput: true,
+      width: 1600,
+      height: 1600,
     });
-    return mediaToFile(photo);
-  } catch {
+    if (photo.dataUrl) {
+      return dataUrlToFile(photo.dataUrl, 'camera-photo.jpg');
+    }
+    if (photo.base64String) {
+      return dataUrlToFile(`data:image/jpeg;base64,${photo.base64String}`, 'camera-photo.jpg');
+    }
+    return null;
+  } catch (error) {
+    console.warn('pickFromCamera error:', error);
     return null;
   }
 }
@@ -107,17 +118,24 @@ export async function pickFromCamera(): Promise<File | null> {
 export async function pickFromGallery(): Promise<File | null> {
   if (!isNative()) return null;
   try {
-    await Camera.requestPermissions({ permissions: ['photos'] });
-    const picked = await Camera.chooseFromGallery({
-      mediaType: MediaTypeSelection.Photo,
-      allowMultipleSelection: false,
-      quality: 80,
-      targetWidth: 1600,
-      targetHeight: 1600,
+    const photo = await Camera.getPhoto({
+      quality: 85,
+      allowEditing: false,
+      resultType: CameraResultType.DataUrl,
+      source: CameraSource.Photos,
+      correctOrientation: true,
+      width: 1600,
+      height: 1600,
     });
-    const first = picked.results[0];
-    return first ? mediaToFile(first) : null;
-  } catch {
+    if (photo.dataUrl) {
+      return dataUrlToFile(photo.dataUrl, 'gallery-photo.jpg');
+    }
+    if (photo.base64String) {
+      return dataUrlToFile(`data:image/jpeg;base64,${photo.base64String}`, 'gallery-photo.jpg');
+    }
+    return null;
+  } catch (error) {
+    console.warn('pickFromGallery error:', error);
     return null;
   }
 }

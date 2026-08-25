@@ -79,7 +79,11 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       return;
     }
     const file = await pickFromCamera();
-    if (file) applyPhotoFile(file);
+    if (file) {
+      applyPhotoFile(file);
+    } else {
+      captureInputRef.current?.click();
+    }
   };
 
   const handleNativeGallery = async () => {
@@ -89,7 +93,11 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       return;
     }
     const file = await pickFromGallery();
-    if (file) applyPhotoFile(file);
+    if (file) {
+      applyPhotoFile(file);
+    } else {
+      fileInputRef.current?.click();
+    }
   };
 
   const handleSubmit = async (e: FormEvent) => {

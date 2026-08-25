@@ -140,7 +140,11 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
       return;
     }
     const file = await pickFromCamera();
-    if (file) applyPhotoFile(file);
+    if (file) {
+      applyPhotoFile(file);
+    } else {
+      captureRef.current?.click();
+    }
   };
 
   const handleNativeGallery = async () => {
@@ -150,7 +154,11 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
       return;
     }
     const file = await pickFromGallery();
-    if (file) applyPhotoFile(file);
+    if (file) {
+      applyPhotoFile(file);
+    } else {
+      fileRef.current?.click();
+    }
   };
 
   return (
