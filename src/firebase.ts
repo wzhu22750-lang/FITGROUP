@@ -20,6 +20,7 @@ import {
   deleteDoc,
   collection,
   query,
+  where,
   orderBy,
   limit,
   getDocs,
@@ -246,6 +247,87 @@ export const updateUserProfileFn = async (userId: string, updates: Record<string
   }
 };
 
+export const syncUserStatsFromLogs = async (userId: string): Promise<AppUser> => {
+  const user = auth.currentUser;
+  if (!user || user.uid !== userId) {
+    return getUserProfile(userId);
+  }
+
+  const q = query(
+    collection(db, 'workoutLogs'),
+    where('userId', '==', userId),
+    orderBy('timestamp', 'desc')
+  );
+  const snap = await getDocs(q);
+  const logs = snap.docs.map(d => normalizeLog(d.id, d.data()));
+
+  const totalWorkouts = logs.length;
+  const prs: Record<string, number> = {};
+
+  logs.forEach(log => {
+    (log.exercises || []).forEach((ex: any) => {
+      if (ex.type === 'strength' && typeof ex.weight === 'number' && ex.weight > 0 && ex.name) {
+        const name = String(ex.name).trim();
+        if (!prs[name] || ex.weight > prs[name]) {
+          prs[name] = ex.weight;
+        }
+      }
+    });
+  });
+
+  let streak = 0;
+  let lastWorkoutDate: string | undefined = undefined;
+
+  if (logs.length > 0) {
+    lastWorkoutDate = logs[0].timestamp;
+
+    const toDateKey = (dateStr: string) => {
+      const d = new Date(dateStr);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    const uniqueDateKeys = Array.from(
+      new Set(logs.map(l => toDateKey(l.timestamp)))
+    ).sort().reverse();
+
+    const todayKey = toDateKey(new Date().toISOString());
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = toDateKey(yesterday.toISOString());
+
+    const latestKey = uniqueDateKeys[0];
+    if (latestKey === todayKey || latestKey === yesterdayKey) {
+      streak = 1;
+      let curr = new Date(latestKey);
+      for (let i = 1; i < uniqueDateKeys.length; i++) {
+        const prevExpected = new Date(curr);
+        prevExpected.setDate(prevExpected.getDate() - 1);
+        const prevExpectedKey = toDateKey(prevExpected.toISOString());
+        if (uniqueDateKeys[i] === prevExpectedKey) {
+          streak += 1;
+          curr = prevExpected;
+        } else {
+          break;
+        }
+      }
+    } else {
+      streak = 0;
+    }
+  }
+
+  await updateUserProfileFn(userId, {
+    totalWorkouts,
+    streak,
+    prs,
+    lastWorkoutDate: lastWorkoutDate || null,
+  });
+
+  return getUserProfile(userId);
+};
+
 export const createWorkoutLog = async (logData: Record<string, unknown>) => {
   const user = auth.currentUser;
   if (!user) throw new Error('未登录');
@@ -264,6 +346,11 @@ export const createWorkoutLog = async (logData: Record<string, unknown>) => {
     likesCount: 0,
     commentsCount: 0,
   });
+
+  await syncUserStatsFromLogs(user.uid).catch((err) => {
+    console.warn('Sync user stats after create failed:', err);
+  });
+
   return { id: logId };
 };
 
@@ -277,6 +364,10 @@ export const deleteWorkoutLog = async (workoutLogId: string) => {
     throw new Error('只能删除自己的打卡记录');
   }
   await deleteDoc(logRef);
+
+  await syncUserStatsFromLogs(user.uid).catch((err) => {
+    console.warn('Sync user stats after delete failed:', err);
+  });
 };
 
 function normalizeLog(id: string, data: DocumentData) {
@@ -446,6 +537,24 @@ export const getLeaderboard = async (maxCount = 10) => {
   const q = query(collection(db, 'users'), orderBy('streak', 'desc'), limit(maxCount));
   const snap = await getDocs(q);
   return snap.docs.map((d) => profileFromDoc(d.id, d.data()));
+};
+
+export const subscribeToUserProfile = (userId: string, callback: (profile: AppUser) => void) => {
+  const ref = doc(db, 'users', userId);
+  return onSnapshot(ref, (snap) => {
+    if (snap.exists()) {
+      const profile = profileFromDoc(userId, snap.data(), auth.currentUser);
+      cachedUser = profile;
+      callback(profile);
+    }
+  });
+};
+
+export const subscribeToLeaderboard = (callback: (users: AppUser[]) => void, maxCount = 10) => {
+  const q = query(collection(db, 'users'), orderBy('streak', 'desc'), limit(maxCount));
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map((d) => profileFromDoc(d.id, d.data())));
+  });
 };
 
 export const waitForAuthReady = () => new Promise<AppUser | null>((resolve) => {

@@ -121,36 +121,12 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
 
       const userProfile = await getUserProfile(user.uid).catch(() => null);
       if (userProfile) {
-        const lastWorkout = userProfile.lastWorkoutDate ? new Date(userProfile.lastWorkoutDate) : null;
-        const today = new Date();
-        let newStreak = userProfile.streak || 0;
-
-        if (lastWorkout) {
-          const toDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-          const diffDays = Math.floor((toDay(today) - toDay(lastWorkout)) / (1000 * 60 * 60 * 24));
-          if (diffDays === 1) {
-            newStreak += 1;
-          } else if (diffDays > 1) {
-            newStreak = 1;
-          }
-        } else {
-          newStreak = 1;
-        }
-
-        const newPrs = { ...(userProfile.prs || {}) };
+        const currentPrs = userProfile.prs || {};
         let prBroken = false;
         exercises.forEach(ex => {
-          if (ex.type === 'strength' && ex.weight && (!newPrs[ex.name] || ex.weight > newPrs[ex.name])) {
-            newPrs[ex.name] = ex.weight;
+          if (ex.type === 'strength' && ex.weight && (!currentPrs[ex.name] || ex.weight > currentPrs[ex.name])) {
             prBroken = true;
           }
-        });
-
-        await updateUserProfileFn(user.uid, {
-          streak: newStreak,
-          lastWorkoutDate: today.toISOString(),
-          totalWorkouts: (userProfile.totalWorkouts || 0) + 1,
-          prs: newPrs,
         });
 
         if (prBroken) {

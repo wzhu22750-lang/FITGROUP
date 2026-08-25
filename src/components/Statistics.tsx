@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getCurrentUser, getUserProfile, getLeaderboard } from '../firebase';
+import { getCurrentUser, syncUserStatsFromLogs, subscribeToUserProfile, subscribeToLeaderboard } from '../firebase';
 import { UserProfile, WorkoutCategory } from '../types';
 import {
   Trophy,
@@ -26,23 +26,32 @@ export default function Statistics() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchData = async () => {
-      const user = getCurrentUser();
-      if (!user) { setLoading(false); return; }
+    const user = getCurrentUser();
+    if (!user) { setLoading(false); return; }
 
-      try {
-        const profile = await getUserProfile(user.uid);
-        setUserProfile(profile as any);
-      } catch { /* user not found */ }
-
-      try {
-        const leaderboard = await getLeaderboard(5);
-        setGroupStats(leaderboard);
-      } catch { /* leaderboard fetch failed */ }
-
+    // Self-healing recalculation from actual workout logs
+    void syncUserStatsFromLogs(user.uid).then(p => {
+      setUserProfile(p as any);
       setLoading(false);
+    }).catch(() => {
+      setLoading(false);
+    });
+
+    // Real-time listener for current user's profile and stats
+    const unsubProfile = subscribeToUserProfile(user.uid, (profile) => {
+      setUserProfile(profile as any);
+      setLoading(false);
+    });
+
+    // Real-time listener for group leaderboard
+    const unsubLeaderboard = subscribeToLeaderboard((leaderboard) => {
+      setGroupStats(leaderboard);
+    }, 5);
+
+    return () => {
+      unsubProfile?.();
+      unsubLeaderboard?.();
     };
-    fetchData();
   }, []);
 
   const computeRadarData = () => {
