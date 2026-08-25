@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { pushBackHandler } from '../backStack';
-import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment, getUserProfile } from '../firebase';
+import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment, getUserProfile, deleteWorkoutLog } from '../firebase';
 import { WorkoutLog, WorkoutCategory } from '../types';
-import { Heart, MessageCircle, Share2, Clock, Dumbbell, User as UserIcon, Send } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Clock, Dumbbell, User as UserIcon, Send, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale/zh-CN';
@@ -107,6 +107,27 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
   const [commentError, setCommentError] = useState('');
   const [showShareModal, setShowShareModal] = useState(false);
   const [userStats, setUserStats] = useState<{ streak: number; totalWorkouts: number } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const currentUser = getCurrentUser();
+  const isOwner = Boolean(currentUser && log.userId === currentUser.uid);
+
+  const handleDelete = async () => {
+    if (!deleteConfirm) {
+      setDeleteConfirm(true);
+      setTimeout(() => setDeleteConfirm(false), 3500);
+      return;
+    }
+    if (!log.id || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteWorkoutLog(log.id);
+    } catch (e) {
+      console.error('Delete failed:', e);
+      setDeleting(false);
+      setDeleteConfirm(false);
+    }
+  };
 
   useEffect(() => {
     const user = getCurrentUser();
@@ -210,8 +231,26 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
               </p>
             </div>
           </div>
-          <div className={`px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase tracking-tighter shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${getCategoryColor(log.category)}`}>
-            {log.category}
+          <div className="flex items-center gap-2">
+            <div className={`px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase tracking-tighter shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${getCategoryColor(log.category)}`}>
+              {log.category}
+            </div>
+            {isOwner && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className={`px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase transition-all cursor-pointer flex items-center gap-1 ${
+                  deleteConfirm
+                    ? 'bg-red-500 text-white shadow-none animate-pulse'
+                    : 'bg-white text-ink/40 hover:text-red-500 hover:border-red-500 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'
+                }`}
+                title="删除打卡"
+              >
+                <Trash2 size={12} />
+                {deleteConfirm ? <span>{deleting ? '删除中...' : '确认?'}</span> : <span>删除</span>}
+              </button>
+            )}
           </div>
         </div>
 

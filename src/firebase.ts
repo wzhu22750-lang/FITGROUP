@@ -17,6 +17,7 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
   collection,
   query,
   orderBy,
@@ -264,6 +265,18 @@ export const createWorkoutLog = async (logData: Record<string, unknown>) => {
     commentsCount: 0,
   });
   return { id: logId };
+};
+
+export const deleteWorkoutLog = async (workoutLogId: string) => {
+  const user = auth.currentUser;
+  if (!user) throw new Error('未登录');
+  const logRef = doc(db, 'workoutLogs', workoutLogId);
+  const snap = await getDoc(logRef);
+  if (!snap.exists()) return;
+  if (snap.data().userId !== user.uid) {
+    throw new Error('只能删除自己的打卡记录');
+  }
+  await deleteDoc(logRef);
 };
 
 function normalizeLog(id: string, data: DocumentData) {
