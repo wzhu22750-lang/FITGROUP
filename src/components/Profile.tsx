@@ -43,10 +43,10 @@ export default function Profile({ user, onLogout }: ProfileProps) {
                 </div>
               )}
             </div>
-            <h2 className="text-3xl font-black text-ink tracking-tighter uppercase italic leading-none">
+            <h2 className="text-2xl sm:text-3xl font-black text-ink tracking-tighter uppercase italic leading-tight text-center break-words max-w-full px-2" title={user?.displayName || 'User'}>
               {user?.displayName || 'User'}
             </h2>
-            <p className="text-ink text-[10px] font-black uppercase tracking-widest mt-2 bg-white px-2 border-2 border-ink">{user?.email}</p>
+            <p className="text-ink text-[10px] font-black uppercase tracking-widest mt-2 bg-white px-2 border-2 border-ink truncate max-w-full" title={user?.email}>{user?.email}</p>
           </div>
 
           <div className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] divide-y-4 divide-ink">

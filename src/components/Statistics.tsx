@@ -162,9 +162,9 @@ export default function Statistics() {
         <div className="space-y-3">
           {userProfile?.prs && Object.keys(userProfile.prs).length > 0 ? (
             Object.entries(userProfile.prs).map(([name, weight]) => (
-              <div key={name} className="flex items-center justify-between p-4 bg-paper border-2 border-ink">
-                <span className="font-black text-ink uppercase tracking-tight">{name}</span>
-                <span className="font-black text-white bg-ink px-2 py-1 italic">{weight} KG</span>
+              <div key={name} className="flex items-center justify-between p-4 bg-paper border-2 border-ink gap-2">
+                <span className="font-black text-ink uppercase tracking-tight truncate min-w-0 flex-1" title={name}>{name}</span>
+                <span className="font-black text-white bg-ink px-2 py-1 italic shrink-0 whitespace-nowrap">{weight} KG</span>
               </div>
             ))
           ) : (
@@ -185,12 +185,12 @@ export default function Statistics() {
         </h3>
         <div className="space-y-4">
           {groupStats.length > 0 ? groupStats.map((u, i) => (
-            <div key={u.uid} className="flex items-center justify-between border-b-2 border-paper pb-2 last:border-0 last:pb-0">
-              <div className="flex items-center gap-3">
-                <div className={`w-6 h-6 border-2 border-ink flex items-center justify-center font-black text-xs ${i === 0 ? 'bg-neon' : 'bg-paper text-ink'}`}>
+            <div key={u.uid} className="flex items-center justify-between border-b-2 border-paper pb-2 last:border-0 last:pb-0 gap-2">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className={`w-6 h-6 border-2 border-ink flex items-center justify-center font-black text-xs shrink-0 ${i === 0 ? 'bg-neon' : 'bg-paper text-ink'}`}>
                   {i + 1}
                 </div>
-                <div className="border-2 border-ink p-0.5">
+                <div className="border-2 border-ink p-0.5 shrink-0">
                   {u.photoURL ? (
                     <img src={u.photoURL} className="w-8 h-8 object-cover" />
                   ) : (
@@ -199,10 +199,10 @@ export default function Statistics() {
                     </div>
                   )}
                 </div>
-                <span className="font-black text-ink uppercase tracking-tighter">{u.displayName}</span>
+                <span className="font-black text-ink uppercase tracking-tighter truncate" title={u.displayName}>{u.displayName}</span>
               </div>
-              <div className="flex items-center gap-1 bg-ink text-white px-2 py-0.5 italic font-black text-xs">
-                <Flame size={12} className="text-neon fill-current" />
+              <div className="flex items-center gap-1 bg-ink text-white px-2 py-0.5 italic font-black text-xs shrink-0 whitespace-nowrap">
+                <Flame size={12} className="text-neon fill-current shrink-0" />
                 <span>{u.streak}</span>
               </div>
             </div>

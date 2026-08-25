@@ -60,9 +60,9 @@ export default function SharePoster({ log, statLabel, statValue, statIcon }: Sha
             </div>
           )}
         </div>
-        <div>
-          <h3 className="font-black text-lg text-ink uppercase tracking-tighter leading-none">{log.userName}</h3>
-          <p className="text-[10px] font-black text-ink/40 uppercase tracking-widest">{formatDate(log.timestamp)}</p>
+        <div className="min-w-0 flex-1">
+          <h3 className="font-black text-lg text-ink uppercase tracking-tighter leading-tight truncate" title={log.userName}>{log.userName}</h3>
+          <p className="text-[10px] font-black text-ink/40 uppercase tracking-widest truncate">{formatDate(log.timestamp)}</p>
         </div>
       </div>
 

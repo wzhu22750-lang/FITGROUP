@@ -212,9 +212,9 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
       className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] mb-6"
     >
       <div className="p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="border-2 border-ink p-0.5 bg-paper">
+        <div className="flex items-center justify-between mb-4 gap-2">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="border-2 border-ink p-0.5 bg-paper shrink-0">
               {log.userPhoto ? (
                 <img src={log.userPhoto} className="w-10 h-10 object-cover" />
               ) : (
@@ -223,15 +223,15 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
                 </div>
               )}
             </div>
-            <div>
-              <h3 className="font-black text-ink leading-none mb-1 uppercase tracking-tighter">{log.userName}</h3>
+            <div className="min-w-0 flex-1">
+              <h3 className="font-black text-ink leading-tight mb-1 uppercase tracking-tighter truncate" title={log.userName}>{log.userName}</h3>
               <p className="text-[10px] font-black text-ink/40 uppercase tracking-widest flex items-center gap-1">
-                <Clock size={10} />
-                {log.timestamp ? formatDistanceToNow(new Date(log.timestamp), { addSuffix: true, locale: zhCN }) : '刚刚'}
+                <Clock size={10} className="shrink-0" />
+                <span className="truncate">{log.timestamp ? formatDistanceToNow(new Date(log.timestamp), { addSuffix: true, locale: zhCN }) : '刚刚'}</span>
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <div className={`px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase tracking-tighter shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${getCategoryColor(log.category)}`}>
               {log.category}
             </div>
@@ -240,7 +240,7 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
                 type="button"
                 onClick={handleDelete}
                 disabled={deleting}
-                className={`px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase transition-all cursor-pointer flex items-center gap-1 ${
+                className={`px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
                   deleteConfirm
                     ? 'bg-red-500 text-white shadow-none animate-pulse'
                     : 'bg-white text-ink/40 hover:text-red-500 hover:border-red-500 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'
@@ -255,19 +255,19 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
         </div>
 
         {log.note && (
-          <p className="text-ink text-lg leading-none mb-4 font-black uppercase tracking-tighter">"{log.note}"</p>
+          <p className="text-ink text-base sm:text-lg leading-snug mb-4 font-black uppercase tracking-tight break-words whitespace-pre-wrap">"{log.note}"</p>
         )}
 
         <div className="space-y-2 mb-4">
           {(log.exercises || []).map((ex) => (
-            <div key={ex.id} className="bg-paper border-2 border-ink p-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="bg-ink p-1">
+            <div key={ex.id} className="bg-paper border-2 border-ink p-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="bg-ink p-1 shrink-0">
                   <Dumbbell size={14} className="text-neon" />
                 </div>
-                <span className="font-black text-ink text-xs uppercase tracking-tighter">{ex.name}</span>
+                <span className="font-black text-ink text-xs uppercase tracking-tighter truncate" title={ex.name}>{ex.name}</span>
               </div>
-              <div className="text-[10px] font-black text-ink uppercase space-x-2">
+              <div className="text-[10px] font-black text-ink uppercase space-x-1 sm:space-x-2 shrink-0 flex items-center">
                 {ex.type === 'strength' ? (
                   <>
                     <span className="bg-neon px-1">{ex.weight}KG</span>
@@ -342,8 +342,8 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className="text-[10px] font-black text-ink uppercase">{c.userName}</span>
-                        <p className="text-xs text-ink/70 break-words">{c.content}</p>
+                        <span className="text-[10px] font-black text-ink uppercase truncate block" title={c.userName}>{c.userName}</span>
+                        <p className="text-xs text-ink/70 break-words whitespace-pre-wrap leading-tight">{c.content}</p>
                       </div>
                     </div>
                   ))
