@@ -21,23 +21,16 @@ import {
 } from 'recharts';
 
 export default function Statistics() {
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const cached = getCurrentUser();
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(cached as any);
   const [groupStats, setGroupStats] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
 
   useEffect(() => {
     const user = getCurrentUser();
     if (!user) { setLoading(false); return; }
 
-    // Self-healing recalculation from actual workout logs
-    void syncUserStatsFromLogs(user.uid).then(p => {
-      setUserProfile(p as any);
-      setLoading(false);
-    }).catch(() => {
-      setLoading(false);
-    });
-
-    // Real-time listener for current user's profile and stats
+    // Real-time listener for current user's profile and stats (instant from local cache/snapshot)
     const unsubProfile = subscribeToUserProfile(user.uid, (profile) => {
       setUserProfile(profile as any);
       setLoading(false);
@@ -47,6 +40,11 @@ export default function Statistics() {
     const unsubLeaderboard = subscribeToLeaderboard((leaderboard) => {
       setGroupStats(leaderboard);
     }, 5);
+
+    // Non-blocking background self-healing verification
+    void syncUserStatsFromLogs(user.uid).catch((err) => {
+      console.warn('Background stats verification:', err);
+    });
 
     return () => {
       unsubProfile?.();
