@@ -1,9 +1,28 @@
-import { useState, useRef, FormEvent } from 'react';
-import { createWorkoutLog, getCurrentUser, getUserProfile } from '../firebase';
-import { WorkoutCategory, Exercise } from '../types';
-import { Plus, Trash2, Send, X, Dumbbell, Timer, Check } from 'lucide-react';
+import { useState, useEffect, useRef, FormEvent } from 'react';
+import { createWorkoutLog, getCurrentUser, getUserProfile, getLastWorkoutByCategory } from '../firebase';
+import { WorkoutCategory, Exercise, WorkoutLog } from '../types';
+import {
+  CATEGORY_META,
+  PRESET_EXERCISES_BY_CATEGORY,
+  PresetExercise,
+} from '../constants/workoutPresets';
+import {
+  Plus,
+  Trash2,
+  Send,
+  X,
+  Dumbbell,
+  Timer,
+  Check,
+  History,
+  RotateCcw,
+  Sparkles,
+  Zap,
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
+import { formatDistanceToNow, format } from 'date-fns';
+import { zhCN } from 'date-fns/locale/zh-CN';
 
 interface WorkoutLoggerProps {
   onSuccess: () => void;
@@ -18,24 +37,131 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
   const [toastMsg, setToastMsg] = useState('');
   const mutationIdRef = useRef<string>(Math.random().toString(36).slice(2, 11) + Date.now().toString(36));
 
-  const showToast = (msg: string) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2500); };
+  // Last workout import state
+  const [lastLog, setLastLog] = useState<WorkoutLog | null>(null);
+  const [loadingLastLog, setLoadingLastLog] = useState(false);
+  const [dismissedLogIds, setDismissedLogIds] = useState<string[]>([]);
+  const [confirmReimport, setConfirmReimport] = useState(false);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(''), 2500);
+  };
+
+  // Query the last workout for the selected category
+  useEffect(() => {
+    const user = getCurrentUser();
+    if (!user) return;
+
+    let isMounted = true;
+    setLoadingLastLog(true);
+
+    getLastWorkoutByCategory(user.uid, category)
+      .then((log) => {
+        if (!isMounted) return;
+        setLastLog((log as WorkoutLog) || null);
+      })
+      .catch((err) => {
+        console.warn('Failed to load last workout:', err);
+      })
+      .finally(() => {
+        if (isMounted) setLoadingLastLog(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [category]);
 
   const addExercise = (type: 'strength' | 'cardio') => {
     if (exercises.length >= 10) {
       showToast('每次打卡最多添加 10 个动作');
       return;
     }
-    setExercises([...exercises, {
+    setExercises([
+      ...exercises,
+      {
+        id: Math.random().toString(36).slice(2, 11),
+        name: '',
+        type,
+        ...(type === 'strength'
+          ? { weight: 0, sets: 0, reps: 0 }
+          : { duration: 0, distance: 0, calories: 0 }),
+      },
+    ]);
+  };
+
+  const handleAddPresetExercise = (preset: PresetExercise) => {
+    if (exercises.length >= 10) {
+      showToast('每次打卡最多添加 10 个动作');
+      return;
+    }
+
+    const newEx: Exercise = {
       id: Math.random().toString(36).slice(2, 11),
-      name: '',
-      type,
-      ...(type === 'strength' ? { weight: 0, sets: 0, reps: 0 } : { duration: 0, distance: 0, calories: 0 }),
-    }]);
+      name: preset.name,
+      type: preset.type,
+      ...(preset.type === 'strength'
+        ? {
+            weight: preset.defaultWeight ?? 0,
+            sets: preset.defaultSets ?? 4,
+            reps: preset.defaultReps ?? 10,
+          }
+        : {
+            duration: preset.defaultDuration ?? 30,
+            distance: preset.defaultDistance ?? 0,
+            calories: preset.defaultCalories ?? 0,
+          }),
+    };
+
+    // If current exercise list has only 1 blank/unnamed item, replace it
+    if (exercises.length === 1 && !exercises[0].name.trim()) {
+      setExercises([newEx]);
+    } else {
+      setExercises([...exercises, newEx]);
+    }
+
+    showToast(`已添加「${preset.name}」`);
+  };
+
+  const handleImportLastData = (force = false) => {
+    if (!lastLog || !lastLog.exercises || lastLog.exercises.length === 0) {
+      showToast('未找到上次训练数据');
+      return;
+    }
+
+    if (!force && exercises.length > 0 && exercises.some((e) => e.name.trim())) {
+      if (!confirmReimport) {
+        setConfirmReimport(true);
+        setTimeout(() => setConfirmReimport(false), 3500);
+        return;
+      }
+    }
+
+    const imported: Exercise[] = lastLog.exercises.map((ex) => ({
+      id: Math.random().toString(36).slice(2, 11),
+      name: ex.name,
+      type: ex.type || 'strength',
+      weight: ex.weight ?? 0,
+      sets: ex.sets ?? 0,
+      reps: ex.reps ?? 0,
+      duration: ex.duration ?? 0,
+      distance: ex.distance ?? 0,
+      calories: ex.calories ?? 0,
+    }));
+
+    setExercises(imported);
+    setConfirmReimport(false);
+    if (lastLog.id && !dismissedLogIds.includes(lastLog.id)) {
+      setDismissedLogIds([...dismissedLogIds, lastLog.id]);
+    }
+
+    showToast(`已导入上次 ${imported.length} 个动作及数据！`);
   };
 
   const handleRemoveExercise = (id: string) => {
     if (deleteConfirm === id) {
-      setExercises(exercises.filter(e => e.id !== id));
+      setExercises(exercises.filter((e) => e.id !== id));
       setDeleteConfirm(null);
     } else {
       setDeleteConfirm(id);
@@ -44,7 +170,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
   };
 
   const updateExercise = (id: string, updates: Partial<Exercise>) => {
-    setExercises(exercises.map(e => e.id === id ? { ...e, ...updates } : e));
+    setExercises(exercises.map((e) => (e.id === id ? { ...e, ...updates } : e)));
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -80,7 +206,11 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
           return;
         }
       } else if (ex.type === 'cardio') {
-        if ((!ex.duration || ex.duration <= 0) && (!ex.distance || ex.distance <= 0) && (!ex.calories || ex.calories <= 0)) {
+        if (
+          (!ex.duration || ex.duration <= 0) &&
+          (!ex.distance || ex.distance <= 0) &&
+          (!ex.calories || ex.calories <= 0)
+        ) {
           showToast(`「${ex.name}」请至少填写时长、距离或卡路里之一`);
           return;
         }
@@ -105,8 +235,12 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       if (userProfile) {
         const currentPrs = userProfile.prs || {};
         let prBroken = false;
-        exercises.forEach(ex => {
-          if (ex.type === 'strength' && ex.weight && (!currentPrs[ex.name] || ex.weight > currentPrs[ex.name])) {
+        exercises.forEach((ex) => {
+          if (
+            ex.type === 'strength' &&
+            ex.weight &&
+            (!currentPrs[ex.name] || ex.weight > currentPrs[ex.name])
+          ) {
             prBroken = true;
           }
         });
@@ -132,6 +266,20 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
     }
   };
 
+  const currentPresets = PRESET_EXERCISES_BY_CATEGORY[category] || [];
+  const hasLastLog = Boolean(lastLog && lastLog.exercises && lastLog.exercises.length > 0);
+  const showPromptBanner = hasLastLog && lastLog && !dismissedLogIds.includes(lastLog.id);
+
+  // Format date helper for last log
+  const formatLastLogDate = (timestampStr: string) => {
+    try {
+      const date = new Date(timestampStr);
+      return `${format(date, 'M月d日')} (${formatDistanceToNow(date, { addSuffix: true, locale: zhCN })})`;
+    } catch {
+      return '上次记录';
+    }
+  };
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {toastMsg && (
@@ -145,116 +293,442 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         </motion.div>
       )}
 
+      {/* Target Muscle / Category Selector */}
       <div className="bg-white p-6 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-        <label className="block text-sm font-black text-ink uppercase tracking-widest mb-4">Target Muscle / 训练部位</label>
+        <div className="flex items-center justify-between mb-4">
+          <label className="block text-sm font-black text-ink uppercase tracking-widest">
+            Target Muscle / 训练部位
+          </label>
+          <span className="text-[10px] font-black text-ink/40 uppercase">
+            当前: {CATEGORY_META[category].zh}
+          </span>
+        </div>
         <div className="grid grid-cols-3 gap-2">
-          {Object.values(WorkoutCategory).map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setCategory(cat)}
-              className={`py-3 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer ${
-                category === cat ? 'bg-ink text-neon' : 'bg-white text-ink hover:bg-neon'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
+          {Object.values(WorkoutCategory).map((cat) => {
+            const meta = CATEGORY_META[cat];
+            const isSelected = category === cat;
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategory(cat)}
+                className={`py-3 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
+                  isSelected
+                    ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
+                    : 'bg-white text-ink hover:bg-neon'
+                }`}
+              >
+                <span className="text-xs tracking-tight">{meta.en}</span>
+                <span className="text-[10px] opacity-80">{meta.zh}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div className="space-y-4">
-        <label className="block text-sm font-black text-ink uppercase tracking-widest px-2 underline decoration-4 decoration-neon underline-offset-4">Exercises / 训练内容</label>
-        <AnimatePresence initial={false}>
-          {exercises.map((ex) => (
-            <motion.div
-              key={ex.id}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 10 }}
-              className={`bg-white p-5 border-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] relative ${deleteConfirm === ex.id ? 'border-red-500 bg-red-50' : 'border-ink'}`}
+      {/* Smart Import Banner for Last Workout Data */}
+      <AnimatePresence>
+        {showPromptBanner && lastLog && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, height: 0, overflow: 'hidden' }}
+            className="bg-neon border-4 border-ink p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] relative"
+          >
+            <button
+              type="button"
+              onClick={() => setDismissedLogIds([...dismissedLogIds, lastLog.id])}
+              className="absolute top-2 right-2 p-1 text-ink/60 hover:text-ink hover:bg-black/10 transition-colors cursor-pointer"
+              title="暂不导入"
             >
+              <X size={16} />
+            </button>
+
+            <div className="flex items-start gap-3 mb-3 pr-6">
+              <div className="bg-ink text-neon p-2 border-2 border-ink shrink-0 mt-0.5">
+                <Sparkles size={18} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="font-black text-ink text-sm uppercase tracking-tight">
+                    发现上次【{CATEGORY_META[category].zh}】训练数据
+                  </h4>
+                  <span className="bg-ink text-neon text-[10px] font-black px-1.5 py-0.5 uppercase">
+                    {formatLastLogDate(lastLog.timestamp)}
+                  </span>
+                </div>
+                <p className="text-xs font-black text-ink/70 mt-1 leading-snug">
+                  包含 {lastLog.exercises.length} 个动作：
+                  {lastLog.exercises
+                    .slice(0, 3)
+                    .map((ex) =>
+                      ex.type === 'strength'
+                        ? `${ex.name}(${ex.weight || 0}kg×${ex.sets || 0}组)`
+                        : `${ex.name}(${ex.duration || 0}分)`
+                    )
+                    .join('、')}
+                  {lastLog.exercises.length > 3 ? '等' : ''}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-1">
               <button
                 type="button"
-                onClick={() => handleRemoveExercise(ex.id)}
-                className={`absolute top-2 right-2 p-1 border-2 border-ink transition-colors cursor-pointer ${deleteConfirm === ex.id ? 'bg-red-400 text-white' : 'bg-paper text-ink hover:bg-red-400'}`}
+                onClick={() => handleImportLastData(true)}
+                className="flex-1 bg-ink text-neon border-2 border-ink py-2.5 px-4 font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-black/80 transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
               >
-                {deleteConfirm === ex.id ? <Check size={16} /> : <X size={16} />}
+                <Zap size={15} />
+                一键导入上次数据
               </button>
+              <button
+                type="button"
+                onClick={() => setDismissedLogIds([...dismissedLogIds, lastLog.id])}
+                className="bg-white text-ink border-2 border-ink py-2.5 px-3 font-black uppercase text-xs hover:bg-paper transition-all cursor-pointer"
+              >
+                暂不导入
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-              {deleteConfirm === ex.id && (
-                <span className="absolute top-2 right-10 text-[10px] font-black text-red-600 uppercase">点击确认删除</span>
-              )}
+      {/* Preset / Common Exercises Quick Selection for Category */}
+      <div className="bg-white p-5 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="bg-ink p-1">
+              <Dumbbell size={14} className="text-neon" />
+            </div>
+            <label className="text-xs font-black text-ink uppercase tracking-widest">
+              常用动作快捷添加 ({CATEGORY_META[category].zh})
+            </label>
+          </div>
+          <span className="text-[10px] font-black text-ink/40">点击直接加入</span>
+        </div>
 
-              <div className="flex items-center gap-3 mb-4">
-                <div className={`p-2 border-2 border-ink ${ex.type === 'strength' ? 'bg-neon' : 'bg-white'}`}>
-                  {ex.type === 'strength' ? <Dumbbell size={18} className="text-ink" /> : <Timer size={18} className="text-ink" />}
-                </div>
-                <input
-                  type="text"
-                  placeholder={ex.type === 'strength' ? "动作 (e.g. Bench Press)" : "项目 (e.g. Running)"}
-                  value={ex.name}
-                  onChange={(e) => updateExercise(ex.id, { name: e.target.value })}
-                  className="flex-1 font-black text-ink border-b-4 border-ink focus:border-neon outline-none placeholder:opacity-30 uppercase placeholder:italic"
-                  required
-                />
-              </div>
+        <div className="flex flex-wrap gap-2">
+          {currentPresets.map((preset) => {
+            const isAlreadyAdded = exercises.some((e) => e.name.trim() === preset.name);
+            return (
+              <button
+                key={preset.name}
+                type="button"
+                onClick={() => handleAddPresetExercise(preset)}
+                className={`py-1.5 px-2.5 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex items-center gap-1.5 active:translate-x-0.5 active:translate-y-0.5 ${
+                  isAlreadyAdded
+                    ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
+                    : 'bg-paper text-ink hover:bg-neon hover:border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none'
+                }`}
+                title={`点击添加: ${preset.name} (${preset.type === 'strength' ? `${preset.defaultWeight}kg` : '有氧'})`}
+              >
+                {isAlreadyAdded ? <Check size={13} className="stroke-[3]" /> : <Plus size={13} />}
+                <span>{preset.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-              {ex.type === 'strength' ? (
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-ink uppercase block mb-1">KG</label>
-                    <input type="number" min="0" step="0.5" value={ex.weight || ''} onChange={(e) => updateExercise(ex.id, { weight: Number(e.target.value) || 0 })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-ink uppercase block mb-1">Sets</label>
-                    <input type="number" min="0" value={ex.sets || ''} onChange={(e) => updateExercise(ex.id, { sets: Number(e.target.value) || 0 })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-ink uppercase block mb-1">Reps</label>
-                    <input type="number" min="0" value={ex.reps || ''} onChange={(e) => updateExercise(ex.id, { reps: Number(e.target.value) || 0 })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
-                  </div>
-                </div>
+      {/* Exercise List */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between px-2">
+          <label className="text-sm font-black text-ink uppercase tracking-widest underline decoration-4 decoration-neon underline-offset-4 flex items-center gap-2">
+            <span>Exercises / 训练内容</span>
+            <span className="text-xs text-ink/40 no-underline font-black">
+              ({exercises.length}/10)
+            </span>
+          </label>
+
+          {/* Quick manual import button if previous data exists */}
+          {hasLastLog && (
+            <button
+              type="button"
+              onClick={() => handleImportLastData()}
+              className={`text-[10px] font-black uppercase px-2.5 py-1 border-2 border-ink transition-all cursor-pointer flex items-center gap-1.5 ${
+                confirmReimport
+                  ? 'bg-red-500 text-white animate-pulse'
+                  : 'bg-paper text-ink hover:bg-neon shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'
+              }`}
+              title="导入上次该部位的训练项目及数据"
+            >
+              {confirmReimport ? (
+                <>
+                  <RotateCcw size={12} />
+                  <span>点击确认覆盖现有内容</span>
+                </>
               ) : (
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-ink uppercase block mb-1">Min</label>
-                    <input type="number" min="0" step="0.1" value={ex.duration || ''} onChange={(e) => updateExercise(ex.id, { duration: Number(e.target.value) || 0 })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-ink uppercase block mb-1">Km</label>
-                    <input type="number" min="0" step="0.1" value={ex.distance || ''} onChange={(e) => updateExercise(ex.id, { distance: Number(e.target.value) || 0 })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-ink uppercase block mb-1">Kcal</label>
-                    <input type="number" min="0" value={ex.calories || ''} onChange={(e) => updateExercise(ex.id, { calories: Number(e.target.value) || 0 })} className="w-full bg-paper border-2 border-ink p-2 text-center font-black" />
-                  </div>
-                </div>
+                <>
+                  <History size={12} />
+                  <span>导入上次数据</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
+
+        <AnimatePresence initial={false}>
+          {exercises.length === 0 ? (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="bg-white p-8 border-4 border-dashed border-ink/20 text-center space-y-3"
+            >
+              <div className="bg-paper p-3 inline-block border-2 border-ink/10">
+                <Dumbbell size={28} className="text-ink/30" />
+              </div>
+              <p className="font-black text-ink/40 text-xs uppercase tracking-wider">
+                尚未添加动作，点击上方常用动作快捷添加，或导入上次数据
+              </p>
+              {hasLastLog && (
+                <button
+                  type="button"
+                  onClick={() => handleImportLastData(true)}
+                  className="bg-neon text-ink border-2 border-ink px-4 py-2 text-xs font-black uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-ink hover:text-neon transition-all cursor-pointer"
+                >
+                  ⚡ 一键导入上次【{CATEGORY_META[category].zh}】数据
+                </button>
               )}
             </motion.div>
-          ))}
+          ) : (
+            exercises.map((ex, index) => (
+              <motion.div
+                key={ex.id}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                className={`bg-white p-5 border-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] relative ${
+                  deleteConfirm === ex.id ? 'border-red-500 bg-red-50' : 'border-ink'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[10px] font-black uppercase bg-ink text-white px-2 py-0.5 italic">
+                    #{index + 1} {ex.type === 'strength' ? '力量训练' : '有氧运动'}
+                  </span>
+
+                  <div className="flex items-center gap-2">
+                    {deleteConfirm === ex.id && (
+                      <span className="text-[10px] font-black text-red-600 uppercase">
+                        点击确认删除
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveExercise(ex.id)}
+                      className={`p-1 border-2 border-ink transition-colors cursor-pointer ${
+                        deleteConfirm === ex.id
+                          ? 'bg-red-400 text-white'
+                          : 'bg-paper text-ink hover:bg-red-400 hover:text-white'
+                      }`}
+                      title="删除该项目"
+                    >
+                      {deleteConfirm === ex.id ? <Check size={14} /> : <X size={14} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 mb-4">
+                  <div
+                    className={`p-2 border-2 border-ink cursor-pointer select-none ${
+                      ex.type === 'strength' ? 'bg-neon' : 'bg-white'
+                    }`}
+                    onClick={() =>
+                      updateExercise(ex.id, {
+                        type: ex.type === 'strength' ? 'cardio' : 'strength',
+                      })
+                    }
+                    title="点击切换力量/有氧类型"
+                  >
+                    {ex.type === 'strength' ? (
+                      <Dumbbell size={18} className="text-ink" />
+                    ) : (
+                      <Timer size={18} className="text-ink" />
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder={
+                      ex.type === 'strength'
+                        ? '动作名称 (如 杠铃卧推)'
+                        : '项目名称 (如 跑步机跑步)'
+                    }
+                    value={ex.name}
+                    onChange={(e) => updateExercise(ex.id, { name: e.target.value })}
+                    className="flex-1 font-black text-ink border-b-4 border-ink focus:border-neon outline-none placeholder:opacity-30 uppercase placeholder:italic text-base"
+                    required
+                  />
+                </div>
+
+                {/* Quick preset suggestions if name is empty or being edited */}
+                {!ex.name && currentPresets.length > 0 && (
+                  <div className="mb-4 flex flex-wrap gap-1.5 items-center">
+                    <span className="text-[10px] font-black text-ink/40 uppercase mr-1">推荐:</span>
+                    {currentPresets.slice(0, 4).map((p) => (
+                      <button
+                        key={p.name}
+                        type="button"
+                        onClick={() =>
+                          updateExercise(ex.id, {
+                            name: p.name,
+                            type: p.type,
+                            ...(p.type === 'strength'
+                              ? {
+                                  weight: p.defaultWeight ?? 0,
+                                  sets: p.defaultSets ?? 4,
+                                  reps: p.defaultReps ?? 10,
+                                }
+                              : {
+                                  duration: p.defaultDuration ?? 30,
+                                  distance: p.defaultDistance ?? 0,
+                                  calories: p.defaultCalories ?? 0,
+                                }),
+                          })
+                        }
+                        className="text-[10px] font-black bg-paper border border-ink px-1.5 py-0.5 hover:bg-neon transition-colors"
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {ex.type === 'strength' ? (
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className="text-[10px] font-black text-ink uppercase block mb-1">
+                        KG (重量)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={ex.weight || ''}
+                        onChange={(e) =>
+                          updateExercise(ex.id, { weight: Number(e.target.value) || 0 })
+                        }
+                        placeholder="0"
+                        className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-ink uppercase block mb-1">
+                        Sets (组数)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={ex.sets || ''}
+                        onChange={(e) =>
+                          updateExercise(ex.id, { sets: Number(e.target.value) || 0 })
+                        }
+                        placeholder="0"
+                        className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-ink uppercase block mb-1">
+                        Reps (次数)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={ex.reps || ''}
+                        onChange={(e) =>
+                          updateExercise(ex.id, { reps: Number(e.target.value) || 0 })
+                        }
+                        placeholder="0"
+                        className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className="text-[10px] font-black text-ink uppercase block mb-1">
+                        Min (分钟)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={ex.duration || ''}
+                        onChange={(e) =>
+                          updateExercise(ex.id, { duration: Number(e.target.value) || 0 })
+                        }
+                        placeholder="0"
+                        className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-ink uppercase block mb-1">
+                        Km (公里)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={ex.distance || ''}
+                        onChange={(e) =>
+                          updateExercise(ex.id, { distance: Number(e.target.value) || 0 })
+                        }
+                        placeholder="0"
+                        className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-ink uppercase block mb-1">
+                        Kcal (大卡)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={ex.calories || ''}
+                        onChange={(e) =>
+                          updateExercise(ex.id, { calories: Number(e.target.value) || 0 })
+                        }
+                        placeholder="0"
+                        className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            ))
+          )}
         </AnimatePresence>
 
         <div className="flex gap-3">
-          <button type="button" onClick={() => addExercise('strength')} className="flex-1 bg-white border-4 border-ink text-ink py-3 font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-neon transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none">
-            <Plus size={18} /> Strength
+          <button
+            type="button"
+            onClick={() => addExercise('strength')}
+            className="flex-1 bg-white border-4 border-ink text-ink py-3 font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-neon transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+          >
+            <Plus size={18} /> + 自定义力量
           </button>
-          <button type="button" onClick={() => addExercise('cardio')} className="flex-1 bg-white border-4 border-ink text-ink py-3 font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-neon transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none">
-            <Plus size={18} /> Cardio
+          <button
+            type="button"
+            onClick={() => addExercise('cardio')}
+            className="flex-1 bg-white border-4 border-ink text-ink py-3 font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-neon transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+          >
+            <Plus size={18} /> + 自定义有氧
           </button>
         </div>
       </div>
 
+      {/* Notes / Feelings */}
       <div className="bg-white p-6 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-        <label className="block text-sm font-black text-ink uppercase tracking-widest mb-4">Notes</label>
+        <label className="block text-sm font-black text-ink uppercase tracking-widest mb-4">
+          Notes / 训练心得
+        </label>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="HOW DID IT FEEL?"
-          className="w-full bg-paper border-4 border-ink p-4 font-black text-ink min-h-[100px] outline-none focus:bg-white transition-all uppercase placeholder:opacity-30"
+          placeholder="今天状态如何？泵感怎样？记录下来吧..."
+          className="w-full bg-paper border-4 border-ink p-4 font-black text-ink min-h-[100px] outline-none focus:bg-white transition-all uppercase placeholder:opacity-30 text-sm"
         />
       </div>
 
+      {/* Submit Button */}
       <button
         type="submit"
         disabled={isSubmitting}
@@ -262,7 +736,13 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
           isSubmitting ? 'bg-paper text-ink opacity-50' : 'bg-ink text-white'
         }`}
       >
-        {isSubmitting ? 'Saving...' : (<><Send size={24} /> Post to Feed</>)}
+        {isSubmitting ? (
+          'Saving...'
+        ) : (
+          <>
+            <Send size={24} /> 发布打卡
+          </>
+        )}
       </button>
     </form>
   );

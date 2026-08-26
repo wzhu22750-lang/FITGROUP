@@ -545,6 +545,25 @@ export const subscribeToLeaderboard = (callback: (users: AppUser[]) => void, max
   };
 };
 
+export const getLastWorkoutByCategory = async (userId: string, category: string): Promise<any | null> => {
+  try {
+    const { data, error } = await supabase
+      .from('workout_logs')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('category', category)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return normalizeLog(data as WorkoutLogRow);
+  } catch (err) {
+    console.warn('Failed to get last workout for category:', err);
+    return null;
+  }
+};
+
 export const waitForAuthReady = () => new Promise<AppUser | null>((resolve) => {
   void supabase.auth.getSession().then(({ data }) => {
     const user = data.session?.user;
