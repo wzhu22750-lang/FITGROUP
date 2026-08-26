@@ -23,6 +23,8 @@ import {
   RotateCcw,
   Sparkles,
   Zap,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
@@ -40,6 +42,8 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
   const [activePresetCategory, setActivePresetCategory] = useState<WorkoutCategory>(
     WorkoutCategory.Chest
   );
+  // Collapsible state for preset exercises section
+  const [isPresetsExpanded, setIsPresetsExpanded] = useState(true);
 
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [note, setNote] = useState('');
@@ -409,67 +413,88 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         )}
       </AnimatePresence>
 
-      {/* Preset / Common Exercises Quick Selection with Category Tabs */}
-      <div className="bg-white p-5 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-        <div className="flex items-center justify-between mb-3">
+      {/* Preset / Common Exercises Quick Selection with Category Tabs (Collapsible) */}
+      <div className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all">
+        <div
+          onClick={() => setIsPresetsExpanded(!isPresetsExpanded)}
+          className="p-5 flex items-center justify-between cursor-pointer select-none hover:bg-paper/50 transition-colors"
+        >
           <div className="flex items-center gap-2">
             <div className="bg-ink p-1">
               <Dumbbell size={14} className="text-neon" />
             </div>
-            <label className="text-xs font-black text-ink uppercase tracking-widest">
+            <label className="text-xs font-black text-ink uppercase tracking-widest cursor-pointer">
               常用动作快捷添加
             </label>
           </div>
-          <span className="text-[10px] font-black text-ink/40">点击直接加入</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black text-ink/40">
+              {isPresetsExpanded ? '点击折叠' : '点击展开'}
+            </span>
+            <div className="p-0.5 border border-ink bg-paper">
+              {isPresetsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </div>
+          </div>
         </div>
 
-        {/* 部位选择组件 */}
-        <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3 border-b-2 border-ink/10">
-          {Object.values(WorkoutCategory).map((cat) => {
-            const isTabActive = activePresetCategory === cat;
-            const isSelected = selectedCategories.includes(cat);
-            const meta = CATEGORY_META[cat];
-            return (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setActivePresetCategory(cat)}
-                className={`px-2.5 py-1 border-2 border-ink text-xs font-black uppercase transition-all shrink-0 cursor-pointer ${
-                  isTabActive
-                    ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
-                    : isSelected
-                      ? 'bg-neon/30 text-ink hover:bg-neon'
-                      : 'bg-paper text-ink hover:bg-neon'
-                }`}
-              >
-                {meta?.zh || cat}
-              </button>
-            );
-          })}
-        </div>
+        <AnimatePresence initial={false}>
+          {isPresetsExpanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden px-5 pb-5 border-t-2 border-ink/10 pt-3"
+            >
+              {/* 部位选择组件 */}
+              <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3 border-b-2 border-ink/10">
+                {Object.values(WorkoutCategory).map((cat) => {
+                  const isTabActive = activePresetCategory === cat;
+                  const isSelected = selectedCategories.includes(cat);
+                  const meta = CATEGORY_META[cat];
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setActivePresetCategory(cat)}
+                      className={`px-2.5 py-1 border-2 border-ink text-xs font-black uppercase transition-all shrink-0 cursor-pointer ${
+                        isTabActive
+                          ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
+                          : isSelected
+                            ? 'bg-neon/30 text-ink hover:bg-neon'
+                            : 'bg-paper text-ink hover:bg-neon'
+                      }`}
+                    >
+                      {meta?.zh || cat}
+                    </button>
+                  );
+                })}
+              </div>
 
-        {/* 对应部位常用动作列表 */}
-        <div className="flex flex-wrap gap-2">
-          {currentPresets.map((preset) => {
-            const isAlreadyAdded = exercises.some((e) => e.name.trim() === preset.name);
-            return (
-              <button
-                key={preset.name}
-                type="button"
-                onClick={() => handleAddPresetExercise(preset)}
-                className={`py-1.5 px-2.5 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex items-center gap-1.5 active:translate-x-0.5 active:translate-y-0.5 ${
-                  isAlreadyAdded
-                    ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
-                    : 'bg-paper text-ink hover:bg-neon hover:border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none'
-                }`}
-                title={`点击添加: ${preset.name}`}
-              >
-                {isAlreadyAdded ? <Check size={13} className="stroke-[3]" /> : <Plus size={13} />}
-                <span>{preset.name}</span>
-              </button>
-            );
-          })}
-        </div>
+              {/* 对应部位常用动作列表 */}
+              <div className="flex flex-wrap gap-2">
+                {currentPresets.map((preset) => {
+                  const isAlreadyAdded = exercises.some((e) => e.name.trim() === preset.name);
+                  return (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      onClick={() => handleAddPresetExercise(preset)}
+                      className={`py-1.5 px-2.5 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex items-center gap-1.5 active:translate-x-0.5 active:translate-y-0.5 ${
+                        isAlreadyAdded
+                          ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
+                          : 'bg-paper text-ink hover:bg-neon hover:border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none'
+                      }`}
+                      title={`点击添加: ${preset.name}`}
+                    >
+                      {isAlreadyAdded ? <Check size={13} className="stroke-[3]" /> : <Plus size={13} />}
+                      <span>{preset.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Exercise List */}
@@ -572,39 +597,6 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
                   required
                 />
               </div>
-
-              {/* Quick preset suggestions if name is empty */}
-              {!ex.name && currentPresets.length > 0 && (
-                <div className="mb-4 flex flex-wrap gap-1.5 items-center">
-                  <span className="text-[10px] font-black text-ink/40 uppercase mr-1">推荐:</span>
-                  {currentPresets.slice(0, 4).map((p) => (
-                    <button
-                      key={p.name}
-                      type="button"
-                      onClick={() =>
-                        updateExercise(ex.id, {
-                          name: p.name,
-                          type: p.type,
-                          ...(p.type === 'strength'
-                            ? {
-                                weight: p.defaultWeight ?? 0,
-                                sets: p.defaultSets ?? 4,
-                                reps: p.defaultReps ?? 10,
-                              }
-                            : {
-                                duration: p.defaultDuration ?? 30,
-                                distance: p.defaultDistance ?? 0,
-                                calories: p.defaultCalories ?? 0,
-                              }),
-                        })
-                      }
-                      className="text-[10px] font-black bg-paper border border-ink px-1.5 py-0.5 hover:bg-neon transition-colors cursor-pointer"
-                    >
-                      {p.name}
-                    </button>
-                  ))}
-                </div>
-              )}
 
               {ex.type === 'strength' ? (
                 <div className="grid grid-cols-3 gap-4">
