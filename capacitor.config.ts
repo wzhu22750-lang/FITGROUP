@@ -7,6 +7,8 @@ const config: CapacitorConfig = {
   android: {
     backgroundColor: '#F4F4F4',
   },
+  // Android WebView loads this URL. After the first Vercel deploy, replace
+  // with the *.vercel.app domain and rebuild the APK once.
   server: {
     url: 'https://gen-lang-client-0285368146.web.app',
     cleartext: false,

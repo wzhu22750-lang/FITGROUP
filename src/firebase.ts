@@ -1,63 +1,5 @@
-import { initializeApp } from 'firebase/app';
-import {
-  getAuth,
-  initializeAuth,
-  indexedDBLocalPersistence,
-  onAuthStateChanged,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut,
-  updateProfile,
-  type Auth,
-  type User,
-} from 'firebase/auth';
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  collection,
-  query,
-  where,
-  orderBy,
-  limit,
-  getDocs,
-  onSnapshot,
-  serverTimestamp,
-  Timestamp,
-  increment,
-  writeBatch,
-  type DocumentData,
-} from 'firebase/firestore';
-import { Capacitor } from '@capacitor/core';
-
-const firebaseConfig = {
-  apiKey: 'AIzaSyALpuhcfQXxu87fIsiOEfRUkpQ6uORnTtY',
-  authDomain: 'gen-lang-client-0285368146.firebaseapp.com',
-  projectId: 'gen-lang-client-0285368146',
-  messagingSenderId: '717219904394',
-  appId: '1:717219904394:web:0c2423a516b4eb14c9a673',
-};
-
-const FIRESTORE_DB_ID = 'ai-studio-320fe0bc-75e3-4038-a995-52950cbd787e';
-
-export const app = initializeApp(firebaseConfig);
-
-function createAuth(): Auth {
-  if (Capacitor.isNativePlatform()) {
-    try {
-      return initializeAuth(app, { persistence: indexedDBLocalPersistence });
-    } catch {
-      return getAuth(app);
-    }
-  }
-  return getAuth(app);
-}
-
-export const auth = createAuth();
-export const db = getFirestore(app, FIRESTORE_DB_ID);
+import type { User } from '@supabase/supabase-js';
+import { supabase } from './lib/supabase';
 
 export type AppUser = {
   id: string;
@@ -72,11 +14,44 @@ export type AppUser = {
   prs?: Record<string, number>;
 };
 
+type ProfileRow = {
+  id: string;
+  display_name: string;
+  photo_url: string;
+  streak: number;
+  total_workouts: number;
+  last_workout_date: string | null;
+  prs: Record<string, number> | null;
+};
+
+type WorkoutLogRow = {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_photo: string;
+  created_at: string;
+  category: string;
+  exercises: unknown;
+  note: string;
+  photo_url: string;
+  likes_count: number;
+  comments_count: number;
+};
+
+type CommentRow = {
+  id: string;
+  log_id: string;
+  user_id: string;
+  user_name: string;
+  user_photo: string;
+  content: string;
+  created_at: string;
+};
+
 let cachedUser: AppUser | null = null;
 
 function toIso(value: unknown): string | undefined {
   if (!value) return undefined;
-  if (value instanceof Timestamp) return value.toDate().toISOString();
   if (typeof value === 'string') return value;
   if (value instanceof Date) return value.toISOString();
   return undefined;
@@ -89,28 +64,28 @@ function newId(prefix = 'id'): string {
   return `${prefix}_${rand}`.slice(0, 128);
 }
 
-function profileFromDoc(uid: string, data: DocumentData | undefined, authUser?: User | null): AppUser {
+function profileFromRow(row: ProfileRow, authUser?: User | null): AppUser {
   return {
-    id: uid,
-    uid,
+    id: row.id,
+    uid: row.id,
     email: authUser?.email || undefined,
-    displayName: data?.displayName || authUser?.displayName || authUser?.email?.split('@')[0] || 'FitGroup',
-    photoURL: data?.photoURL || authUser?.photoURL || '',
+    displayName: row.display_name || authUser?.user_metadata?.display_name || authUser?.email?.split('@')[0] || 'FitGroup',
+    photoURL: row.photo_url || '',
     phone: '',
-    streak: Number(data?.streak || 0),
-    totalWorkouts: Number(data?.totalWorkouts || 0),
-    lastWorkoutDate: toIso(data?.lastWorkoutDate),
-    prs: data?.prs && typeof data.prs === 'object' ? data.prs : {},
+    streak: Number(row.streak || 0),
+    totalWorkouts: Number(row.total_workouts || 0),
+    lastWorkoutDate: toIso(row.last_workout_date),
+    prs: row.prs && typeof row.prs === 'object' ? row.prs : {},
   };
 }
 
 function authOnlyUser(user: User): AppUser {
   return {
-    id: user.uid,
-    uid: user.uid,
+    id: user.id,
+    uid: user.id,
     email: user.email || undefined,
-    displayName: user.displayName || user.email?.split('@')[0] || 'FitGroup',
-    photoURL: user.photoURL || '',
+    displayName: user.user_metadata?.display_name || user.email?.split('@')[0] || 'FitGroup',
+    photoURL: user.user_metadata?.photo_url || '',
     phone: '',
     streak: 0,
     totalWorkouts: 0,
@@ -118,50 +93,93 @@ function authOnlyUser(user: User): AppUser {
   };
 }
 
+async function currentAuthUser(): Promise<User | null> {
+  const { data } = await supabase.auth.getUser();
+  return data.user ?? null;
+}
+
 export async function ensureUserProfile(user: User, extras: Partial<AppUser> = {}): Promise<AppUser> {
-  const ref = doc(db, 'users', user.uid);
-  const snap = await getDoc(ref);
-  if (snap.exists()) {
-    const profile = profileFromDoc(user.uid, snap.data(), user);
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (data) {
+    const profile = profileFromRow(data as ProfileRow, user);
     cachedUser = profile;
     return profile;
   }
 
-  const displayName = (extras.displayName || user.displayName || user.email?.split('@')[0] || 'FitGroup').slice(0, 50);
-  const photoURL = extras.photoURL || user.photoURL || '';
-  await setDoc(ref, {
-    displayName,
-    photoURL,
-    streak: 0,
-    totalWorkouts: 0,
-    prs: {},
+  const displayName = (extras.displayName || user.user_metadata?.display_name || user.email?.split('@')[0] || 'FitGroup')
+    .toString()
+    .slice(0, 50);
+  const photoURL = extras.photoURL || user.user_metadata?.photo_url || '';
+
+  const { error: insertError } = await supabase.from('profiles').insert({
+    id: user.id,
+    display_name: displayName,
+    photo_url: photoURL,
   });
-  const profile = profileFromDoc(user.uid, { displayName, photoURL, streak: 0, totalWorkouts: 0, prs: {} }, user);
+
+  if (insertError && insertError.code !== '23505') throw insertError;
+
+  const { data: created, error: reloadError } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+  if (reloadError) throw reloadError;
+
+  const profile = profileFromRow(created as ProfileRow, user);
   cachedUser = profile;
   return profile;
 }
 
 function mapAuthError(error: unknown): Error {
-  const code = (error as { code?: string })?.code || '';
-  const messages: Record<string, string> = {
-    'auth/email-already-in-use': '该邮箱已注册，请直接登录',
-    'auth/invalid-email': '邮箱格式不正确',
-    'auth/weak-password': '密码至少需要 6 位',
-    'auth/invalid-credential': '邮箱或密码错误',
-    'auth/user-not-found': '账号不存在，请先注册',
-    'auth/wrong-password': '邮箱或密码错误',
-    'auth/too-many-requests': '尝试次数过多，请稍后再试',
-    'auth/network-request-failed': '网络异常，请检查网络后重试',
+  const err = error as { code?: string; message?: string; status?: number };
+  const code = (err?.code || '').toLowerCase();
+  const message = (err?.message || '').toLowerCase();
+  const table: Record<string, string> = {
+    email_exists: '该邮箱已注册，请直接登录',
+    user_already_exists: '该邮箱已注册，请直接登录',
+    invalid_credentials: '邮箱或密码错误',
+    invalid_grant: '邮箱或密码错误',
+    invalid_email: '邮箱格式不正确',
+    validation_failed: '邮箱格式不正确',
+    weak_password: '密码至少需要 6 位',
+    over_request_rate_limit: '尝试次数过多，请稍后再试',
+    over_email_send_rate_limit: '尝试次数过多，请稍后再试',
+    email_not_confirmed: '请先到邮箱确认后再登录',
   };
-  return new Error(messages[code] || (error as Error)?.message || '登录失败，请重试');
+  if (table[code]) return new Error(table[code]);
+  if (message.includes('already registered') || message.includes('already been registered')) {
+    return new Error('该邮箱已注册，请直接登录');
+  }
+  if (message.includes('invalid login') || message.includes('invalid credentials')) {
+    return new Error('邮箱或密码错误');
+  }
+  if (message.includes('network')) {
+    return new Error('网络异常，请检查网络后重试');
+  }
+  return new Error(err?.message || '登录失败，请重试');
 }
 
 export const registerWithEmail = async (email: string, password: string, displayName: string) => {
   try {
-    const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
     const name = displayName.trim().slice(0, 50) || email.split('@')[0];
-    await updateProfile(cred.user, { displayName: name });
-    return ensureUserProfile(cred.user, { displayName: name });
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { data: { display_name: name } },
+    });
+    if (error) throw error;
+    if (!data.user) throw new Error('注册失败，请重试');
+    if (!data.session) {
+      throw new Error('注册成功，请查收确认邮件后再登录');
+    }
+    return ensureUserProfile(data.user, { displayName: name });
   } catch (e) {
     throw mapAuthError(e);
   }
@@ -169,8 +187,13 @@ export const registerWithEmail = async (email: string, password: string, display
 
 export const loginWithEmail = async (email: string, password: string) => {
   try {
-    const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
-    return ensureUserProfile(cred.user);
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+    if (error) throw error;
+    if (!data.user) throw new Error('登录失败，请重试');
+    return ensureUserProfile(data.user);
   } catch (e) {
     throw mapAuthError(e);
   }
@@ -178,275 +201,266 @@ export const loginWithEmail = async (email: string, password: string) => {
 
 export const logout = async () => {
   cachedUser = null;
-  await signOut(auth);
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
   return null;
 };
 
 export const getCurrentUser = () => cachedUser;
 
 export const onAuthStateChangedFn = (callback: (user: AppUser | null) => void) => {
-  return onAuthStateChanged(auth, async (user) => {
+  const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    const user = session?.user;
     if (!user) {
       cachedUser = null;
       callback(null);
       return;
     }
-    try {
-      const profile = await ensureUserProfile(user);
-      callback(profile);
-    } catch (e) {
-      console.error('Load profile failed:', e);
-      cachedUser = authOnlyUser(user);
-      callback(cachedUser);
-    }
+    void ensureUserProfile(user)
+      .then(callback)
+      .catch((e) => {
+        console.error('Load profile failed:', e);
+        cachedUser = authOnlyUser(user);
+        callback(cachedUser);
+      });
   });
+  return () => data.subscription.unsubscribe();
 };
 
 export const getUserProfile = async (userId: string) => {
-  const snap = await getDoc(doc(db, 'users', userId));
-  if (!snap.exists()) throw new Error('User not found');
-  const authUser = auth.currentUser?.uid === userId ? auth.currentUser : null;
-  return profileFromDoc(userId, snap.data(), authUser);
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('User not found');
+  const authUser = await currentAuthUser();
+  return profileFromRow(data as ProfileRow, authUser?.id === userId ? authUser : null);
 };
 
 export const updateUserProfileFn = async (userId: string, updates: Record<string, unknown>) => {
+  const user = await currentAuthUser();
+  if (!user || user.id !== userId) throw new Error('未登录');
+
   const payload: Record<string, unknown> = {};
-  if (typeof updates.displayName === 'string') payload.displayName = updates.displayName.trim().slice(0, 50);
-  if (typeof updates.photoURL === 'string') payload.photoURL = updates.photoURL;
-  if (typeof updates.streak === 'number') payload.streak = updates.streak;
-  if (typeof updates.totalWorkouts === 'number') payload.totalWorkouts = updates.totalWorkouts;
-  if (updates.prs && typeof updates.prs === 'object') payload.prs = updates.prs;
-  if (updates.lastWorkoutDate) {
-    const raw = updates.lastWorkoutDate;
-    payload.lastWorkoutDate = raw instanceof Date
-      ? Timestamp.fromDate(raw)
-      : typeof raw === 'string'
-        ? Timestamp.fromDate(new Date(raw))
-        : raw;
+  if (typeof updates.displayName === 'string') payload.display_name = updates.displayName.trim().slice(0, 50);
+  if (typeof updates.photoURL === 'string') payload.photo_url = updates.photoURL;
+
+  if (Object.keys(payload).length === 0) {
+    return getUserProfile(userId);
   }
 
-  await updateDoc(doc(db, 'users', userId), payload);
+  const { error } = await supabase.from('profiles').update(payload).eq('id', userId);
+  if (error) throw error;
 
-  if (auth.currentUser && auth.currentUser.uid === userId) {
-    const profilePatch: { displayName?: string; photoURL?: string } = {};
-    if (typeof payload.displayName === 'string') profilePatch.displayName = payload.displayName;
-    if (typeof payload.photoURL === 'string') profilePatch.photoURL = payload.photoURL;
-    if (Object.keys(profilePatch).length > 0) {
-      await updateProfile(auth.currentUser, profilePatch);
-    }
+  if (payload.display_name || payload.photo_url) {
+    await supabase.auth.updateUser({
+      data: {
+        ...(typeof payload.display_name === 'string' ? { display_name: payload.display_name } : {}),
+        ...(typeof payload.photo_url === 'string' ? { photo_url: payload.photo_url } : {}),
+      },
+    });
   }
+
   if (cachedUser && cachedUser.uid === userId) {
     cachedUser = {
       ...cachedUser,
-      ...payload,
-      lastWorkoutDate: toIso(payload.lastWorkoutDate) || cachedUser.lastWorkoutDate,
+      displayName: typeof payload.display_name === 'string' ? payload.display_name : cachedUser.displayName,
+      photoURL: typeof payload.photo_url === 'string' ? payload.photo_url : cachedUser.photoURL,
     };
   }
 };
 
 export const syncUserStatsFromLogs = async (userId: string): Promise<AppUser> => {
-  const user = auth.currentUser;
-  if (!user || user.uid !== userId) {
-    return getUserProfile(userId);
-  }
-
-  const q = query(
-    collection(db, 'workoutLogs'),
-    where('userId', '==', userId),
-    orderBy('timestamp', 'desc')
-  );
-  const snap = await getDocs(q);
-  const logs = snap.docs.map(d => normalizeLog(d.id, d.data()));
-
-  const totalWorkouts = logs.length;
-  const prs: Record<string, number> = {};
-
-  logs.forEach(log => {
-    (log.exercises || []).forEach((ex: any) => {
-      if (ex.type === 'strength' && typeof ex.weight === 'number' && ex.weight > 0 && ex.name) {
-        const name = String(ex.name).trim();
-        if (!prs[name] || ex.weight > prs[name]) {
-          prs[name] = ex.weight;
-        }
-      }
-    });
-  });
-
-  let streak = 0;
-  let lastWorkoutDate: string | undefined = undefined;
-
-  if (logs.length > 0) {
-    lastWorkoutDate = logs[0].timestamp;
-
-    const toDateKey = (dateStr: string) => {
-      const d = new Date(dateStr);
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    };
-
-    const uniqueDateKeys = Array.from(
-      new Set(logs.map(l => toDateKey(l.timestamp)))
-    ).sort().reverse();
-
-    const todayKey = toDateKey(new Date().toISOString());
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayKey = toDateKey(yesterday.toISOString());
-
-    const latestKey = uniqueDateKeys[0];
-    if (latestKey === todayKey || latestKey === yesterdayKey) {
-      streak = 1;
-      let curr = new Date(latestKey);
-      for (let i = 1; i < uniqueDateKeys.length; i++) {
-        const prevExpected = new Date(curr);
-        prevExpected.setDate(prevExpected.getDate() - 1);
-        const prevExpectedKey = toDateKey(prevExpected.toISOString());
-        if (uniqueDateKeys[i] === prevExpectedKey) {
-          streak += 1;
-          curr = prevExpected;
-        } else {
-          break;
-        }
-      }
-    } else {
-      streak = 0;
-    }
-  }
-
-  await updateUserProfileFn(userId, {
-    totalWorkouts,
-    streak,
-    prs,
-    lastWorkoutDate: lastWorkoutDate || null,
-  });
-
   return getUserProfile(userId);
 };
 
 export const createWorkoutLog = async (logData: Record<string, unknown>) => {
-  const user = auth.currentUser;
+  const user = await currentAuthUser();
   if (!user) throw new Error('未登录');
 
   const logId = typeof logData.id === 'string' && logData.id ? logData.id : newId('log');
   const exercises = Array.isArray(logData.exercises) ? logData.exercises : [];
-  await setDoc(doc(db, 'workoutLogs', logId), {
-    userId: user.uid,
-    userName: String(logData.userName || user.displayName || 'FitGroup').slice(0, 50),
-    userPhoto: String(logData.userPhoto || user.photoURL || ''),
-    timestamp: serverTimestamp(),
+  const profile = cachedUser || await ensureUserProfile(user);
+
+  const { error } = await supabase.from('workout_logs').insert({
+    id: logId,
+    user_id: user.id,
+    user_name: String(logData.userName || profile.displayName || 'FitGroup').slice(0, 50),
+    user_photo: String(logData.userPhoto || profile.photoURL || ''),
     category: logData.category,
     exercises,
     note: String(logData.note || '').slice(0, 500),
-    photoUrl: String(logData.photoUrl || ''),
-    likesCount: 0,
-    commentsCount: 0,
+    photo_url: String(logData.photoUrl || ''),
   });
 
-  await syncUserStatsFromLogs(user.uid).catch((err) => {
-    console.warn('Sync user stats after create failed:', err);
-  });
+  if (error) {
+    if (error.code === '23505') {
+      const { data: existing } = await supabase
+        .from('workout_logs')
+        .select('id, user_id')
+        .eq('id', logId)
+        .maybeSingle();
+      if (existing && existing.user_id === user.id) {
+        return { id: logId };
+      }
+    }
+    throw error;
+  }
 
   return { id: logId };
 };
 
 export const deleteWorkoutLog = async (workoutLogId: string) => {
-  const user = auth.currentUser;
+  const user = await currentAuthUser();
   if (!user) throw new Error('未登录');
-  const logRef = doc(db, 'workoutLogs', workoutLogId);
-  const snap = await getDoc(logRef);
-  if (!snap.exists()) return;
-  const data = snap.data();
-  if (data.userId !== user.uid) {
+
+  const { data, error: readError } = await supabase
+    .from('workout_logs')
+    .select('id, user_id')
+    .eq('id', workoutLogId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!data) return;
+  if (data.user_id !== user.id) {
     throw new Error('只能删除自己的打卡记录');
   }
 
-  // 1. Clean up likes and comments subcollections in batch
-  try {
-    const [likesSnap, commentsSnap] = await Promise.all([
-      getDocs(collection(db, 'workoutLogs', workoutLogId, 'likes')),
-      getDocs(collection(db, 'workoutLogs', workoutLogId, 'comments')),
-    ]);
-
-    const batch = writeBatch(db);
-    likesSnap.docs.forEach((d) => batch.delete(d.ref));
-    commentsSnap.docs.forEach((d) => batch.delete(d.ref));
-    batch.delete(logRef);
-    await batch.commit();
-  } catch (err) {
-    console.warn('Batch delete subcollections failed, falling back to direct delete:', err);
-    await deleteDoc(logRef);
-  }
-
-  // 2. Recalculate stats from remaining logs
-  await syncUserStatsFromLogs(user.uid).catch((err) => {
-    console.warn('Sync user stats after delete failed:', err);
-  });
+  const { error } = await supabase.from('workout_logs').delete().eq('id', workoutLogId);
+  if (error) throw error;
 };
 
-function normalizeLog(id: string, data: DocumentData) {
+function normalizeLog(row: WorkoutLogRow) {
   return {
-    ...data,
-    id,
-    timestamp: toIso(data.timestamp) || new Date().toISOString(),
-    exercises: Array.isArray(data.exercises) ? data.exercises : [],
-    likesCount: Number(data.likesCount || 0),
-    commentsCount: Number(data.commentsCount || 0),
+    id: row.id,
+    userId: row.user_id,
+    userName: row.user_name,
+    userPhoto: row.user_photo,
+    timestamp: toIso(row.created_at) || new Date().toISOString(),
+    category: row.category,
+    exercises: Array.isArray(row.exercises) ? row.exercises : [],
+    note: row.note || '',
+    photoUrl: row.photo_url || '',
+    likesCount: Number(row.likes_count || 0),
+    commentsCount: Number(row.comments_count || 0),
   };
 }
 
-// Realtime listener with query limits
+async function fetchWorkoutLogs(maxCount: number) {
+  const { data, error } = await supabase
+    .from('workout_logs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(maxCount);
+  if (error) throw error;
+  return (data as WorkoutLogRow[]).map(normalizeLog);
+}
+
 export const subscribeToWorkoutLogs = (
   callback: (logs: unknown[]) => void,
   onError?: (error: Error) => void,
   maxCount = 30,
 ) => {
-  const q = query(collection(db, 'workoutLogs'), orderBy('timestamp', 'desc'), limit(maxCount));
-  return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => normalizeLog(d.id, d.data())));
-  }, (e) => {
-    console.error('Workout logs listen error:', e);
-    onError?.(e instanceof Error ? e : new Error('动态加载失败'));
-    callback([]);
-  });
+  const pull = () => {
+    void fetchWorkoutLogs(maxCount)
+      .then(callback)
+      .catch((e) => {
+        console.error('Workout logs listen error:', e);
+        onError?.(e instanceof Error ? e : new Error('动态加载失败'));
+        callback([]);
+      });
+  };
+
+  pull();
+  const channel = supabase
+    .channel(`workout_logs_feed_${newId('ch')}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_logs' }, pull)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_likes' }, pull)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_comments' }, pull)
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
 };
 
 export const checkUserLike = async (workoutLogId: string, userId: string) => {
-  const snap = await getDoc(doc(db, 'workoutLogs', workoutLogId, 'likes', userId));
-  return snap.exists();
+  const { data, error } = await supabase
+    .from('workout_likes')
+    .select('user_id')
+    .eq('log_id', workoutLogId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
 };
 
 export const toggleLike = async (workoutLogId: string, userId: string, hasLiked: boolean) => {
-  const logRef = doc(db, 'workoutLogs', workoutLogId);
-  const likeRef = doc(db, 'workoutLogs', workoutLogId, 'likes', userId);
-  const logSnap = await getDoc(logRef);
-  if (!logSnap.exists()) throw new Error('Log not found');
+  const user = await currentAuthUser();
+  if (!user || user.id !== userId) throw new Error('未登录');
 
-  const batch = writeBatch(db);
+  const { data: log, error: logError } = await supabase
+    .from('workout_logs')
+    .select('id')
+    .eq('id', workoutLogId)
+    .maybeSingle();
+  if (logError) throw logError;
+  if (!log) throw new Error('Log not found');
+
   if (hasLiked) {
-    batch.delete(likeRef);
-    batch.update(logRef, { likesCount: increment(-1) });
-  } else {
-    batch.set(likeRef, { userId });
-    batch.update(logRef, { likesCount: increment(1) });
+    const { error } = await supabase
+      .from('workout_likes')
+      .delete()
+      .eq('log_id', workoutLogId)
+      .eq('user_id', userId);
+    if (error) throw error;
+    return;
   }
-  await batch.commit();
+
+  const { error } = await supabase.from('workout_likes').insert({
+    log_id: workoutLogId,
+    user_id: userId,
+  });
+  if (error && error.code !== '23505') throw error;
 };
 
-// Realtime listener: comment panel should stream new replies.
 export const subscribeToComments = (workoutLogId: string, callback: (comments: unknown[]) => void) => {
-  const q = query(
-    collection(db, 'workoutLogs', workoutLogId, 'comments'),
-    orderBy('timestamp', 'asc'),
-  );
-  return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => ({
-      ...d.data(),
-      id: d.id,
-      timestamp: toIso(d.data().timestamp) || d.data().timestamp,
-    })));
-  }, () => callback([]));
+  const pull = () => {
+    void supabase
+      .from('workout_comments')
+      .select('*')
+      .eq('log_id', workoutLogId)
+      .order('created_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) {
+          callback([]);
+          return;
+        }
+        callback((data as CommentRow[]).map((row) => ({
+          id: row.id,
+          userId: row.user_id,
+          userName: row.user_name,
+          userPhoto: row.user_photo,
+          content: row.content,
+          timestamp: toIso(row.created_at) || row.created_at,
+        })));
+      });
+  };
+
+  pull();
+  const channel = supabase
+    .channel(`comments_${workoutLogId}_${newId('ch')}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'workout_comments', filter: `log_id=eq.${workoutLogId}` },
+      pull,
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
 };
 
 export const addComment = async (
@@ -456,63 +470,94 @@ export const addComment = async (
   userPhoto: string,
   content: string,
 ) => {
-  const commentId = newId('c');
-  const logRef = doc(db, 'workoutLogs', workoutLogId);
-  const commentRef = doc(db, 'workoutLogs', workoutLogId, 'comments', commentId);
-  const logSnap = await getDoc(logRef);
-  if (!logSnap.exists()) throw new Error('Log not found');
+  const user = await currentAuthUser();
+  if (!user || user.id !== userId) throw new Error('未登录');
 
-  const batch = writeBatch(db);
-  batch.set(commentRef, {
-    userId,
-    userName: userName.slice(0, 50),
-    userPhoto: userPhoto || '',
+  const { data: log, error: logError } = await supabase
+    .from('workout_logs')
+    .select('id')
+    .eq('id', workoutLogId)
+    .maybeSingle();
+  if (logError) throw logError;
+  if (!log) throw new Error('Log not found');
+
+  const { error } = await supabase.from('workout_comments').insert({
+    id: newId('c'),
+    log_id: workoutLogId,
+    user_id: userId,
+    user_name: userName.slice(0, 50),
+    user_photo: userPhoto || '',
     content: content.slice(0, 300),
-    timestamp: serverTimestamp(),
   });
-  batch.update(logRef, { commentsCount: increment(1) });
-  await batch.commit();
+  if (error) throw error;
 };
 
 export const getLeaderboard = async (maxCount = 10) => {
-  const q = query(collection(db, 'users'), orderBy('streak', 'desc'), limit(maxCount));
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => profileFromDoc(d.id, d.data()));
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .order('streak', { ascending: false })
+    .limit(maxCount);
+  if (error) throw error;
+  return (data as ProfileRow[]).map((row) => profileFromRow(row));
 };
 
 export const subscribeToUserProfile = (userId: string, callback: (profile: AppUser) => void) => {
-  const ref = doc(db, 'users', userId);
-  return onSnapshot(ref, (snap) => {
-    if (snap.exists()) {
-      const profile = profileFromDoc(userId, snap.data(), auth.currentUser);
-      cachedUser = profile;
-      callback(profile);
-    }
-  });
+  const pull = () => {
+    void getUserProfile(userId)
+      .then((profile) => {
+        if (cachedUser && cachedUser.uid === userId) {
+          cachedUser = { ...cachedUser, ...profile };
+        }
+        callback(profile);
+      })
+      .catch(() => undefined);
+  };
+
+  pull();
+  const channel = supabase
+    .channel(`profile_${userId}_${newId('ch')}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` },
+      pull,
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
 };
 
 export const subscribeToLeaderboard = (callback: (users: AppUser[]) => void, maxCount = 10) => {
-  const q = query(collection(db, 'users'), orderBy('streak', 'desc'), limit(maxCount));
-  return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => profileFromDoc(d.id, d.data())));
-  });
+  const pull = () => {
+    void getLeaderboard(maxCount).then(callback).catch(() => callback([]));
+  };
+
+  pull();
+  const channel = supabase
+    .channel(`leaderboard_${newId('ch')}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, pull)
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
 };
 
 export const waitForAuthReady = () => new Promise<AppUser | null>((resolve) => {
-  const unsub = onAuthStateChanged(auth, async (user) => {
-    unsub();
+  void supabase.auth.getSession().then(({ data }) => {
+    const user = data.session?.user;
     if (!user) {
       cachedUser = null;
       resolve(null);
       return;
     }
-    try {
-      resolve(await ensureUserProfile(user));
-    } catch {
+    ensureUserProfile(user).then(resolve).catch(() => {
       cachedUser = authOnlyUser(user);
       resolve(cachedUser);
-    }
+    });
   });
 });
 
-export default app;
+export default supabase;
