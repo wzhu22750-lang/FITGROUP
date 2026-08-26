@@ -284,16 +284,38 @@ export const createWorkoutLog = async (logData: Record<string, unknown>) => {
   const exercises = Array.isArray(logData.exercises) ? logData.exercises : [];
   const profile = cachedUser || await ensureUserProfile(user);
 
-  const { error } = await supabase.from('workout_logs').insert({
+  const categoriesList = Array.isArray(logData.categories) && logData.categories.length > 0
+    ? (logData.categories as string[])
+    : (typeof logData.category === 'string' ? [logData.category] : ['Others']);
+
+  const categoryStr = categoriesList.join(', ');
+  const fallbackPrimaryCategory = categoriesList[0] || 'Others';
+
+  let { error } = await supabase.from('workout_logs').insert({
     id: logId,
     user_id: user.id,
     user_name: String(logData.userName || profile.displayName || 'FitGroup').slice(0, 50),
     user_photo: String(logData.userPhoto || profile.photoURL || ''),
-    category: logData.category,
+    category: categoryStr,
     exercises,
     note: String(logData.note || '').slice(0, 500),
     photo_url: String(logData.photoUrl || ''),
   });
+
+  // Fallback retry if DB has strict check constraint on single category enum value
+  if (error && error.code === '23514' && categoryStr !== fallbackPrimaryCategory) {
+    const retryRes = await supabase.from('workout_logs').insert({
+      id: logId,
+      user_id: user.id,
+      user_name: String(logData.userName || profile.displayName || 'FitGroup').slice(0, 50),
+      user_photo: String(logData.userPhoto || profile.photoURL || ''),
+      category: fallbackPrimaryCategory,
+      exercises,
+      note: String(logData.note || '').slice(0, 500),
+      photo_url: String(logData.photoUrl || ''),
+    });
+    error = retryRes.error;
+  }
 
   if (error) {
     if (error.code === '23505') {
@@ -551,7 +573,7 @@ export const getLastWorkoutByCategory = async (userId: string, category: string)
       .from('workout_logs')
       .select('*')
       .eq('user_id', userId)
-      .eq('category', category)
+      .ilike('category', `%${category}%`)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -562,6 +584,22 @@ export const getLastWorkoutByCategory = async (userId: string, category: string)
     console.warn('Failed to get last workout for category:', err);
     return null;
   }
+};
+
+export const getLastWorkoutsByCategories = async (
+  userId: string,
+  categories: string[]
+): Promise<Record<string, any>> => {
+  const result: Record<string, any> = {};
+  await Promise.all(
+    categories.map(async (cat) => {
+      const log = await getLastWorkoutByCategory(userId, cat);
+      if (log) {
+        result[cat] = log;
+      }
+    })
+  );
+  return result;
 };
 
 export const waitForAuthReady = () => new Promise<AppUser | null>((resolve) => {

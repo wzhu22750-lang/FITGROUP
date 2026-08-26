@@ -1,5 +1,12 @@
 import { WorkoutCategory } from '../src/types';
-import { PRESET_EXERCISES_BY_CATEGORY, CATEGORY_META } from '../src/constants/workoutPresets';
+import {
+  PRESET_EXERCISES_BY_CATEGORY,
+  CATEGORY_META,
+  parseCategories,
+  formatCategoriesZh,
+  formatCategoriesEn,
+  getCategoryBadgeColor,
+} from '../src/constants/workoutPresets';
 
 function assert(condition: boolean, msg: string) {
   if (!condition) {
@@ -30,36 +37,88 @@ for (const cat of Object.values(WorkoutCategory)) {
   }
 }
 
-console.log('--- Testing Import Last Workout Cloning Logic ---');
+console.log('--- Testing Multi-Category Parsing & Formatting ---');
 
-// 2. Test import cloning logic
-const mockLastLog = {
-  id: 'log_prev_123',
-  category: WorkoutCategory.Chest,
-  timestamp: '2026-08-20T10:00:00.000Z',
-  exercises: [
-    { id: 'old_1', name: '杠铃平板卧推', type: 'strength' as const, weight: 80, sets: 4, reps: 8 },
-    { id: 'old_2', name: '哑铃上斜卧推', type: 'strength' as const, weight: 25, sets: 4, reps: 10 },
-    { id: 'old_3', name: '跑步机跑步', type: 'cardio' as const, duration: 20, distance: 3.5, calories: 180 },
-  ],
-};
+// 2. Test multi-category parsing & formatting
+{
+  const single = parseCategories('Chest');
+  assert(single.length === 1 && single[0] === WorkoutCategory.Chest, 'Parse single category "Chest"');
 
-const imported = mockLastLog.exercises.map((ex) => ({
-  id: Math.random().toString(36).slice(2, 11),
-  name: ex.name,
-  type: ex.type || 'strength',
-  weight: ex.weight ?? 0,
-  sets: ex.sets ?? 0,
-  reps: ex.reps ?? 0,
-  duration: ex.duration ?? 0,
-  distance: ex.distance ?? 0,
-  calories: ex.calories ?? 0,
-}));
+  const multi = parseCategories('Chest, Shoulders');
+  assert(multi.length === 2 && multi[0] === WorkoutCategory.Chest && multi[1] === WorkoutCategory.Shoulders, 'Parse multi-category "Chest, Shoulders"');
 
-assert(imported.length === 3, 'Imported 3 exercises');
-assert(imported[0].name === '杠铃平板卧推' && imported[0].weight === 80 && imported[0].sets === 4 && imported[0].reps === 8, 'Imported first exercise data intact');
-assert(imported[1].name === '哑铃上斜卧推' && imported[1].weight === 25, 'Imported second exercise data intact');
-assert(imported[2].name === '跑步机跑步' && imported[2].duration === 20 && imported[2].distance === 3.5 && imported[2].calories === 180, 'Imported cardio data intact');
-assert(imported[0].id !== mockLastLog.exercises[0].id, 'Generated fresh unique ID for imported exercise');
+  const multiWithPlus = parseCategories('Back + Legs');
+  assert(multiWithPlus.length === 2 && multiWithPlus[0] === WorkoutCategory.Back && multiWithPlus[1] === WorkoutCategory.Legs, 'Parse multi-category "Back + Legs"');
 
-console.log('\n🎉 ALL PRESET & IMPORT WORKOUT LOGIC TESTS PASSED SUCCESSFULLY!\n');
+  const empty = parseCategories('');
+  assert(empty.length === 1 && empty[0] === WorkoutCategory.Others, 'Parse empty category defaults to Others');
+
+  const formattedZh = formatCategoriesZh([WorkoutCategory.Chest, WorkoutCategory.Shoulders]);
+  assert(formattedZh === '胸部 + 肩部', `Formatted Chinese categories: ${formattedZh}`);
+
+  const formattedEn = formatCategoriesEn([WorkoutCategory.Chest, WorkoutCategory.Shoulders]);
+  assert(formattedEn === 'Chest, Shoulders', `Formatted English categories: ${formattedEn}`);
+
+  assert(getCategoryBadgeColor(WorkoutCategory.Chest).includes('bg-red-500'), 'Category badge color for Chest');
+  assert(getCategoryBadgeColor(WorkoutCategory.Back).includes('bg-blue-500'), 'Category badge color for Back');
+}
+
+console.log('--- Testing Multi-Category Combined Import Logic ---');
+
+// 3. Test multi-category import merging
+{
+  const mockChestLog = {
+    category: 'Chest',
+    exercises: [
+      { id: 'c1', name: '杠铃平板卧推', type: 'strength' as const, weight: 80, sets: 4, reps: 8 },
+      { id: 'c2', name: '哑铃上斜卧推', type: 'strength' as const, weight: 25, sets: 4, reps: 10 },
+    ],
+  };
+  const mockShoulderLog = {
+    category: 'Shoulders',
+    exercises: [
+      { id: 's1', name: '坐姿哑铃推举', type: 'strength' as const, weight: 20, sets: 4, reps: 10 },
+      { id: 's2', name: '哑铃侧平举', type: 'strength' as const, weight: 10, sets: 4, reps: 15 },
+    ],
+  };
+
+  const logsMap: Record<string, typeof mockChestLog> = {
+    [WorkoutCategory.Chest]: mockChestLog,
+    [WorkoutCategory.Shoulders]: mockShoulderLog,
+  };
+
+  const selectedCategories = [WorkoutCategory.Chest, WorkoutCategory.Shoulders];
+  const mergedSource: any[] = [];
+  const seenNames = new Set<string>();
+
+  selectedCategories.forEach((cat) => {
+    const log = logsMap[cat];
+    if (log && log.exercises) {
+      log.exercises.forEach((ex) => {
+        if (!seenNames.has(ex.name)) {
+          seenNames.add(ex.name);
+          mergedSource.push(ex);
+        }
+      });
+    }
+  });
+
+  const imported = mergedSource.map((ex) => ({
+    id: Math.random().toString(36).slice(2, 11),
+    name: ex.name,
+    type: ex.type || 'strength',
+    weight: ex.weight ?? 0,
+    sets: ex.sets ?? 0,
+    reps: ex.reps ?? 0,
+    duration: ex.duration ?? 0,
+    distance: ex.distance ?? 0,
+    calories: ex.calories ?? 0,
+  }));
+
+  assert(imported.length === 4, 'Merged 4 exercises from Chest + Shoulders');
+  assert(imported[0].name === '杠铃平板卧推' && imported[0].weight === 80, 'First Chest exercise present');
+  assert(imported[2].name === '坐姿哑铃推举' && imported[2].weight === 20, 'First Shoulder exercise present');
+  assert(new Set(imported.map((e) => e.id)).size === 4, 'All generated IDs are unique');
+}
+
+console.log('\n🎉 ALL PRESET & MULTI-CATEGORY WORKOUT TESTS PASSED SUCCESSFULLY!\n');

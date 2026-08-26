@@ -25,7 +25,8 @@ export interface WorkoutLog {
   userName: string;
   userPhoto: string;
   timestamp: string;
-  category: WorkoutCategory;
+  category: WorkoutCategory | string;
+  categories?: WorkoutCategory[];
   exercises: Exercise[];
   photoUrl?: string;
   note?: string;

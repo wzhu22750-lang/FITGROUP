@@ -1,5 +1,6 @@
 import { Flame, Award, Target, Dumbbell, Timer, User as UserIcon } from 'lucide-react';
-import { WorkoutLog, WorkoutCategory } from '../types';
+import { WorkoutLog } from '../types';
+import { parseCategories, getCategoryBadgeColor, CATEGORY_META } from '../constants/workoutPresets';
 
 interface SharePosterProps {
   log: WorkoutLog;
@@ -7,15 +8,6 @@ interface SharePosterProps {
   statValue: string;
   statIcon: 'flame' | 'award' | 'target';
 }
-
-const CATEGORY_COLORS: Record<WorkoutCategory, string> = {
-  [WorkoutCategory.Chest]: 'bg-red-500 text-white',
-  [WorkoutCategory.Back]: 'bg-blue-500 text-white',
-  [WorkoutCategory.Legs]: 'bg-emerald-500 text-white',
-  [WorkoutCategory.Shoulders]: 'bg-purple-500 text-white',
-  [WorkoutCategory.Cardio]: 'bg-orange-500 text-white',
-  [WorkoutCategory.Others]: 'bg-ink text-white',
-};
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -35,17 +27,25 @@ const StatIcon = {
 
 export default function SharePoster({ log, statLabel, statValue, statIcon }: SharePosterProps) {
   const Icon = StatIcon[statIcon];
+  const categories = parseCategories(log.category);
 
   return (
     <div className="bg-white border-4 border-ink shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] w-[375px] max-w-full p-5 font-sans select-none">
       {/* Brand Header */}
-      <div className="flex items-start justify-between mb-2">
+      <div className="flex items-start justify-between mb-2 gap-2">
         <div>
           <h2 className="font-black text-base uppercase tracking-[0.3em] text-ink leading-none">FitGroup</h2>
           <div className="h-[2px] w-16 bg-neon mt-0.5" />
         </div>
-        <div className={`px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${CATEGORY_COLORS[log.category]}`}>
-          {log.category}
+        <div className="flex items-center gap-1 flex-wrap justify-end max-w-[60%]">
+          {categories.map((cat) => (
+            <div
+              key={cat}
+              className={`px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${getCategoryBadgeColor(cat)}`}
+            >
+              {CATEGORY_META[cat]?.zh || cat}
+            </div>
+          ))}
         </div>
       </div>
 

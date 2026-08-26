@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { pushBackHandler } from '../backStack';
 import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment, getUserProfile, deleteWorkoutLog } from '../firebase';
-import { WorkoutLog, WorkoutCategory } from '../types';
+import { WorkoutLog } from '../types';
+import { parseCategories, getCategoryBadgeColor, CATEGORY_META } from '../constants/workoutPresets';
 import { Heart, MessageCircle, Share2, Clock, Dumbbell, User as UserIcon, Send, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDistanceToNow } from 'date-fns';
@@ -193,17 +194,6 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
     setShowShareModal(true);
   };
 
-  const getCategoryColor = (cat: WorkoutCategory) => {
-    switch (cat) {
-      case WorkoutCategory.Chest: return 'bg-red-500 text-white';
-      case WorkoutCategory.Back: return 'bg-blue-500 text-white';
-      case WorkoutCategory.Legs: return 'bg-emerald-500 text-white';
-      case WorkoutCategory.Shoulders: return 'bg-purple-500 text-white';
-      case WorkoutCategory.Cardio: return 'bg-orange-500 text-white';
-      default: return 'bg-ink text-white';
-    }
-  };
-
   return (
     <motion.div
       initial={{ opacity: 0, x: -20 }}
@@ -231,10 +221,15 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <div className={`px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase tracking-tighter shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${getCategoryColor(log.category)}`}>
-              {log.category}
-            </div>
+          <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end max-w-[55%]">
+            {parseCategories(log.category).map((cat) => (
+              <div
+                key={cat}
+                className={`px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase tracking-tighter shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${getCategoryBadgeColor(cat)}`}
+              >
+                {CATEGORY_META[cat]?.zh || cat}
+              </div>
+            ))}
             {isOwner && (
               <button
                 type="button"

@@ -82,3 +82,48 @@ export const PRESET_EXERCISES_BY_CATEGORY: Record<WorkoutCategory, PresetExercis
     { name: '悬垂举腿', type: 'strength', defaultWeight: 0, defaultSets: 4, defaultReps: 12 },
   ],
 };
+
+export function parseCategories(categoryStr?: string): WorkoutCategory[] {
+  if (!categoryStr) return [WorkoutCategory.Others];
+  const validCategories = Object.values(WorkoutCategory);
+
+  const parts = categoryStr
+    .split(/[,，+、/| ]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const matched = parts.filter((p) =>
+    validCategories.includes(p as WorkoutCategory)
+  ) as WorkoutCategory[];
+  if (matched.length > 0) return matched;
+
+  const substringMatches = validCategories.filter((cat) => categoryStr.includes(cat));
+  return substringMatches.length > 0 ? substringMatches : [WorkoutCategory.Others];
+}
+
+export function formatCategoriesZh(categories: WorkoutCategory[]): string {
+  if (!categories || categories.length === 0) return '其它';
+  return categories.map((c) => CATEGORY_META[c]?.zh || c).join(' + ');
+}
+
+export function formatCategoriesEn(categories: WorkoutCategory[]): string {
+  if (!categories || categories.length === 0) return 'Others';
+  return categories.map((c) => CATEGORY_META[c]?.en || c).join(', ');
+}
+
+export function getCategoryBadgeColor(cat: WorkoutCategory | string): string {
+  switch (cat) {
+    case WorkoutCategory.Chest:
+      return 'bg-red-500 text-white';
+    case WorkoutCategory.Back:
+      return 'bg-blue-500 text-white';
+    case WorkoutCategory.Legs:
+      return 'bg-emerald-500 text-white';
+    case WorkoutCategory.Shoulders:
+      return 'bg-purple-500 text-white';
+    case WorkoutCategory.Cardio:
+      return 'bg-orange-500 text-white';
+    default:
+      return 'bg-slate-700 text-white';
+  }
+}

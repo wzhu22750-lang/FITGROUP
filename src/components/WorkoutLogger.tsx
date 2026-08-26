@@ -1,10 +1,16 @@
 import { useState, useEffect, useRef, FormEvent } from 'react';
-import { createWorkoutLog, getCurrentUser, getUserProfile, getLastWorkoutByCategory } from '../firebase';
+import {
+  createWorkoutLog,
+  getCurrentUser,
+  getUserProfile,
+  getLastWorkoutsByCategories,
+} from '../firebase';
 import { WorkoutCategory, Exercise, WorkoutLog } from '../types';
 import {
   CATEGORY_META,
   PRESET_EXERCISES_BY_CATEGORY,
   PresetExercise,
+  formatCategoriesZh,
 } from '../constants/workoutPresets';
 import {
   Plus,
@@ -18,6 +24,7 @@ import {
   RotateCcw,
   Sparkles,
   Zap,
+  Layers,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
@@ -29,18 +36,25 @@ interface WorkoutLoggerProps {
 }
 
 export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
-  const [category, setCategory] = useState<WorkoutCategory>(WorkoutCategory.Chest);
+  // Multi-category selection
+  const [selectedCategories, setSelectedCategories] = useState<WorkoutCategory[]>([
+    WorkoutCategory.Chest,
+  ]);
+  const [activePresetTab, setActivePresetTab] = useState<WorkoutCategory>(WorkoutCategory.Chest);
+
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [note, setNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState('');
-  const mutationIdRef = useRef<string>(Math.random().toString(36).slice(2, 11) + Date.now().toString(36));
+  const mutationIdRef = useRef<string>(
+    Math.random().toString(36).slice(2, 11) + Date.now().toString(36)
+  );
 
-  // Last workout import state
-  const [lastLog, setLastLog] = useState<WorkoutLog | null>(null);
-  const [loadingLastLog, setLoadingLastLog] = useState(false);
-  const [dismissedLogIds, setDismissedLogIds] = useState<string[]>([]);
+  // Last workout logs per category
+  const [lastLogs, setLastLogs] = useState<Record<string, WorkoutLog>>({});
+  const [loadingLastLogs, setLoadingLastLogs] = useState(false);
+  const [dismissedBannerKeys, setDismissedBannerKeys] = useState<string[]>([]);
   const [confirmReimport, setConfirmReimport] = useState(false);
 
   const showToast = (msg: string) => {
@@ -48,30 +62,57 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
     setTimeout(() => setToastMsg(''), 2500);
   };
 
-  // Query the last workout for the selected category
+  // Toggle category in multi-select
+  const handleToggleCategory = (cat: WorkoutCategory) => {
+    if (selectedCategories.includes(cat)) {
+      if (selectedCategories.length === 1) {
+        showToast('请至少保留一个训练部位');
+        return;
+      }
+      const next = selectedCategories.filter((c) => c !== cat);
+      setSelectedCategories(next);
+      if (activePresetTab === cat) {
+        setActivePresetTab(next[0]);
+      }
+    } else {
+      const next = [...selectedCategories, cat];
+      setSelectedCategories(next);
+      setActivePresetTab(cat); // Automatically switch preset tab to newly selected category
+      showToast(`已添加【${CATEGORY_META[cat].zh}】部位`);
+    }
+  };
+
+  // Query last workouts whenever selected categories change
   useEffect(() => {
     const user = getCurrentUser();
-    if (!user) return;
+    if (!user || selectedCategories.length === 0) return;
 
     let isMounted = true;
-    setLoadingLastLog(true);
+    setLoadingLastLogs(true);
 
-    getLastWorkoutByCategory(user.uid, category)
-      .then((log) => {
+    getLastWorkoutsByCategories(user.uid, selectedCategories)
+      .then((logsMap) => {
         if (!isMounted) return;
-        setLastLog((log as WorkoutLog) || null);
+        setLastLogs(logsMap as Record<string, WorkoutLog>);
       })
       .catch((err) => {
-        console.warn('Failed to load last workout:', err);
+        console.warn('Failed to load last workouts for categories:', err);
       })
       .finally(() => {
-        if (isMounted) setLoadingLastLog(false);
+        if (isMounted) setLoadingLastLogs(false);
       });
 
     return () => {
       isMounted = false;
     };
-  }, [category]);
+  }, [selectedCategories]);
+
+  // Make sure activePresetTab is always within selectedCategories
+  useEffect(() => {
+    if (!selectedCategories.includes(activePresetTab)) {
+      setActivePresetTab(selectedCategories[0] || WorkoutCategory.Chest);
+    }
+  }, [selectedCategories, activePresetTab]);
 
   const addExercise = (type: 'strength' | 'cardio') => {
     if (exercises.length >= 10) {
@@ -124,10 +165,39 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
     showToast(`已添加「${preset.name}」`);
   };
 
-  const handleImportLastData = (force = false) => {
-    if (!lastLog || !lastLog.exercises || lastLog.exercises.length === 0) {
-      showToast('未找到上次训练数据');
-      return;
+  // Import last workout for a single category or merge all selected categories
+  const handleImportCategoryData = (cat?: WorkoutCategory, force = false) => {
+    let sourceExercises: Exercise[] = [];
+
+    if (cat) {
+      const log = lastLogs[cat];
+      if (!log || !log.exercises || log.exercises.length === 0) {
+        showToast(`未找到上次【${CATEGORY_META[cat].zh}】训练数据`);
+        return;
+      }
+      sourceExercises = log.exercises;
+    } else {
+      // Merge all available logs from selected categories
+      const all: Exercise[] = [];
+      const seenNames = new Set<string>();
+
+      selectedCategories.forEach((c) => {
+        const log = lastLogs[c];
+        if (log && log.exercises) {
+          log.exercises.forEach((ex) => {
+            if (!seenNames.has(ex.name.trim())) {
+              seenNames.add(ex.name.trim());
+              all.push(ex);
+            }
+          });
+        }
+      });
+
+      if (all.length === 0) {
+        showToast('未找到所选部位的历史训练数据');
+        return;
+      }
+      sourceExercises = all.slice(0, 10);
     }
 
     if (!force && exercises.length > 0 && exercises.some((e) => e.name.trim())) {
@@ -138,7 +208,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       }
     }
 
-    const imported: Exercise[] = lastLog.exercises.map((ex) => ({
+    const imported: Exercise[] = sourceExercises.map((ex) => ({
       id: Math.random().toString(36).slice(2, 11),
       name: ex.name,
       type: ex.type || 'strength',
@@ -152,11 +222,18 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
 
     setExercises(imported);
     setConfirmReimport(false);
-    if (lastLog.id && !dismissedLogIds.includes(lastLog.id)) {
-      setDismissedLogIds([...dismissedLogIds, lastLog.id]);
+
+    // Dismiss banner
+    const bannerKey = selectedCategories.sort().join('_');
+    if (!dismissedBannerKeys.includes(bannerKey)) {
+      setDismissedBannerKeys([...dismissedBannerKeys, bannerKey]);
     }
 
-    showToast(`已导入上次 ${imported.length} 个动作及数据！`);
+    showToast(
+      cat
+        ? `已导入上次「${CATEGORY_META[cat].zh}」的 ${imported.length} 个动作！`
+        : `已合并导入 ${imported.length} 个历史训练动作！`
+    );
   };
 
   const handleRemoveExercise = (id: string) => {
@@ -180,6 +257,11 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
     const user = getCurrentUser();
     if (!user) {
       showToast('请先登录');
+      return;
+    }
+
+    if (selectedCategories.length === 0) {
+      showToast('请至少选择一个训练部位');
       return;
     }
 
@@ -224,7 +306,8 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         userId: user.uid,
         userName: user.displayName || 'Anonymous',
         userPhoto: user.photoURL || '',
-        category,
+        category: selectedCategories.join(', '),
+        categories: selectedCategories,
         exercises,
         note,
         likesCount: 0,
@@ -255,7 +338,6 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         }
       }
 
-      // Reset mutation ID for future submits
       mutationIdRef.current = Math.random().toString(36).slice(2, 11) + Date.now().toString(36);
       onSuccess();
     } catch (error) {
@@ -266,12 +348,16 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
     }
   };
 
-  const currentPresets = PRESET_EXERCISES_BY_CATEGORY[category] || [];
-  const hasLastLog = Boolean(lastLog && lastLog.exercises && lastLog.exercises.length > 0);
-  const showPromptBanner = hasLastLog && lastLog && !dismissedLogIds.includes(lastLog.id);
+  const bannerKey = selectedCategories.sort().join('_');
+  const availableLastLogsList = selectedCategories
+    .map((c) => ({ category: c, log: lastLogs[c] }))
+    .filter(({ log }) => Boolean(log && log.exercises && log.exercises.length > 0));
 
-  // Format date helper for last log
-  const formatLastLogDate = (timestampStr: string) => {
+  const hasAnyLastLog = availableLastLogsList.length > 0;
+  const showPromptBanner = hasAnyLastLog && !dismissedBannerKeys.includes(bannerKey);
+  const currentTabPresets = PRESET_EXERCISES_BY_CATEGORY[activePresetTab] || [];
+
+  const formatLogDate = (timestampStr: string) => {
     try {
       const date = new Date(timestampStr);
       return `${format(date, 'M月d日')} (${formatDistanceToNow(date, { addSuffix: true, locale: zhCN })})`;
@@ -293,31 +379,53 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         </motion.div>
       )}
 
-      {/* Target Muscle / Category Selector */}
+      {/* Target Muscle Selection (Supports Multi-Selection) */}
       <div className="bg-white p-6 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-        <div className="flex items-center justify-between mb-4">
-          <label className="block text-sm font-black text-ink uppercase tracking-widest">
-            Target Muscle / 训练部位
+        <div className="flex items-center justify-between mb-3">
+          <label className="block text-sm font-black text-ink uppercase tracking-widest flex items-center gap-1.5">
+            <span>Target Muscles / 训练部位</span>
+            <span className="text-[10px] bg-neon text-ink px-1.5 py-0.5 border border-ink font-black">
+              支持多选
+            </span>
           </label>
-          <span className="text-[10px] font-black text-ink/40 uppercase">
-            当前: {CATEGORY_META[category].zh}
+          <span className="text-[10px] font-black text-ink/50 uppercase">
+            已选 {selectedCategories.length} 个部位
           </span>
         </div>
+
+        {/* Selected Category Tags summary */}
+        <div className="mb-3 text-xs font-black text-ink flex items-center gap-1.5 flex-wrap">
+          <span className="text-ink/40 text-[10px] uppercase">当前训练:</span>
+          {selectedCategories.map((c) => (
+            <span
+              key={c}
+              className="bg-ink text-neon px-2 py-0.5 border border-ink text-xs uppercase shadow-[1px_1px_0px_0px_rgba(223,255,0,1)]"
+            >
+              {CATEGORY_META[c].zh} ({CATEGORY_META[c].en})
+            </span>
+          ))}
+        </div>
+
         <div className="grid grid-cols-3 gap-2">
           {Object.values(WorkoutCategory).map((cat) => {
             const meta = CATEGORY_META[cat];
-            const isSelected = category === cat;
+            const isSelected = selectedCategories.includes(cat);
             return (
               <button
                 key={cat}
                 type="button"
-                onClick={() => setCategory(cat)}
-                className={`py-3 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
+                onClick={() => handleToggleCategory(cat)}
+                className={`py-3 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 relative ${
                   isSelected
-                    ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
+                    ? 'bg-ink text-neon shadow-[3px_3px_0px_0px_rgba(223,255,0,1)] -translate-x-0.5 -translate-y-0.5'
                     : 'bg-white text-ink hover:bg-neon'
                 }`}
               >
+                {isSelected && (
+                  <div className="absolute top-1 right-1 bg-neon text-ink rounded-full p-0.5">
+                    <Check size={10} className="stroke-[4]" />
+                  </div>
+                )}
                 <span className="text-xs tracking-tight">{meta.en}</span>
                 <span className="text-[10px] opacity-80">{meta.zh}</span>
               </button>
@@ -326,9 +434,9 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         </div>
       </div>
 
-      {/* Smart Import Banner for Last Workout Data */}
+      {/* Smart Import Banner for Multi-Category History */}
       <AnimatePresence>
-        {showPromptBanner && lastLog && (
+        {showPromptBanner && (
           <motion.div
             initial={{ opacity: 0, y: -10, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -337,7 +445,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
           >
             <button
               type="button"
-              onClick={() => setDismissedLogIds([...dismissedLogIds, lastLog.id])}
+              onClick={() => setDismissedBannerKeys([...dismissedBannerKeys, bannerKey])}
               className="absolute top-2 right-2 p-1 text-ink/60 hover:text-ink hover:bg-black/10 transition-colors cursor-pointer"
               title="暂不导入"
             >
@@ -348,42 +456,68 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
               <div className="bg-ink text-neon p-2 border-2 border-ink shrink-0 mt-0.5">
                 <Sparkles size={18} />
               </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h4 className="font-black text-ink text-sm uppercase tracking-tight">
-                    发现上次【{CATEGORY_META[category].zh}】训练数据
-                  </h4>
+              <div className="space-y-1.5 flex-1 min-w-0">
+                <h4 className="font-black text-ink text-sm uppercase tracking-tight flex items-center gap-1.5 flex-wrap">
+                  <span>发现上次训练数据</span>
                   <span className="bg-ink text-neon text-[10px] font-black px-1.5 py-0.5 uppercase">
-                    {formatLastLogDate(lastLog.timestamp)}
+                    {availableLastLogsList.map((item) => CATEGORY_META[item.category].zh).join(' + ')}
                   </span>
-                </div>
-                <p className="text-xs font-black text-ink/70 mt-1 leading-snug">
-                  包含 {lastLog.exercises.length} 个动作：
-                  {lastLog.exercises
-                    .slice(0, 3)
-                    .map((ex) =>
-                      ex.type === 'strength'
-                        ? `${ex.name}(${ex.weight || 0}kg×${ex.sets || 0}组)`
-                        : `${ex.name}(${ex.duration || 0}分)`
-                    )
-                    .join('、')}
-                  {lastLog.exercises.length > 3 ? '等' : ''}
-                </p>
+                </h4>
+
+                {availableLastLogsList.map(({ category: c, log }) => (
+                  <p key={c} className="text-xs font-black text-ink/80 leading-tight">
+                    <span className="bg-ink/10 px-1 py-0.2 mr-1">【{CATEGORY_META[c].zh}】</span>
+                    <span className="opacity-60 text-[10px] mr-1">{formatLogDate(log.timestamp)}:</span>
+                    {log.exercises
+                      .slice(0, 3)
+                      .map((ex) =>
+                        ex.type === 'strength'
+                          ? `${ex.name}(${ex.weight || 0}kg×${ex.sets || 0}组)`
+                          : `${ex.name}(${ex.duration || 0}分)`
+                      )
+                      .join('、')}
+                    {log.exercises.length > 3 ? '等' : ''}
+                  </p>
+                ))}
               </div>
             </div>
 
-            <div className="flex gap-2 pt-1">
+            <div className="flex flex-wrap gap-2 pt-1">
+              {availableLastLogsList.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => handleImportCategoryData(undefined, true)}
+                  className="flex-1 bg-ink text-neon border-2 border-ink py-2.5 px-4 font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-black/80 transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+                >
+                  <Zap size={15} />
+                  一键合并导入已选部位数据
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleImportCategoryData(availableLastLogsList[0]?.category, true)}
+                  className="flex-1 bg-ink text-neon border-2 border-ink py-2.5 px-4 font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-black/80 transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+                >
+                  <Zap size={15} />
+                  一键导入上次【{CATEGORY_META[availableLastLogsList[0]?.category].zh}】数据
+                </button>
+              )}
+
+              {availableLastLogsList.length > 1 &&
+                availableLastLogsList.map(({ category: c }) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => handleImportCategoryData(c, true)}
+                    className="bg-white text-ink border-2 border-ink py-2.5 px-2.5 font-black uppercase text-[10px] hover:bg-paper transition-all cursor-pointer"
+                  >
+                    仅导入{CATEGORY_META[c].zh}
+                  </button>
+                ))}
+
               <button
                 type="button"
-                onClick={() => handleImportLastData(true)}
-                className="flex-1 bg-ink text-neon border-2 border-ink py-2.5 px-4 font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-black/80 transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
-              >
-                <Zap size={15} />
-                一键导入上次数据
-              </button>
-              <button
-                type="button"
-                onClick={() => setDismissedLogIds([...dismissedLogIds, lastLog.id])}
+                onClick={() => setDismissedBannerKeys([...dismissedBannerKeys, bannerKey])}
                 className="bg-white text-ink border-2 border-ink py-2.5 px-3 font-black uppercase text-xs hover:bg-paper transition-all cursor-pointer"
               >
                 暂不导入
@@ -393,7 +527,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         )}
       </AnimatePresence>
 
-      {/* Preset / Common Exercises Quick Selection for Category */}
+      {/* Preset Exercises Section with Category Tabs */}
       <div className="bg-white p-5 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -401,14 +535,38 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
               <Dumbbell size={14} className="text-neon" />
             </div>
             <label className="text-xs font-black text-ink uppercase tracking-widest">
-              常用动作快捷添加 ({CATEGORY_META[category].zh})
+              常用动作快捷添加
             </label>
           </div>
           <span className="text-[10px] font-black text-ink/40">点击直接加入</span>
         </div>
 
+        {/* Category Tabs for Presets if multiple categories selected */}
+        {selectedCategories.length > 1 && (
+          <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3 border-b-2 border-ink/10">
+            {selectedCategories.map((cat) => {
+              const isTabActive = activePresetTab === cat;
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setActivePresetTab(cat)}
+                  className={`px-3 py-1.5 border-2 border-ink text-xs font-black uppercase transition-all shrink-0 cursor-pointer ${
+                    isTabActive
+                      ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
+                      : 'bg-paper text-ink hover:bg-neon'
+                  }`}
+                >
+                  {CATEGORY_META[cat].zh} ({CATEGORY_META[cat].en})
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Preset Chips for the activePresetTab */}
         <div className="flex flex-wrap gap-2">
-          {currentPresets.map((preset) => {
+          {currentTabPresets.map((preset) => {
             const isAlreadyAdded = exercises.some((e) => e.name.trim() === preset.name);
             return (
               <button
@@ -430,7 +588,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         </div>
       </div>
 
-      {/* Exercise List */}
+      {/* Exercises List */}
       <div className="space-y-4">
         <div className="flex items-center justify-between px-2">
           <label className="text-sm font-black text-ink uppercase tracking-widest underline decoration-4 decoration-neon underline-offset-4 flex items-center gap-2">
@@ -440,17 +598,17 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
             </span>
           </label>
 
-          {/* Quick manual import button if previous data exists */}
-          {hasLastLog && (
+          {/* Quick manual import button if history exists for any selected category */}
+          {hasAnyLastLog && (
             <button
               type="button"
-              onClick={() => handleImportLastData()}
+              onClick={() => handleImportCategoryData(undefined)}
               className={`text-[10px] font-black uppercase px-2.5 py-1 border-2 border-ink transition-all cursor-pointer flex items-center gap-1.5 ${
                 confirmReimport
                   ? 'bg-red-500 text-white animate-pulse'
                   : 'bg-paper text-ink hover:bg-neon shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'
               }`}
-              title="导入上次该部位的训练项目及数据"
+              title="导入上次已选部位的训练数据"
             >
               {confirmReimport ? (
                 <>
@@ -480,13 +638,13 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
               <p className="font-black text-ink/40 text-xs uppercase tracking-wider">
                 尚未添加动作，点击上方常用动作快捷添加，或导入上次数据
               </p>
-              {hasLastLog && (
+              {hasAnyLastLog && (
                 <button
                   type="button"
-                  onClick={() => handleImportLastData(true)}
+                  onClick={() => handleImportCategoryData(undefined, true)}
                   className="bg-neon text-ink border-2 border-ink px-4 py-2 text-xs font-black uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-ink hover:text-neon transition-all cursor-pointer"
                 >
-                  ⚡ 一键导入上次【{CATEGORY_META[category].zh}】数据
+                  ⚡ 一键导入上次【{formatCategoriesZh(selectedCategories)}】数据
                 </button>
               )}
             </motion.div>
@@ -559,11 +717,11 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
                   />
                 </div>
 
-                {/* Quick preset suggestions if name is empty or being edited */}
-                {!ex.name && currentPresets.length > 0 && (
+                {/* Quick preset suggestions if name is empty */}
+                {!ex.name && currentTabPresets.length > 0 && (
                   <div className="mb-4 flex flex-wrap gap-1.5 items-center">
                     <span className="text-[10px] font-black text-ink/40 uppercase mr-1">推荐:</span>
-                    {currentPresets.slice(0, 4).map((p) => (
+                    {currentTabPresets.slice(0, 4).map((p) => (
                       <button
                         key={p.name}
                         type="button"
@@ -584,7 +742,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
                                 }),
                           })
                         }
-                        className="text-[10px] font-black bg-paper border border-ink px-1.5 py-0.5 hover:bg-neon transition-colors"
+                        className="text-[10px] font-black bg-paper border border-ink px-1.5 py-0.5 hover:bg-neon transition-colors cursor-pointer"
                       >
                         {p.name}
                       </button>
@@ -740,7 +898,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
           'Saving...'
         ) : (
           <>
-            <Send size={24} /> 发布打卡
+            <Send size={24} /> 发布打卡 ({selectedCategories.map((c) => CATEGORY_META[c].zh).join('+')})
           </>
         )}
       </button>
