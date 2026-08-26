@@ -32,10 +32,15 @@ interface WorkoutLoggerProps {
 }
 
 export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
-  // Multi-category support: array of categories, defaults to [Chest]
+  // Multi-category selection
   const [selectedCategories, setSelectedCategories] = useState<WorkoutCategory[]>([
     WorkoutCategory.Chest,
   ]);
+  // Active category tab for preset exercise selection
+  const [activePresetCategory, setActivePresetCategory] = useState<WorkoutCategory>(
+    WorkoutCategory.Chest
+  );
+
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [note, setNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -55,13 +60,18 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
     setTimeout(() => setToastMsg(''), 2500);
   };
 
-  // Toggle category in multi-select (no extra clutter in UI)
+  // Toggle category in multi-select (clean UI, no extra clutter)
   const handleToggleCategory = (cat: WorkoutCategory) => {
     if (selectedCategories.includes(cat)) {
       if (selectedCategories.length === 1) return;
-      setSelectedCategories(selectedCategories.filter((c) => c !== cat));
+      const next = selectedCategories.filter((c) => c !== cat);
+      setSelectedCategories(next);
+      if (activePresetCategory === cat) {
+        setActivePresetCategory(next[0]);
+      }
     } else {
       setSelectedCategories([...selectedCategories, cat]);
+      setActivePresetCategory(cat);
     }
   };
 
@@ -303,15 +313,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
 
   const hasAnyLastLog = availableLastLogsList.length > 0;
   const showPromptBanner = hasAnyLastLog && !dismissedBannerKeys.includes(bannerKey);
-
-  // Combine presets for all selected categories
-  const displayedPresets = Array.from(
-    new Map(
-      selectedCategories
-        .flatMap((cat) => PRESET_EXERCISES_BY_CATEGORY[cat] || [])
-        .map((p) => [p.name, p])
-    ).values()
-  );
+  const currentPresets = PRESET_EXERCISES_BY_CATEGORY[activePresetCategory] || [];
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -407,7 +409,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         )}
       </AnimatePresence>
 
-      {/* Preset / Common Exercises Quick Selection */}
+      {/* Preset / Common Exercises Quick Selection with Category Tabs */}
       <div className="bg-white p-5 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -421,8 +423,34 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
           <span className="text-[10px] font-black text-ink/40">点击直接加入</span>
         </div>
 
+        {/* 部位选择组件 */}
+        <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3 border-b-2 border-ink/10">
+          {Object.values(WorkoutCategory).map((cat) => {
+            const isTabActive = activePresetCategory === cat;
+            const isSelected = selectedCategories.includes(cat);
+            const meta = CATEGORY_META[cat];
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setActivePresetCategory(cat)}
+                className={`px-2.5 py-1 border-2 border-ink text-xs font-black uppercase transition-all shrink-0 cursor-pointer ${
+                  isTabActive
+                    ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
+                    : isSelected
+                      ? 'bg-neon/30 text-ink hover:bg-neon'
+                      : 'bg-paper text-ink hover:bg-neon'
+                }`}
+              >
+                {meta?.zh || cat}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 对应部位常用动作列表 */}
         <div className="flex flex-wrap gap-2">
-          {displayedPresets.map((preset) => {
+          {currentPresets.map((preset) => {
             const isAlreadyAdded = exercises.some((e) => e.name.trim() === preset.name);
             return (
               <button
@@ -544,6 +572,39 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
                   required
                 />
               </div>
+
+              {/* Quick preset suggestions if name is empty */}
+              {!ex.name && currentPresets.length > 0 && (
+                <div className="mb-4 flex flex-wrap gap-1.5 items-center">
+                  <span className="text-[10px] font-black text-ink/40 uppercase mr-1">推荐:</span>
+                  {currentPresets.slice(0, 4).map((p) => (
+                    <button
+                      key={p.name}
+                      type="button"
+                      onClick={() =>
+                        updateExercise(ex.id, {
+                          name: p.name,
+                          type: p.type,
+                          ...(p.type === 'strength'
+                            ? {
+                                weight: p.defaultWeight ?? 0,
+                                sets: p.defaultSets ?? 4,
+                                reps: p.defaultReps ?? 10,
+                              }
+                            : {
+                                duration: p.defaultDuration ?? 30,
+                                distance: p.defaultDistance ?? 0,
+                                calories: p.defaultCalories ?? 0,
+                              }),
+                        })
+                      }
+                      className="text-[10px] font-black bg-paper border border-ink px-1.5 py-0.5 hover:bg-neon transition-colors cursor-pointer"
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {ex.type === 'strength' ? (
                 <div className="grid grid-cols-3 gap-4">
