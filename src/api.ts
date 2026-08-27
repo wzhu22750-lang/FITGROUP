@@ -586,6 +586,46 @@ export const getLastWorkoutByCategory = async (userId: string, category: string)
   }
 };
 
+export const getUserWorkoutLogs = async (userId: string, maxCount = 100): Promise<any[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('workout_logs')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(maxCount);
+    if (error) throw error;
+    return (data as WorkoutLogRow[]).map(normalizeLog);
+  } catch (err) {
+    console.warn('Failed to get user workout logs:', err);
+    return [];
+  }
+};
+
+export const subscribeToUserWorkoutLogs = (
+  userId: string,
+  callback: (logs: any[]) => void,
+  maxCount = 100
+) => {
+  const pull = () => {
+    void getUserWorkoutLogs(userId, maxCount).then(callback).catch(() => callback([]));
+  };
+
+  pull();
+  const channel = supabase
+    .channel(`user_workout_logs_${userId}_${newId('ch')}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'workout_logs', filter: `user_id=eq.${userId}` },
+      pull
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+};
+
 export const getLastWorkoutsByCategories = async (
   userId: string,
   categories: string[]

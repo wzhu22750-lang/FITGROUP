@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getCurrentUser, updateUserProfileFn } from '../firebase';
+import { getCurrentUser, updateUserProfileFn } from '../api';
 import { LogOut, User as UserIcon, Shield, Settings, HelpCircle, Bell, ChevronLeft, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { pushBackHandler } from '../backStack';

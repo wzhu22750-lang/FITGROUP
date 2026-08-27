@@ -4,7 +4,7 @@ import {
   getCurrentUser,
   getUserProfile,
   getLastWorkoutsByCategories,
-} from '../firebase';
+} from '../api';
 import { WorkoutCategory, Exercise, WorkoutLog } from '../types';
 import {
   CATEGORY_META,

@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef, ReactNode, lazy, Suspense } from 'react';
-import { logout, onAuthStateChangedFn, waitForAuthReady } from './firebase';
+import { logout, onAuthStateChangedFn, waitForAuthReady } from './api';
 import { supabaseConfigError } from './lib/supabase';
 import { exitApp, hideSplash, listenAndroidBack } from './native';
 import {

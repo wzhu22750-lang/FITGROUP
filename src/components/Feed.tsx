@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { pushBackHandler } from '../backStack';
-import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment, getUserProfile, deleteWorkoutLog } from '../firebase';
+import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment, getUserProfile, deleteWorkoutLog } from '../api';
 import { WorkoutLog } from '../types';
 import { parseCategories, getCategoryBadgeColor, CATEGORY_META } from '../constants/workoutPresets';
 import { Heart, MessageCircle, Share2, Clock, Dumbbell, User as UserIcon, Send, Trash2 } from 'lucide-react';

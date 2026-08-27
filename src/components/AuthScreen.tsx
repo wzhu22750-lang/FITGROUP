@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { Dumbbell } from 'lucide-react';
-import { loginWithEmail, registerWithEmail } from '../firebase';
+import { loginWithEmail, registerWithEmail } from '../api';
 
 export default function AuthScreen() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -55,7 +55,7 @@ export default function AuthScreen() {
           {mode === 'login' ? '登录打卡' : '创建账号'}
         </h1>
         <p className="text-[10px] font-black uppercase tracking-widest text-ink/40 mb-6">
-          Email / Password · Firebase Auth
+          Email / Password · Supabase Auth
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">

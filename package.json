@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx tests/stats-recalculation.test.ts && tsx tests/presets-and-import.test.ts",
+    "test": "tsx tests/stats-recalculation.test.ts && tsx tests/presets-and-import.test.ts && tsx tests/workout-analytics.test.ts",
     "cap:sync": "npm run build && npx cap sync android",
     "android:debug": "npm run cap:sync && cd android && ./gradlew assembleDebug"
   },

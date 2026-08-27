@@ -11,13 +11,13 @@ export interface PresetExercise {
   defaultCalories?: number;
 }
 
-export const CATEGORY_META: Record<WorkoutCategory, { en: string; zh: string; iconLabel: string; color: string }> = {
-  [WorkoutCategory.Chest]: { en: 'Chest', zh: '胸部', iconLabel: '胸', color: 'bg-red-500' },
-  [WorkoutCategory.Back]: { en: 'Back', zh: '背部', iconLabel: '背', color: 'bg-blue-500' },
-  [WorkoutCategory.Legs]: { en: 'Legs', zh: '腿部', iconLabel: '腿', color: 'bg-emerald-500' },
-  [WorkoutCategory.Shoulders]: { en: 'Shoulders', zh: '肩部', iconLabel: '肩', color: 'bg-purple-500' },
-  [WorkoutCategory.Cardio]: { en: 'Cardio', zh: '有氧', iconLabel: '氧', color: 'bg-orange-500' },
-  [WorkoutCategory.Others]: { en: 'Others', zh: '其它/手臂', iconLabel: '它', color: 'bg-slate-700' },
+export const CATEGORY_META: Record<WorkoutCategory, { en: string; zh: string; iconLabel: string; color: string; hex: string }> = {
+  [WorkoutCategory.Chest]: { en: 'Chest', zh: '胸部', iconLabel: '胸', color: 'bg-red-500', hex: '#ef4444' },
+  [WorkoutCategory.Back]: { en: 'Back', zh: '背部', iconLabel: '背', color: 'bg-blue-500', hex: '#3b82f6' },
+  [WorkoutCategory.Legs]: { en: 'Legs', zh: '腿部', iconLabel: '腿', color: 'bg-emerald-500', hex: '#10b981' },
+  [WorkoutCategory.Shoulders]: { en: 'Shoulders', zh: '肩部', iconLabel: '肩', color: 'bg-purple-500', hex: '#a855f7' },
+  [WorkoutCategory.Cardio]: { en: 'Cardio', zh: '有氧', iconLabel: '氧', color: 'bg-orange-500', hex: '#f97316' },
+  [WorkoutCategory.Others]: { en: 'Others', zh: '其它/手臂', iconLabel: '它', color: 'bg-slate-700', hex: '#334155' },
 };
 
 export const PRESET_EXERCISES_BY_CATEGORY: Record<WorkoutCategory, PresetExercise[]> = {

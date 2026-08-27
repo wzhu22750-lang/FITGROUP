@@ -96,7 +96,7 @@ npm run android:debug
 ```
 src/
 ├── App.tsx              # 根组件，Tab 切换 + 认证守卫 + 懒加载分包
-├── firebase.ts          # Supabase Auth + Postgres 封装（文件名沿用，避免改 UI import）
+├── api.ts               # Supabase Auth + Postgres 封装
 ├── lib/supabase.ts      # Supabase 客户端
 ├── native.ts            # Capacitor 原生交互（相机/相册/返回键/状态栏）
 ├── types.ts             # TypeScript 类型定义
