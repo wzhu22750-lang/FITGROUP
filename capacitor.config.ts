@@ -7,14 +7,15 @@ const config: CapacitorConfig = {
   android: {
     backgroundColor: '#F4F4F4',
   },
-  server: {
-    url: 'https://fitgroup-three.vercel.app',
-    cleartext: false,
-  },
+  // 如需打包纯本地离线资源 APK，请注释 server 配置；如需远程热更新请填入国内可直连域名
+  // server: {
+  //   url: 'https://fitgroup-three.vercel.app',
+  //   cleartext: false,
+  // },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 1500,
-      launchAutoHide: false,
+      launchShowDuration: 2000,
+      launchAutoHide: true,
       backgroundColor: '#F4F4F4',
       androidSplashResourceName: 'splash',
       androidScaleType: 'CENTER',

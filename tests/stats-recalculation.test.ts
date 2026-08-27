@@ -111,7 +111,9 @@ function assert(condition: boolean, msg: string) {
 // Test 3: Multiple workouts on same day -> streak = 1, totalWorkouts = 2
 {
   const now = new Date();
-  const earlier = new Date(now.getTime() - 1000 * 3600);
+  // Keep both records anchored to the same local calendar day, even at midnight.
+  const earlier = new Date(now);
+  earlier.setHours(12, 0, 0, 0);
   const stats = calculateStatsFromLogs([
     {
       timestamp: now.toISOString(),

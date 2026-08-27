@@ -77,7 +77,17 @@ npm run dev
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`（publishable key）
 4. 之后推送到 `main` 即自动构建上线。
-5. 把得到的 `*.vercel.app` 填进 Supabase Authentication → URL Configuration（Site URL 与 Redirect），再写进 `capacitor.config.ts` 的 `server.url` 并重打一次 APK。之后 App 会跟网页一起热更新。
+5. APK 默认使用本地打包资源，不要把 `server.url` 写回 `capacitor.config.ts`；这样可以避免手机无法访问 Vercel 时卡在启动页。只有确认目标手机可稳定访问远程地址时，才使用远程 WebView 模式。
+
+### Android APK 构建
+
+确保 `.env` 中已配置 `VITE_SUPABASE_URL` 和 `VITE_SUPABASE_ANON_KEY`，然后执行：
+
+```bash
+npm run android:debug
+```
+
+生成文件：`android/app/build/outputs/apk/debug/app-debug.apk`。每次安装新包前请确认 APK 的版本号已递增。
 
 ---
 

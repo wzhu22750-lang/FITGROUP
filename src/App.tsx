@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useRef, ReactNode, lazy, Suspense } from 'react';
 import { logout, onAuthStateChangedFn, waitForAuthReady } from './firebase';
+import { supabaseConfigError } from './lib/supabase';
 import { exitApp, hideSplash, listenAndroidBack } from './native';
 import {
   Dumbbell,
@@ -26,17 +27,28 @@ import { ToastProvider } from './components/Toast';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!supabaseConfigError);
   const [activeTab, setActiveTab] = useState<'feed' | 'log' | 'stats' | 'profile'>('feed');
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
 
   useEffect(() => {
-    waitForAuthReady().then((next) => {
-      setUser(next);
-      setLoading(false);
+    if (supabaseConfigError) {
       void hideSplash();
-    });
+      return;
+    }
+
+    waitForAuthReady()
+      .then((next) => {
+        setUser(next);
+      })
+      .catch((err) => {
+        console.error('waitForAuthReady error:', err);
+      })
+      .finally(() => {
+        setLoading(false);
+        void hideSplash();
+      });
 
     const unsub = onAuthStateChangedFn((next) => {
       setUser(next);
@@ -57,6 +69,18 @@ export default function App() {
       void exitApp();
     });
   }, [user]);
+
+  if (supabaseConfigError) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-paper p-4">
+        <div className="bg-white border-4 border-ink p-8 max-w-sm w-full text-center shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+          <Dumbbell size={48} className="text-ink mx-auto mb-4" />
+          <h1 className="text-2xl font-black text-ink uppercase mb-4">配置缺失</h1>
+          <p className="text-sm font-bold text-ink/70">{supabaseConfigError}</p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

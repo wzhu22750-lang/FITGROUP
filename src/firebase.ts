@@ -602,19 +602,50 @@ export const getLastWorkoutsByCategories = async (
   return result;
 };
 
-export const waitForAuthReady = () => new Promise<AppUser | null>((resolve) => {
-  void supabase.auth.getSession().then(({ data }) => {
-    const user = data.session?.user;
-    if (!user) {
-      cachedUser = null;
-      resolve(null);
-      return;
-    }
-    ensureUserProfile(user).then(resolve).catch(() => {
-      cachedUser = authOnlyUser(user);
+export const waitForAuthReady = (timeoutMs = 3000) => new Promise<AppUser | null>((resolve) => {
+  let settled = false;
+  const timer = setTimeout(() => {
+    if (!settled) {
+      settled = true;
+      console.warn(`waitForAuthReady timed out after ${timeoutMs}ms`);
       resolve(cachedUser);
+    }
+  }, timeoutMs);
+
+  supabase.auth.getSession()
+    .then(({ data }) => {
+      if (settled) return;
+      const user = data?.session?.user;
+      if (!user) {
+        settled = true;
+        clearTimeout(timer);
+        cachedUser = null;
+        resolve(null);
+        return;
+      }
+      ensureUserProfile(user)
+        .then((p) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(p);
+        })
+        .catch(() => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          cachedUser = authOnlyUser(user);
+          resolve(cachedUser);
+        });
+    })
+    .catch((err) => {
+      console.warn('waitForAuthReady getSession error:', err);
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve(null);
+      }
     });
-  });
 });
 
 export default supabase;
