@@ -315,26 +315,29 @@ export default function Statistics() {
                 const detail = analytics.categoryDetails[cat];
                 const meta = CATEGORY_META[cat];
                 const score = radarMode === 'composite' ? detail.compositeScore : detail.strengthScore;
+                // Tier always follows the score being displayed, never the mixed composite
+                const tier = getStrengthTier(score);
                 return (
                   <div
                     key={cat}
-                    className="p-2.5 bg-paper border-2 border-ink flex flex-col justify-between"
+                    className="p-2.5 bg-paper border-2 border-ink flex flex-col gap-1"
                   >
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center justify-between gap-1 min-w-0">
                       <span className="font-black text-xs text-ink">{meta.zh}</span>
                       <span
-                        className={`text-[10px] font-black px-1.5 py-0.2 border border-ink ${detail.tier.badgeBg} ${detail.tier.badgeText}`}
+                        className={`text-[10px] font-black px-1.5 py-0.2 border border-ink shrink-0 ${tier.badgeBg} ${tier.badgeText}`}
                       >
-                        {detail.tier.zh}
+                        {tier.zh}
                       </span>
                     </div>
-                    <div className="flex items-baseline justify-between mt-1">
-                      <span className="text-lg font-black italic">{score} <span className="text-[10px] text-ink/60 not-italic">分</span></span>
-                      {detail.bestRecordText && (
-                        <span className="text-[10px] font-bold text-ink/70 truncate max-w-[55%]" title={detail.bestExerciseName}>
-                          {detail.bestRecordText}
-                        </span>
-                      )}
+                    <div className="text-lg font-black italic leading-none">
+                      {score} <span className="text-[10px] text-ink/60 not-italic">分</span>
+                    </div>
+                    <div
+                      className="text-[10px] font-bold text-ink/70 truncate"
+                      title={detail.bestExerciseName}
+                    >
+                      {detail.bestRecordText || ' '}
                     </div>
                   </div>
                 );

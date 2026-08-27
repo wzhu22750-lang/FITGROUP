@@ -24,6 +24,7 @@ export const PRESET_EXERCISES_BY_CATEGORY: Record<WorkoutCategory, PresetExercis
   [WorkoutCategory.Chest]: [
     { name: '杠铃平板卧推', type: 'strength', defaultWeight: 60, defaultSets: 4, defaultReps: 10 },
     { name: '哑铃上斜卧推', type: 'strength', defaultWeight: 20, defaultSets: 4, defaultReps: 10 },
+    { name: '杠铃上斜卧推', type: 'strength', defaultWeight: 50, defaultSets: 4, defaultReps: 10 },
     { name: '哑铃平板卧推', type: 'strength', defaultWeight: 22, defaultSets: 4, defaultReps: 10 },
     { name: '蝴蝶机夹胸', type: 'strength', defaultWeight: 45, defaultSets: 4, defaultReps: 12 },
     { name: '绳索夹胸', type: 'strength', defaultWeight: 15, defaultSets: 4, defaultReps: 12 },
@@ -56,6 +57,7 @@ export const PRESET_EXERCISES_BY_CATEGORY: Record<WorkoutCategory, PresetExercis
     { name: '杠铃过顶推举', type: 'strength', defaultWeight: 40, defaultSets: 4, defaultReps: 8 },
     { name: '哑铃侧平举', type: 'strength', defaultWeight: 8, defaultSets: 4, defaultReps: 15 },
     { name: '俯身哑铃飞鸟', type: 'strength', defaultWeight: 8, defaultSets: 4, defaultReps: 12 },
+    { name: '蝴蝶机反向飞鸟', type: 'strength', defaultWeight: 10, defaultSets: 4, defaultReps: 12 },
     { name: '绳索面拉', type: 'strength', defaultWeight: 20, defaultSets: 4, defaultReps: 15 },
     { name: '绳索侧平举', type: 'strength', defaultWeight: 5, defaultSets: 4, defaultReps: 15 },
     { name: '哑铃前平举', type: 'strength', defaultWeight: 8, defaultSets: 4, defaultReps: 12 },

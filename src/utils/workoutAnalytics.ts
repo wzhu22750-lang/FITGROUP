@@ -252,13 +252,16 @@ export function calculateStandardizedScore(
 }
 
 /**
- * Maps 0 - 100 score to StrengthTierMeta
+ * Maps 0 - 100 score to StrengthTierMeta.
+ * Bands are aligned with the standard thresholds: reaching standard N scores
+ * exactly 20N, so score bands are 40/60/80/100 — a score of 71 can never show
+ * a tier higher than the weight actually justifies.
  */
 export function getStrengthTier(score: number): StrengthTierMeta {
-  if (score >= 85) return STRENGTH_TIERS.elite;
-  if (score >= 65) return STRENGTH_TIERS.proficient;
-  if (score >= 45) return STRENGTH_TIERS.intermediate;
-  if (score >= 25) return STRENGTH_TIERS.beginner;
+  if (score >= 100) return STRENGTH_TIERS.elite;
+  if (score >= 80) return STRENGTH_TIERS.proficient;
+  if (score >= 60) return STRENGTH_TIERS.intermediate;
+  if (score >= 40) return STRENGTH_TIERS.beginner;
   return STRENGTH_TIERS.novice;
 }
 
