@@ -7,11 +7,12 @@ const config: CapacitorConfig = {
   android: {
     backgroundColor: '#F4F4F4',
   },
-  // 如需打包纯本地离线资源 APK，请注释 server 配置；如需远程热更新请填入国内可直连域名
-  // server: {
-  //   url: 'https://fitgroup-three.vercel.app',
-  //   cleartext: false,
-  // },
+  // 远程热更新：APK 启动时从 app.du4s.com 加载最新 web 内容（同一 Vercel 项目的自定义域名）
+  // 如需打包纯本地离线资源 APK，请注释 server 配置
+  server: {
+    url: 'https://app.du4s.com',
+    cleartext: false,
+  },
   plugins: {
     SplashScreen: {
       launchShowDuration: 2000,
