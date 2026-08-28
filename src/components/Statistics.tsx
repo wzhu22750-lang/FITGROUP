@@ -254,9 +254,9 @@ export default function Statistics() {
 
       {/* 1. LEADERBOARD / 群组榜单 */}
       <div className="bg-white p-4 sm:p-5 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-        <h3 className="font-black text-ink uppercase tracking-tight flex items-center gap-2 mb-3.5 italic text-base">
-          <Trophy size={20} className="text-ink fill-current" />
-          LEADERBOARD / 群组榜单
+        <h3 className="font-black text-ink uppercase tracking-tight flex items-center gap-2 mb-3.5 italic text-sm sm:text-base">
+          <Trophy size={18} className="text-ink fill-current shrink-0" />
+          <span>群组榜单 <span className="text-xs text-ink/50 font-normal not-italic ml-0.5">/ LEADERBOARD</span></span>
         </h3>
         <div className="space-y-2.5">
           {groupStats.length > 0 ? (
@@ -305,13 +305,13 @@ export default function Statistics() {
       <div className="bg-white p-4 sm:p-5 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 className="font-black text-ink uppercase tracking-tight flex items-center gap-1.5 italic text-sm sm:text-base">
-            <Target size={18} className="text-ink" />
-            Ability Radar / 六维能力图谱
+            <Target size={18} className="text-ink shrink-0" />
+            <span>六维能力图谱 <span className="text-xs text-ink/50 font-normal not-italic ml-0.5">/ RADAR</span></span>
           </h3>
           <button
             type="button"
             onClick={() => setShowStandardsModal(true)}
-            className="flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-ink/80 hover:text-ink bg-paper px-2 py-1 border-2 border-ink cursor-pointer transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5"
+            className="flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-ink/80 hover:text-ink bg-paper px-2 py-1 border-2 border-ink cursor-pointer transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 shrink-0 whitespace-nowrap"
           >
             <HelpCircle size={12} />
             <span>评分规则 & 进阶标准</span>
@@ -420,7 +420,7 @@ export default function Statistics() {
                         <ChevronRight size={11} className="text-ink/40 group-hover:text-ink transition-colors shrink-0" />
                       </span>
                       <span
-                        className={`text-[9px] font-black px-1.5 py-0.2 border border-ink shrink-0 ${tier.badgeBg} ${tier.badgeText}`}
+                        className={`text-[9px] font-black px-1.5 py-0.2 border border-ink shrink-0 whitespace-nowrap ${tier.badgeBg} ${tier.badgeText}`}
                       >
                         {tier.zh}
                       </span>
@@ -471,10 +471,10 @@ export default function Statistics() {
       <div className="bg-white p-4 sm:p-5 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
         <div className="flex items-center justify-between mb-3.5 flex-wrap gap-2">
           <h3 className="font-black text-ink uppercase tracking-tight flex items-center gap-1.5 italic text-sm sm:text-base">
-            <Zap size={18} className="text-ink" />
-            Training Load / 训练负荷分布
+            <Zap size={18} className="text-ink shrink-0" />
+            <span>训练负荷分布 <span className="text-xs text-ink/50 font-normal not-italic ml-0.5">/ LOAD</span></span>
           </h3>
-          <div className="flex bg-paper border-2 border-ink p-0.5">
+          <div className="flex bg-paper border-2 border-ink p-0.5 shrink-0 whitespace-nowrap">
             <button
               type="button"
               onClick={() => setVolumeTimeframe(7)}
@@ -504,21 +504,21 @@ export default function Statistics() {
 
               return (
                 <div key={item.category} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs font-black">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 border border-ink inline-block" style={{ backgroundColor: item.hex }} />
-                      <span className="text-ink">{item.zh}</span>
-                      <span className="text-[10px] text-ink/50">({item.workoutCount} 次训练)</span>
+                  <div className="flex items-center justify-between text-xs font-black gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="w-2.5 h-2.5 border border-ink inline-block shrink-0" style={{ backgroundColor: item.hex }} />
+                      <span className="text-ink whitespace-nowrap">{item.zh}</span>
+                      <span className="text-[10px] text-ink/50 shrink-0">({item.workoutCount} 次训练)</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                       {isCardio ? (
-                        <span className="text-ink font-black italic">
+                        <span className="text-ink font-black italic whitespace-nowrap">
                           {detail.cardioCalories?.actual || 0} kcal
                         </span>
                       ) : (
-                        <span className="text-ink font-black italic">{item.sets} 加权组</span>
+                        <span className="text-ink font-black italic whitespace-nowrap">{item.sets} 加权组</span>
                       )}
-                      <span className="text-[10px] bg-paper px-1.5 py-0.2 border border-ink text-ink font-black">
+                      <span className="text-[10px] bg-paper px-1.5 py-0.2 border border-ink text-ink font-black shrink-0 whitespace-nowrap">
                         {item.percentage}%
                       </span>
                     </div>
@@ -556,19 +556,21 @@ export default function Statistics() {
         <button
           type="button"
           onClick={() => setIsPrsOpen(!isPrsOpen)}
-          className="w-full flex items-center justify-between text-left cursor-pointer group"
+          className="w-full flex items-center justify-between text-left cursor-pointer group gap-2"
         >
-          <div className="flex items-center gap-2">
-            <TrendingUp size={18} className="text-ink" />
-            <h3 className="font-black text-ink uppercase tracking-tight italic text-sm sm:text-base">
-              Personal Records / 巅峰档案
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <TrendingUp size={18} className="text-ink shrink-0" />
+            <h3 className="font-black text-ink uppercase tracking-tight italic text-sm sm:text-base whitespace-nowrap truncate">
+              巅峰档案 <span className="text-xs text-ink/50 font-normal not-italic ml-0.5">/ PR</span>
             </h3>
-            <span className="text-[10px] font-black bg-paper px-2 py-0.5 border border-ink">
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-[10px] font-black bg-paper px-2 py-0.5 border-2 border-ink text-ink shrink-0 whitespace-nowrap">
               {analytics.categorizedPrs.length} 项纪录
             </span>
-          </div>
-          <div className="p-1 bg-paper border-2 border-ink group-hover:bg-neon transition-colors">
-            {isPrsOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            <div className="p-1 bg-paper border-2 border-ink group-hover:bg-neon transition-colors shrink-0">
+              {isPrsOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            </div>
           </div>
         </button>
 
@@ -627,7 +629,7 @@ export default function Statistics() {
                           <span className="font-black text-ink text-xs sm:text-sm tracking-tight truncate" title={pr.name}>
                             {pr.name}
                           </span>
-                          <span className="text-[9px] sm:text-[10px] font-bold px-1.5 py-0.2 bg-white border border-ink/40 text-ink/70 shrink-0">
+                          <span className="text-[9px] sm:text-[10px] font-bold px-1.5 py-0.2 bg-white border border-ink/40 text-ink/70 shrink-0 whitespace-nowrap">
                             {CATEGORY_META[pr.category]?.zh || pr.category}
                           </span>
                         </div>
@@ -661,21 +663,23 @@ export default function Statistics() {
           <button
             type="button"
             onClick={() => setIsInsightsOpen(!isInsightsOpen)}
-            className="w-full flex items-center justify-between text-left cursor-pointer group"
+            className="w-full flex items-center justify-between text-left cursor-pointer group gap-2"
           >
-            <div className="flex items-center gap-2">
-              <div className="p-1 bg-ink text-neon border-2 border-ink">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <div className="p-1 bg-ink text-neon border-2 border-ink shrink-0">
                 <Sparkles size={15} />
               </div>
-              <h3 className="font-black text-ink uppercase tracking-tight text-xs sm:text-sm">
-                Smart Insights / 训练分析与进阶建议
+              <h3 className="font-black text-ink uppercase tracking-tight text-xs sm:text-sm whitespace-nowrap truncate">
+                训练分析与建议 <span className="text-[10px] text-ink/50 font-normal not-italic ml-0.5">/ INSIGHTS</span>
               </h3>
-              <span className="text-[10px] font-black bg-white px-1.5 py-0.2 border border-ink/30 text-ink/70">
-                {analytics.insights.highlights.length + analytics.insights.recommendations.length} 条
-              </span>
             </div>
-            <div className="p-1 bg-white border-2 border-ink group-hover:bg-neon transition-colors">
-              {isInsightsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[10px] font-black bg-white px-2 py-0.5 border-2 border-ink/40 text-ink/80 shrink-0 whitespace-nowrap">
+                {analytics.insights.highlights.length + analytics.insights.recommendations.length} 条建议
+              </span>
+              <div className="p-1 bg-white border-2 border-ink group-hover:bg-neon transition-colors shrink-0">
+                {isInsightsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </div>
             </div>
           </button>
 
