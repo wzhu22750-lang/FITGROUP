@@ -5,7 +5,7 @@
   "outputDirectory": "dist",
   "installCommand": "npm ci",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!assets/|.*\\.\\w+$).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
