@@ -7,28 +7,71 @@ import {
   ExerciseStandard,
 } from '../constants/strengthStandards';
 import { CATEGORY_META, parseCategories } from '../constants/workoutPresets';
+import {
+  SubMuscleGroup,
+  CATEGORY_SUB_MUSCLES,
+  SUB_MUSCLE_WEIGHTS,
+  SUB_MUSCLE_META,
+  SCORE_WEIGHTS,
+  FREQUENCY_FULL_SCORE_PER_WEEK,
+  VOLUME_TARGET_PER_WEEK,
+  SCORING_PERIOD_DAYS,
+  CARDIO_CALORIE_TARGETS,
+  DEFAULT_CARDIO_CALORIE_TARGET,
+  findMuscleCoefficient,
+} from '../constants/muscleCoefficients';
+
+export interface SubMuscleScoreDetail {
+  subMuscle: SubMuscleGroup;
+  zh: string;
+  en: string;
+  weight: number; // e.g. 0.35 (35%)
+  score: number; // 0 - 100
+  frequencyScore: number; // 0 - 100
+  volumeScore: number; // 0 - 100
+  weightScore: number; // 0 - 100
+  weeklyFrequency: number; // e.g. 1.5 times/week
+  weeklyWeightedSets: number; // e.g. 8.4 sets/week
+  currentPeriodWeightedVolumeKg: number;
+  baselineWeightedVolumeKg: number;
+}
 
 export interface CategoryScoreDetail {
   category: WorkoutCategory;
   zh: string;
   en: string;
-  strengthScore: number; // 0 - 100
-  activityScore: number; // 0 - 100
-  compositeScore: number; // 0 - 100
+  trainingScore: number; // 0 - 100 (Training Capacity Index: Freq 20% + Vol 50% + Weight 30%)
+  strengthScore: number; // 0 - 100 (Pure PR Strength Level)
+  activityScore: number; // 0 - 100 (Frequency Score component)
+  compositeScore: number; // 0 - 100 (Alias to trainingScore for backward compatibility)
   tier: StrengthTierMeta;
   recentSets: number; // Sets in timeframe
   totalVolumeKg: number; // Approximate tonnage
   bestExerciseName?: string;
   bestRecordText?: string;
   bestRecordValue?: number;
+
+  // Granular sub-dimension metrics
+  subMuscleScores?: SubMuscleScoreDetail[];
+  frequencyScore?: number;
+  volumeScore?: number;
+  weightScore?: number;
+  weeklyWorkouts?: number;
+
+  // Cardio specific metrics
+  cardioCalories?: {
+    actual: number;
+    target: number;
+    completionRate: number;
+  };
 }
 
 export interface RadarDataPoint {
   subject: string;
   category: WorkoutCategory;
-  composite: number;
-  strength: number;
-  activity: number;
+  composite: number; // Training capacity score (0-100)
+  strength: number;  // Pure PR strength score (0-100)
+  activity: number;  // Frequency score (0-100)
   fullMark: number;
 }
 
@@ -49,6 +92,7 @@ export interface CategorizedPrItem {
   weight: number;
   unit: string;
   score: number;
+  estimated1RM?: number;
   tier: StrengthTierMeta;
   nextMilestone?: {
     targetWeight: number;
@@ -61,7 +105,7 @@ export interface VolumeDistributionItem {
   category: WorkoutCategory;
   zh: string;
   color: string;
-  /** Inline-style-safe hex matching `color` (Tailwind class names are not valid CSS colors) */
+  /** Inline-style-safe hex matching `color` */
   hex: string;
   sets: number;
   percentage: number;
@@ -76,6 +120,18 @@ function normalizeName(name: string): string {
     .toLowerCase()
     .replace(/[\s\-_（）()【】\[\]+、,/|]/g, '')
     .trim();
+}
+
+/**
+ * Calculates Estimated 1RM using the standard Epley formula:
+ * 1RM = Weight * (1 + Reps / 30)
+ * Only valid for reps in [1..10] range.
+ */
+export function estimateOneRepMax(weight: number, reps: number): number {
+  if (weight <= 0) return 0;
+  if (reps <= 1) return weight;
+  const validReps = Math.min(10, Math.max(1, reps));
+  return Number((weight * (1 + validReps / 30)).toFixed(1));
 }
 
 /**
@@ -102,22 +158,53 @@ export function findExerciseStandard(name: string): ExerciseStandard | undefined
 
 /**
  * Resolves compound muscle group contribution for any exercise name.
+ * Uses the comprehensive muscleCoefficients table first, falling back to keywords.
  * Returns map of category to relative weight (summing to 1.0).
  */
 export function resolveExerciseMuscles(
   exerciseName: string,
   fallbackCategories?: WorkoutCategory[] | string[] | string
 ): Record<WorkoutCategory, number> {
+  const result: Record<WorkoutCategory, number> = {
+    [WorkoutCategory.Chest]: 0,
+    [WorkoutCategory.Back]: 0,
+    [WorkoutCategory.Legs]: 0,
+    [WorkoutCategory.Shoulders]: 0,
+    [WorkoutCategory.Others]: 0,
+    [WorkoutCategory.Cardio]: 0,
+  };
+
+  // 1. Try finding in muscle coefficient table
+  const coeff = findMuscleCoefficient(exerciseName);
+  if (coeff) {
+    let totalAssigned = 0;
+    // Map each subMuscle to its parent Category
+    for (const [subMuscleStr, weight] of Object.entries(coeff.subMuscles)) {
+      const subMuscle = subMuscleStr as SubMuscleGroup;
+      const w = weight || 0;
+      if (w <= 0) continue;
+
+      for (const [cat, subList] of Object.entries(CATEGORY_SUB_MUSCLES)) {
+        if (subList.includes(subMuscle)) {
+          result[cat as WorkoutCategory] += w;
+          totalAssigned += w;
+          break;
+        }
+      }
+    }
+
+    if (totalAssigned > 0) {
+      // Normalize to sum to 1.0
+      for (const cat of Object.keys(result) as WorkoutCategory[]) {
+        result[cat] = Number((result[cat] / totalAssigned).toFixed(3));
+      }
+      return result;
+    }
+  }
+
+  // 2. Try finding standard definition
   const std = findExerciseStandard(exerciseName);
   if (std && std.muscleWeights) {
-    const result: Record<WorkoutCategory, number> = {
-      [WorkoutCategory.Chest]: 0,
-      [WorkoutCategory.Back]: 0,
-      [WorkoutCategory.Legs]: 0,
-      [WorkoutCategory.Shoulders]: 0,
-      [WorkoutCategory.Others]: 0,
-      [WorkoutCategory.Cardio]: 0,
-    };
     for (const [cat, w] of Object.entries(std.muscleWeights)) {
       result[cat as WorkoutCategory] = w || 0;
     }
@@ -153,15 +240,6 @@ export function resolveExerciseMuscles(
     matchedCategories.add(WorkoutCategory.Back);
   }
 
-  const result: Record<WorkoutCategory, number> = {
-    [WorkoutCategory.Chest]: 0,
-    [WorkoutCategory.Back]: 0,
-    [WorkoutCategory.Legs]: 0,
-    [WorkoutCategory.Shoulders]: 0,
-    [WorkoutCategory.Others]: 0,
-    [WorkoutCategory.Cardio]: 0,
-  };
-
   if (matchedCategories.size > 0) {
     const share = 1 / matchedCategories.size;
     matchedCategories.forEach((cat) => {
@@ -191,7 +269,7 @@ export function resolveExerciseMuscles(
 }
 
 /**
- * Calculates a standardized 0 - 100 score for an exercise value
+ * Calculates a standardized 0 - 100 score for a PR value based on 5 standard tiers
  */
 export function calculateStandardizedScore(
   exerciseName: string,
@@ -247,28 +325,23 @@ export function calculateStandardizedScore(
     return Math.round(80 + ((value - t4) / (t5 - t4)) * 20);
   }
 
-  // Beyond the elite threshold: score saturates at 100 (must never regress)
+  // Beyond the elite threshold: score saturates at 100
   return 100;
 }
 
 /**
  * Maps 0 - 100 score to StrengthTierMeta.
- * Bands are aligned with the standard thresholds: reaching standard N scores
- * exactly 20N, so score bands are 40/60/80/100 — a score of 71 can never show
- * a tier higher than the weight actually justifies.
  */
 export function getStrengthTier(score: number): StrengthTierMeta {
-  if (score >= 100) return STRENGTH_TIERS.elite;
-  if (score >= 80) return STRENGTH_TIERS.proficient;
-  if (score >= 60) return STRENGTH_TIERS.intermediate;
-  if (score >= 40) return STRENGTH_TIERS.beginner;
+  if (score >= 80) return STRENGTH_TIERS.elite;
+  if (score >= 60) return STRENGTH_TIERS.proficient;
+  if (score >= 40) return STRENGTH_TIERS.intermediate;
+  if (score >= 20) return STRENGTH_TIERS.beginner;
   return STRENGTH_TIERS.novice;
 }
 
 /**
- * Single source of truth for a PR's tier assessment: the current tier is the
- * highest standard threshold reached, and the next milestone is the next
- * threshold above. Keeps the tier badge and the "next tier" hint consistent.
+ * Resolves assessment for a PR record
  */
 export function resolveStrengthAssessment(
   exerciseName: string,
@@ -329,12 +402,37 @@ export function getNextMilestone(exerciseName: string, currentWeight: number) {
 }
 
 /**
- * Full analytics calculation over user's workout logs and PR records
+ * Helper to estimate calories from a cardio exercise
+ */
+function extractOrEstimateCalories(ex: Exercise): number {
+  if (typeof ex.calories === 'number' && ex.calories > 0) {
+    return ex.calories;
+  }
+  const dur = ex.duration || 0;
+  const dist = ex.distance || 0;
+  if (dist > 0) {
+    // ~60 kcal per km running/cycling average
+    return Math.round(dist * 60);
+  }
+  if (dur > 0) {
+    // ~8 kcal per minute moderate intensity
+    return Math.round(dur * 8);
+  }
+  return 0;
+}
+
+/**
+ * Complete analytics calculation implementing the official 6-dimension scoring framework:
+ * - 28-day rolling window
+ * - Sub-muscle group breakdown with direct/compound coefficients
+ * - Frequency (20%) + Volume (50%) + Weight Progress (30%)
+ * - Cardio scored against 28-day calorie target (default 2000 kcal)
+ * - Pure strength PR evaluated independently via 1RM standards
  */
 export function calculateFullWorkoutAnalytics(
   logs: WorkoutLog[],
   userPrs: Record<string, number> = {},
-  days = 30
+  days = SCORING_PERIOD_DAYS
 ): {
   categoryDetails: Record<WorkoutCategory, CategoryScoreDetail>;
   radarData: RadarDataPoint[];
@@ -345,14 +443,38 @@ export function calculateFullWorkoutAnalytics(
   recentSetsCount: number;
 } {
   const now = Date.now();
-  const cutoffTime = now - days * 24 * 60 * 60 * 1000;
+  const currentPeriodMs = days * 24 * 60 * 60 * 1000;
+  const cutoffTime = now - currentPeriodMs;
+  // Baseline period: previous 4 to 8 weeks before current window
+  const baselineCutoffTime = cutoffTime - currentPeriodMs;
 
   const recentLogs = logs.filter((l) => {
     const t = new Date(l.timestamp).getTime();
-    return !isNaN(t) && t >= cutoffTime;
+    return !isNaN(t) && t >= cutoffTime && t <= now;
   });
 
-  // 1. Calculate sets, volume & workout count per category with compound distribution
+  const baselineLogs = logs.filter((l) => {
+    const t = new Date(l.timestamp).getTime();
+    return !isNaN(t) && t >= baselineCutoffTime && t < cutoffTime;
+  });
+
+  // Track sub-muscle group training data
+  const subMuscleWeightedSets: Record<SubMuscleGroup, number> = {} as any;
+  const subMuscleWeightedVolumeKg: Record<SubMuscleGroup, number> = {} as any;
+  const subMuscleWorkoutDates: Record<SubMuscleGroup, Set<string>> = {} as any;
+
+  // Baseline sub-muscle group volume
+  const baselineSubMuscleWeightedVolumeKg: Record<SubMuscleGroup, number> = {} as any;
+
+  // Initialize all sub-muscle counters
+  Object.values(SubMuscleGroup).forEach((sm) => {
+    subMuscleWeightedSets[sm] = 0;
+    subMuscleWeightedVolumeKg[sm] = 0;
+    subMuscleWorkoutDates[sm] = new Set<string>();
+    baselineSubMuscleWeightedVolumeKg[sm] = 0;
+  });
+
+  // Category aggregate sets & volume (for volume distribution charts)
   const categorySets: Record<WorkoutCategory, number> = {
     [WorkoutCategory.Chest]: 0,
     [WorkoutCategory.Back]: 0,
@@ -380,45 +502,124 @@ export function calculateFullWorkoutAnalytics(
     [WorkoutCategory.Cardio]: 0,
   };
 
-  // Track max cardio stats from logs
-  const maxCardioDuration = { minutes: 0, exerciseName: '有氧训练' };
+  let totalCardioCalories = 0;
+  let maxCardioDuration = { minutes: 0, exerciseName: '有氧训练' };
 
-  recentLogs.forEach((log) => {
+  // Helper to process a log's exercises into sub-muscle accumulators
+  function processLogExercises(
+    log: WorkoutLog,
+    isCurrent: boolean
+  ) {
+    const dateKey = log.timestamp ? log.timestamp.split('T')[0] : '';
     const logCategories = parseCategories(typeof log.category === 'string' ? log.category : '');
     const exercises = Array.isArray(log.exercises) ? log.exercises : [];
-    const logCategoryTouched = new Set<WorkoutCategory>();
+    const logCategoriesTouched = new Set<WorkoutCategory>();
 
     exercises.forEach((ex) => {
-      const muscles = resolveExerciseMuscles(ex.name, logCategories);
       const sets = Math.max(ex.sets || 1, 1);
-      const weight = ex.weight || 0;
-      const reps = ex.reps || 10;
-      const tonnage = weight * sets * reps;
+      const reps = Math.max(ex.reps || 10, 1);
+      const weight = typeof ex.weight === 'number' ? ex.weight : 0;
+      // Assisted bodyweight (negative weight) doesn't produce negative volume tonnage
+      const tonnage = Math.max(0, weight) * sets * reps;
 
-      if (ex.type === 'cardio') {
-        const dur = ex.duration || 0;
-        if (dur > maxCardioDuration.minutes) {
-          maxCardioDuration.minutes = dur;
-          maxCardioDuration.exerciseName = ex.name || '跑步';
+      if (ex.type === 'cardio' || cleanIsCardio(ex.name)) {
+        if (isCurrent) {
+          const cal = extractOrEstimateCalories(ex);
+          totalCardioCalories += cal;
+          categorySets[WorkoutCategory.Cardio] += sets;
+          logCategoriesTouched.add(WorkoutCategory.Cardio);
+
+          const dur = ex.duration || 0;
+          if (dur > maxCardioDuration.minutes) {
+            maxCardioDuration.minutes = dur;
+            maxCardioDuration.exerciseName = ex.name || '跑步';
+          }
         }
+        return;
       }
 
-      for (const [catStr, share] of Object.entries(muscles)) {
-        const cat = catStr as WorkoutCategory;
-        if (share > 0) {
-          categorySets[cat] += sets * share;
-          categoryTonnage[cat] += tonnage * share;
-          logCategoryTouched.add(cat);
+      // Check sub-muscle coefficients
+      const coeff = findMuscleCoefficient(ex.name);
+      if (coeff && Object.keys(coeff.subMuscles).length > 0) {
+        for (const [smStr, share] of Object.entries(coeff.subMuscles)) {
+          const sm = smStr as SubMuscleGroup;
+          const s = share || 0;
+          if (s <= 0) continue;
+
+          if (isCurrent) {
+            subMuscleWeightedSets[sm] += sets * s;
+            subMuscleWeightedVolumeKg[sm] += tonnage * s;
+            if (dateKey) subMuscleWorkoutDates[sm].add(dateKey);
+
+            // Find parent category
+            for (const [cat, subList] of Object.entries(CATEGORY_SUB_MUSCLES)) {
+              if (subList.includes(sm)) {
+                categorySets[cat as WorkoutCategory] += sets * s;
+                categoryTonnage[cat as WorkoutCategory] += tonnage * s;
+                logCategoriesTouched.add(cat as WorkoutCategory);
+                break;
+              }
+            }
+          } else {
+            baselineSubMuscleWeightedVolumeKg[sm] += tonnage * s;
+          }
+        }
+      } else {
+        // Fallback using resolveExerciseMuscles
+        const muscles = resolveExerciseMuscles(ex.name, logCategories);
+        for (const [catStr, share] of Object.entries(muscles)) {
+          const cat = catStr as WorkoutCategory;
+          const s = share || 0;
+          if (s <= 0) continue;
+
+          if (isCurrent) {
+            categorySets[cat] += sets * s;
+            categoryTonnage[cat] += tonnage * s;
+            logCategoriesTouched.add(cat);
+
+            // Distribute evenly among sub-muscles of that category
+            const subMuscles = CATEGORY_SUB_MUSCLES[cat] || [];
+            if (subMuscles.length > 0) {
+              const subShare = s / subMuscles.length;
+              subMuscles.forEach((sm) => {
+                subMuscleWeightedSets[sm] += sets * subShare;
+                subMuscleWeightedVolumeKg[sm] += tonnage * subShare;
+                if (dateKey) subMuscleWorkoutDates[sm].add(dateKey);
+              });
+            }
+          } else {
+            const subMuscles = CATEGORY_SUB_MUSCLES[cat] || [];
+            if (subMuscles.length > 0) {
+              const subShare = s / subMuscles.length;
+              subMuscles.forEach((sm) => {
+                baselineSubMuscleWeightedVolumeKg[sm] += tonnage * subShare;
+              });
+            }
+          }
         }
       }
     });
 
-    logCategoryTouched.forEach((cat) => {
-      categoryWorkoutOccurrences[cat] += 1;
-    });
-  });
+    if (isCurrent) {
+      logCategoriesTouched.forEach((cat) => {
+        categoryWorkoutOccurrences[cat] += 1;
+      });
+    }
+  }
 
-  // 2. Calculate category strength score from PRs
+  function cleanIsCardio(name: string): boolean {
+    const clean = normalizeName(name);
+    return clean.includes('跑') || clean.includes('骑') || clean.includes('单车') || clean.includes('跳绳') || clean.includes('爬楼') || clean.includes('椭圆') || clean.includes('有氧') || clean.includes('cardio') || clean.includes('run') || clean.includes('hiit');
+  }
+
+  // 1. Process recent logs (current period)
+  recentLogs.forEach((log) => processLogExercises(log, true));
+
+  // 2. Process baseline logs (prior period)
+  baselineLogs.forEach((log) => processLogExercises(log, false));
+
+  // 3. Process Pure Strength (PR) scores from user profile PRs and workout logs
+  const categorizedPrs: CategorizedPrItem[] = [];
   const categoryStrengthScores: Record<
     WorkoutCategory,
     { maxScore: number; bestName?: string; bestValue?: number }
@@ -431,17 +632,15 @@ export function calculateFullWorkoutAnalytics(
     [WorkoutCategory.Cardio]: { maxScore: 0 },
   };
 
-  const categorizedPrs: CategorizedPrItem[] = [];
-
-  // Evaluate each strength PR in user profile
+  // Evaluate user PRs
   Object.entries(userPrs).forEach(([name, weight]) => {
-    if (typeof weight !== 'number' || weight <= 0) return;
+    if (typeof weight !== 'number') return;
     const muscles = resolveExerciseMuscles(name);
     const std = findExerciseStandard(name);
-    const primary = std?.primaryCategory || Object.keys(muscles)[0] as WorkoutCategory;
+    const primary = std?.primaryCategory || (Object.keys(muscles)[0] as WorkoutCategory);
 
-    const assessment = resolveStrengthAssessment(name, weight, primary);
-    const singleScore = assessment.score;
+    const assessment = resolveStrengthAssessment(name, Math.max(0, weight), primary);
+    const singleScore = weight < 0 ? Math.max(5, Math.round(20 + weight)) : assessment.score;
 
     categorizedPrs.push({
       name,
@@ -449,11 +648,11 @@ export function calculateFullWorkoutAnalytics(
       weight,
       unit: std?.unit || 'kg',
       score: singleScore,
+      estimated1RM: weight,
       tier: assessment.tier,
       nextMilestone: assessment.nextMilestone,
     });
 
-    // Distribute score across all stimulated categories
     for (const [catStr, share] of Object.entries(muscles)) {
       const cat = catStr as WorkoutCategory;
       if (share >= 0.2) {
@@ -467,7 +666,29 @@ export function calculateFullWorkoutAnalytics(
     }
   });
 
-  // Factor in cardio PR / max duration
+  // Also check best single-set performances in recent logs for PRs
+  recentLogs.forEach((log) => {
+    (log.exercises || []).forEach((ex) => {
+      if (ex.type === 'strength' && ex.weight && ex.weight > 0) {
+        const est1RM = estimateOneRepMax(ex.weight, ex.reps || 1);
+        const muscles = resolveExerciseMuscles(ex.name);
+        const std = findExerciseStandard(ex.name);
+        const primary = std?.primaryCategory || (Object.keys(muscles)[0] as WorkoutCategory);
+        const score = calculateStandardizedScore(ex.name, est1RM, primary);
+
+        for (const [catStr, share] of Object.entries(muscles)) {
+          const cat = catStr as WorkoutCategory;
+          if (share >= 0.2 && score > categoryStrengthScores[cat].maxScore) {
+            categoryStrengthScores[cat].maxScore = score;
+            categoryStrengthScores[cat].bestName = ex.name;
+            categoryStrengthScores[cat].bestValue = ex.weight;
+          }
+        }
+      }
+    });
+  });
+
+  // Evaluate cardio score for PR view
   if (maxCardioDuration.minutes > 0) {
     const cardioScore = calculateStandardizedScore(
       maxCardioDuration.exerciseName,
@@ -481,7 +702,8 @@ export function calculateFullWorkoutAnalytics(
     };
   }
 
-  // 3. Assemble category details & radar points
+  // 4. Calculate Sub-muscle scores and 6-Dimension Category details
+  const weeksInPeriod = Math.max(1, days / 7);
   const categoryDetails: Record<WorkoutCategory, CategoryScoreDetail> = {} as any;
   const radarData: RadarDataPoint[] = [];
 
@@ -489,60 +711,163 @@ export function calculateFullWorkoutAnalytics(
 
   Object.values(WorkoutCategory).forEach((cat) => {
     const meta = CATEGORY_META[cat];
-    const strength = categoryStrengthScores[cat].maxScore || 0;
+    const strengthPRScore = categoryStrengthScores[cat].maxScore || 0;
     const sets = Math.round(categorySets[cat]);
     const workouts = categoryWorkoutOccurrences[cat];
 
-    // Activity score: 0-100 based on recent 30-day training frequency & sets
-    // 0 sets -> 0 pts; 8 sets (~2 workouts) -> 50 pts; 16+ sets (~4+ workouts) -> 90+ pts
-    let activity = 0;
-    if (sets > 0) {
-      activity = Math.min(100, Math.round(Math.min(sets * 5, 60) + Math.min(workouts * 10, 40)));
+    if (cat === WorkoutCategory.Cardio) {
+      // Cardio Dimension: calculated based on 28-day total calories
+      const cardioTarget = DEFAULT_CARDIO_CALORIE_TARGET;
+      const cardioScore = Math.min(100, Math.round((totalCardioCalories / cardioTarget) * 100));
+      const activity = Math.min(100, Math.round((workouts / (FREQUENCY_FULL_SCORE_PER_WEEK * weeksInPeriod)) * 100));
+      const tier = getStrengthTier(cardioScore);
+
+      categoryDetails[cat] = {
+        category: cat,
+        zh: meta.zh,
+        en: meta.en,
+        trainingScore: cardioScore,
+        strengthScore: strengthPRScore > 0 ? strengthPRScore : cardioScore,
+        activityScore: activity,
+        compositeScore: cardioScore,
+        tier,
+        recentSets: sets,
+        totalVolumeKg: 0,
+        bestExerciseName: maxCardioDuration.exerciseName,
+        bestRecordValue: totalCardioCalories,
+        bestRecordText: totalCardioCalories > 0 ? `${totalCardioCalories} kcal` : undefined,
+        weeklyWorkouts: Number((workouts / weeksInPeriod).toFixed(1)),
+        cardioCalories: {
+          actual: totalCardioCalories,
+          target: cardioTarget,
+          completionRate: Math.round((totalCardioCalories / cardioTarget) * 100),
+        },
+      };
+
+      radarData.push({
+        subject: meta.zh,
+        category: cat,
+        composite: cardioScore,
+        strength: strengthPRScore > 0 ? strengthPRScore : cardioScore,
+        activity,
+        fullMark: 100,
+      });
+      return;
     }
 
-    // Composite: 70% Strength + 30% Activity (if PR exists), otherwise activity-boosted
-    let composite = 0;
-    if (strength > 0) {
-      composite = Math.round(strength * 0.7 + activity * 0.3);
-    } else if (activity > 0) {
-      composite = Math.round(activity * 0.5); // Has logs but no tracked heavy strength PR
-    }
+    // Strength Dimensions: Calculate sub-muscle scores
+    const subMuscleList = CATEGORY_SUB_MUSCLES[cat] || [];
+    const weightsMap = SUB_MUSCLE_WEIGHTS[cat] || {};
+    const subMuscleScoreDetails: SubMuscleScoreDetail[] = [];
 
-    const tier = getStrengthTier(composite);
+    let categoryWeightedScoreSum = 0;
+    let sumFrequencyScore = 0;
+    let sumVolumeScore = 0;
+    let sumWeightScore = 0;
+
+    subMuscleList.forEach((sm) => {
+      const smMeta = SUB_MUSCLE_META[sm];
+      const smWeight = weightsMap[sm] ?? (1 / subMuscleList.length);
+
+      // A. Frequency Score
+      const trainingDaysCount = subMuscleWorkoutDates[sm].size;
+      const weeklyFrequency = trainingDaysCount / weeksInPeriod;
+      let frequencyScore = 0;
+      if (weeklyFrequency > 0) {
+        // 0 -> 0; 1/week -> 50; 2/week -> 75; 3+/week -> 100
+        frequencyScore = Math.min(100, Math.round(25 + weeklyFrequency * 25));
+      }
+
+      // B. Volume Score (weekly加权组数 vs 目标组数 12组)
+      const weeklyWeightedSets = subMuscleWeightedSets[sm] / weeksInPeriod;
+      const volumeScore = Math.min(100, Math.round((weeklyWeightedSets / VOLUME_TARGET_PER_WEEK) * 100));
+
+      // C. Weight Score (Current 28d vs Baseline)
+      const currentPeriodVolume = subMuscleWeightedVolumeKg[sm];
+      const baselinePeriodVolume = baselineSubMuscleWeightedVolumeKg[sm];
+
+      let weightScore = 50; // Default when no baseline is available
+      if (baselinePeriodVolume > 0) {
+        weightScore = Math.min(100, Math.max(0, Math.round((currentPeriodVolume / baselinePeriodVolume) * 100)));
+      } else if (currentPeriodVolume > 0) {
+        // If has workouts in current period but no prior baseline, base on volume accomplishment
+        weightScore = Math.min(100, Math.max(50, Math.round(50 + (volumeScore / 2))));
+      } else {
+        weightScore = 0;
+      }
+
+      // Sub-muscle composite score: 20% Frequency + 50% Volume + 30% Weight
+      const subScore = Math.min(
+        100,
+        Math.round(
+          frequencyScore * SCORE_WEIGHTS.frequency +
+          volumeScore * SCORE_WEIGHTS.volume +
+          weightScore * SCORE_WEIGHTS.weight
+        )
+      );
+
+      subMuscleScoreDetails.push({
+        subMuscle: sm,
+        zh: smMeta.zh,
+        en: smMeta.en,
+        weight: smWeight,
+        score: subScore,
+        frequencyScore,
+        volumeScore,
+        weightScore,
+        weeklyFrequency: Number(weeklyFrequency.toFixed(1)),
+        weeklyWeightedSets: Number(weeklyWeightedSets.toFixed(1)),
+        currentPeriodWeightedVolumeKg: Math.round(currentPeriodVolume),
+        baselineWeightedVolumeKg: Math.round(baselinePeriodVolume),
+      });
+
+      categoryWeightedScoreSum += subScore * smWeight;
+      sumFrequencyScore += frequencyScore * smWeight;
+      sumVolumeScore += volumeScore * smWeight;
+      sumWeightScore += weightScore * smWeight;
+    });
+
+    const trainingScore = Math.min(100, Math.round(categoryWeightedScoreSum));
+    const avgFreqScore = Math.min(100, Math.round(sumFrequencyScore));
+    const avgVolScore = Math.min(100, Math.round(sumVolumeScore));
+    const avgWeightScore = Math.min(100, Math.round(sumWeightScore));
+
+    const tier = getStrengthTier(trainingScore);
 
     categoryDetails[cat] = {
       category: cat,
       zh: meta.zh,
       en: meta.en,
-      strengthScore: strength,
-      activityScore: activity,
-      compositeScore: composite,
+      trainingScore,
+      strengthScore: strengthPRScore,
+      activityScore: avgFreqScore,
+      compositeScore: trainingScore,
       tier,
       recentSets: sets,
       totalVolumeKg: Math.round(categoryTonnage[cat]),
       bestExerciseName: categoryStrengthScores[cat].bestName,
       bestRecordValue: categoryStrengthScores[cat].bestValue,
-      bestRecordText:
-        cat === WorkoutCategory.Cardio
-          ? categoryStrengthScores[cat].bestValue
-            ? `${categoryStrengthScores[cat].bestValue} 分钟`
-            : undefined
-          : categoryStrengthScores[cat].bestValue
-          ? `${categoryStrengthScores[cat].bestValue} KG`
-          : undefined,
+      bestRecordText: categoryStrengthScores[cat].bestValue
+        ? `${categoryStrengthScores[cat].bestValue} KG`
+        : undefined,
+      subMuscleScores: subMuscleScoreDetails,
+      frequencyScore: avgFreqScore,
+      volumeScore: avgVolScore,
+      weightScore: avgWeightScore,
+      weeklyWorkouts: Number((workouts / weeksInPeriod).toFixed(1)),
     };
 
     radarData.push({
       subject: meta.zh,
       category: cat,
-      composite,
-      strength,
-      activity,
+      composite: trainingScore,
+      strength: strengthPRScore,
+      activity: avgFreqScore,
       fullMark: 100,
     });
   });
 
-  // 4. Volume Distribution
+  // 5. Volume Distribution (Normalized across active categories)
   const volumeDistribution: VolumeDistributionItem[] = Object.values(WorkoutCategory).map((cat) => {
     const meta = CATEGORY_META[cat];
     const sets = Math.round(categorySets[cat]);
@@ -558,22 +883,20 @@ export function calculateFullWorkoutAnalytics(
     };
   });
 
-  // 5. Intelligent Insights & Recommendations
-  const activeScores = Object.values(categoryDetails).map((c) => c.compositeScore);
+  // 6. Intelligent Insights & Recommendations
+  const activeScores = Object.values(categoryDetails).map((c) => c.trainingScore);
   const maxScore = Math.max(...activeScores, 0);
-  const minScore = Math.min(...activeScores, 0);
 
   const sortedCategories = [...Object.values(categoryDetails)].sort(
-    (a, b) => b.compositeScore - a.compositeScore
+    (a, b) => b.trainingScore - a.trainingScore
   );
 
-  const dominant = sortedCategories[0]?.compositeScore > 0 ? sortedCategories[0] : undefined;
+  const dominant = sortedCategories[0]?.trainingScore > 0 ? sortedCategories[0] : undefined;
   const lagging =
-    sortedCategories[sortedCategories.length - 1]?.compositeScore >= 0
+    sortedCategories[sortedCategories.length - 1]?.trainingScore >= 0
       ? sortedCategories[sortedCategories.length - 1]
       : undefined;
 
-  // Balance calculation (standard deviation / spread)
   const avgScore = activeScores.reduce((a, b) => a + b, 0) / (activeScores.length || 1);
   const variance =
     activeScores.reduce((acc, val) => acc + Math.pow(val - avgScore, 2), 0) /
@@ -597,26 +920,26 @@ export function calculateFullWorkoutAnalytics(
   const highlights: string[] = [];
   const recommendations: string[] = [];
 
-  if (dominant && dominant.compositeScore >= 40) {
+  if (dominant && dominant.trainingScore >= 40) {
     highlights.push(
-      `优势部位：${dominant.zh} (${dominant.compositeScore}分 · ${dominant.tier.zh})，基础力量扎实。`
+      `优势部位：${dominant.zh} (${dominant.trainingScore}分 · ${dominant.tier.zh})，近期训练覆盖与容量饱满。`
     );
   } else if (recentLogs.length > 0) {
     highlights.push(`训练状态良好，近 ${days} 天累计完成 ${recentLogs.length} 次训练打卡！`);
   } else {
-    highlights.push('记录你的第一次训练，即可激活全维度力量能力图谱！');
+    highlights.push('记录你的第一次训练，即可激活六维健身能力图谱！');
   }
 
-  if (lagging && lagging.compositeScore < (dominant?.compositeScore || 50) - 20) {
+  if (lagging && lagging.trainingScore < (dominant?.trainingScore || 50) - 20) {
     recommendations.push(
-      `薄弱提醒：${lagging.zh} (${lagging.compositeScore}分) 相对滞后，建议增加 1-2 次针对性训练，提升全身肌力协调。`
+      `薄弱提醒：${lagging.zh} (${lagging.trainingScore}分) 相对滞后，建议增加针对性训练，提升全身均衡发展。`
     );
   }
 
   if (categorySets[WorkoutCategory.Legs] === 0 && recentLogs.length >= 3) {
-    recommendations.push('提示：近期下肢腿部训练较少，适度深蹲硬拉可促进睾酮分泌与力量进阶！');
+    recommendations.push('提示：近期下肢腿部训练较少，适度深蹲与硬拉可强化核心及下肢力量！');
   } else if (categorySets[WorkoutCategory.Cardio] === 0 && recentLogs.length >= 4) {
-    recommendations.push('心肺建议：每周穿插 1 次 20-30 分钟有氧或 HIIT，有助于提升体能恢复效率。');
+    recommendations.push('心肺建议：每周穿插 1-2 次有氧或 HIIT，有助于提升心肺体能与代谢恢复。');
   }
 
   if (recommendations.length === 0) {
@@ -632,8 +955,8 @@ export function calculateFullWorkoutAnalytics(
       balanceLevel,
       dominantCategory: dominant?.category,
       laggingCategory: lagging?.category,
-      dominantScore: dominant?.compositeScore || 0,
-      laggingScore: lagging?.compositeScore || 0,
+      dominantScore: dominant?.trainingScore || 0,
+      laggingScore: lagging?.trainingScore || 0,
       highlights,
       recommendations,
     },

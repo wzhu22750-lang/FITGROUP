@@ -101,8 +101,10 @@ export default function Feed() {
 
 function LogCard({ log }: { log: WorkoutLog; key?: string }) {
   const [hasLiked, setHasLiked] = useState(false);
+  const [likesCount, setLikesCount] = useState(Number(log.likesCount) || 0);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<any[]>([]);
+  const [commentsCount, setCommentsCount] = useState(Number(log.commentsCount) || 0);
   const [commentText, setCommentText] = useState('');
   const [sending, setSending] = useState(false);
   const [commentError, setCommentError] = useState('');
@@ -112,6 +114,15 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
   const [deleting, setDeleting] = useState(false);
   const currentUser = getCurrentUser();
   const isOwner = Boolean(currentUser && log.userId === currentUser.uid);
+
+  // Synchronize counts when log prop updates from server
+  useEffect(() => {
+    setLikesCount(Number(log.likesCount) || 0);
+  }, [log.likesCount]);
+
+  useEffect(() => {
+    setCommentsCount(Number(log.commentsCount) || 0);
+  }, [log.commentsCount]);
 
   const handleDelete = async () => {
     if (!deleteConfirm) {
@@ -138,7 +149,10 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
 
   useEffect(() => {
     if (!showComments || !log.id) return;
-    const unsub = subscribeToComments(log.id, setComments);
+    const unsub = subscribeToComments(log.id, (data) => {
+      setComments(data as any[]);
+      setCommentsCount(Array.isArray(data) ? data.length : 0);
+    });
     return () => unsub();
   }, [showComments, log.id]);
 
@@ -153,12 +167,20 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
   const handleToggleLike = async () => {
     const user = getCurrentUser();
     if (!user || !log.id) return;
-    const prev = hasLiked;
-    setHasLiked(!prev);
+    const prevLiked = hasLiked;
+    const nextLiked = !prevLiked;
+
+    // Instant optimistic update
+    setHasLiked(nextLiked);
+    setLikesCount((prev) => Math.max(0, prev + (nextLiked ? 1 : -1)));
+
     try {
-      await toggleLike(log.id, user.uid, prev);
-    } catch {
-      setHasLiked(prev);
+      await toggleLike(log.id, user.uid, prevLiked);
+    } catch (err) {
+      // Revert if network error
+      console.error('Like failed:', err);
+      setHasLiked(prevLiked);
+      setLikesCount((prev) => Math.max(0, prev + (prevLiked ? 1 : -1)));
     }
   };
 
@@ -167,9 +189,11 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
     if (!user || !log.id || !commentText.trim()) return;
     setSending(true);
     setCommentError('');
+    const textToSend = commentText.trim();
     try {
-      await addComment(log.id, user.uid, user.displayName || 'User', user.photoURL || '', commentText.trim());
+      await addComment(log.id, user.uid, user.displayName || 'User', user.photoURL || '', textToSend);
       setCommentText('');
+      setCommentsCount((prev) => prev + 1);
     } catch (e) {
       console.error('Comment failed:', e);
       setCommentError('评论发送失败，请重试');
@@ -292,14 +316,14 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
               className={`flex items-center gap-2 text-xs font-black px-3 py-1 border-2 border-ink transition-all cursor-pointer ${hasLiked ? 'bg-ink text-neon' : 'bg-white text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'}`}
             >
               <Heart size={16} fill={hasLiked ? 'currentColor' : 'none'} />
-              <span>{log.likesCount || 0}</span>
+              <span>{likesCount}</span>
             </button>
             <button
               onClick={() => setShowComments(!showComments)}
               className={`flex items-center gap-2 text-xs font-black px-3 py-1 border-2 border-ink transition-all cursor-pointer ${showComments ? 'bg-ink text-neon' : 'bg-white text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'}`}
             >
               <MessageCircle size={16} />
-              <span>{log.commentsCount || 0}</span>
+              <span>{commentsCount}</span>
             </button>
           </div>
           <button onClick={handleShare} className="bg-paper p-1 border-2 border-ink hover:bg-neon transition-colors cursor-pointer">

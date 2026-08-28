@@ -42,8 +42,8 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
   const [activePresetCategory, setActivePresetCategory] = useState<WorkoutCategory>(
     WorkoutCategory.Chest
   );
-  // Collapsible state for preset exercises section
-  const [isPresetsExpanded, setIsPresetsExpanded] = useState(true);
+  // Collapsible state for preset exercises section (default collapsed)
+  const [isPresetsExpanded, setIsPresetsExpanded] = useState(false);
 
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [note, setNote] = useState('');
@@ -261,6 +261,17 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       }
     }
 
+    const sanitizedExercises: Exercise[] = exercises.map((ex) => ({
+      ...ex,
+      name: ex.name.trim(),
+      weight: ex.type === 'strength' ? (parseFloat(String(ex.weight)) || 0) : undefined,
+      sets: ex.type === 'strength' ? (Number(ex.sets) || 0) : undefined,
+      reps: ex.type === 'strength' ? (Number(ex.reps) || 0) : undefined,
+      duration: ex.type === 'cardio' ? (Number(ex.duration) || 0) : undefined,
+      distance: ex.type === 'cardio' ? (Number(ex.distance) || 0) : undefined,
+      calories: ex.type === 'cardio' ? (Number(ex.calories) || 0) : undefined,
+    }));
+
     setIsSubmitting(true);
     try {
       await createWorkoutLog({
@@ -270,7 +281,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         userPhoto: user.photoURL || '',
         category: selectedCategories.join(', '),
         categories: selectedCategories,
-        exercises,
+        exercises: sanitizedExercises,
         note,
         likesCount: 0,
         commentsCount: 0,
@@ -280,11 +291,11 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       if (userProfile) {
         const currentPrs = userProfile.prs || {};
         let prBroken = false;
-        exercises.forEach((ex) => {
+        sanitizedExercises.forEach((ex) => {
           if (
             ex.type === 'strength' &&
-            ex.weight &&
-            (!currentPrs[ex.name] || ex.weight > currentPrs[ex.name])
+            typeof ex.weight === 'number' &&
+            (currentPrs[ex.name] === undefined || ex.weight > currentPrs[ex.name])
           ) {
             prBroken = true;
           }
@@ -601,17 +612,39 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
               {ex.type === 'strength' ? (
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <label className="text-[10px] font-black text-ink uppercase block mb-1">
-                      KG (重量)
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-black text-ink uppercase">
+                        KG (重量)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentWeight = typeof ex.weight === 'number' ? ex.weight : (parseFloat(String(ex.weight)) || 0);
+                          updateExercise(ex.id, { weight: currentWeight === 0 ? -10 : -currentWeight });
+                        }}
+                        className={`text-[9px] font-black px-1.5 py-0.2 border border-ink transition-colors cursor-pointer ${
+                          typeof ex.weight === 'number' && ex.weight < 0
+                            ? 'bg-ink text-neon shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
+                            : 'bg-paper text-ink/70 hover:bg-neon'
+                        }`}
+                        title="切换辅助负重 (如引体向上/双杠减重)"
+                      >
+                        {typeof ex.weight === 'number' && ex.weight < 0 ? '辅助 (-)' : '负重 (+)'}
+                      </button>
+                    </div>
                     <input
                       type="number"
-                      min="0"
                       step="0.5"
-                      value={ex.weight || ''}
-                      onChange={(e) =>
-                        updateExercise(ex.id, { weight: Number(e.target.value) || 0 })
-                      }
+                      value={ex.weight === undefined || ex.weight === null ? '' : ex.weight}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '' || val === '-') {
+                          updateExercise(ex.id, { weight: val as any });
+                        } else {
+                          const num = parseFloat(val);
+                          updateExercise(ex.id, { weight: isNaN(num) ? 0 : num });
+                        }
+                      }}
                       placeholder="0"
                       className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
                     />
