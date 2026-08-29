@@ -9,9 +9,14 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx tests/stats-recalculation.test.ts && tsx tests/presets-and-import.test.ts && tsx tests/workout-analytics.test.ts",
+    "test": "tsx tests/stats-recalculation.test.ts && tsx tests/presets-and-import.test.ts && tsx tests/workout-analytics.test.ts && tsx tests/squad-and-visibility.test.ts && tsx tests/notifications.test.ts",
+
+    "db:apply": "tsx scripts/supabase-admin.ts --apply-all",
+    "db:check": "tsx scripts/supabase-admin.ts --check",
+    "db:sql": "tsx scripts/supabase-admin.ts --sql",
     "cap:sync": "npm run build && npx cap sync android",
     "android:debug": "npm run cap:sync && cd android && ./gradlew assembleDebug"
+
   },
   "dependencies": {
     "@capacitor/android": "^8.3.4",

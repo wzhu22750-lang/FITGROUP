@@ -5,7 +5,7 @@ import {
   getUserProfile,
   getLastWorkoutsByCategories,
 } from '../api';
-import { WorkoutCategory, Exercise, WorkoutLog } from '../types';
+import { WorkoutCategory, Exercise, WorkoutLog, WorkoutVisibility } from '../types';
 import {
   CATEGORY_META,
   PRESET_EXERCISES_BY_CATEGORY,
@@ -29,6 +29,9 @@ import {
   Zap,
   ChevronDown,
   ChevronUp,
+  Globe,
+  Users,
+  Lock,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
@@ -36,6 +39,7 @@ import confetti from 'canvas-confetti';
 interface WorkoutLoggerProps {
   onSuccess: () => void;
 }
+
 
 export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
   // Multi-category selection
@@ -51,6 +55,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
 
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [note, setNote] = useState('');
+  const [visibility, setVisibility] = useState<WorkoutVisibility>('public');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState('');
@@ -58,6 +63,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
   const mutationIdRef = useRef<string>(
     Math.random().toString(36).slice(2, 11) + Date.now().toString(36)
   );
+
 
   // History logs for selected categories
   const [lastLogs, setLastLogs] = useState<Record<string, WorkoutLog>>({});
@@ -364,9 +370,11 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         categories: finalCategories,
         exercises: sanitizedExercises,
         note,
+        visibility,
         likesCount: 0,
         commentsCount: 0,
       });
+
 
       const userProfile = await getUserProfile(user.uid).catch(() => null);
       if (userProfile) {
@@ -850,6 +858,54 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         />
       </div>
 
+      {/* Visibility / 可见范围 */}
+      <div className="bg-white p-6 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+        <label className="block text-sm font-black text-ink uppercase tracking-widest mb-3">
+          Visibility / 可见范围
+        </label>
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={() => setVisibility('public')}
+            className={`py-3 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center justify-center gap-1 ${
+              visibility === 'public'
+                ? 'bg-neon text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+                : 'bg-paper text-ink/70 hover:bg-white'
+            }`}
+          >
+            <Globe size={16} />
+            <span>全员公开</span>
+            <span className="text-[9px] opacity-75 font-normal">广场可见</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setVisibility('friends')}
+            className={`py-3 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center justify-center gap-1 ${
+              visibility === 'friends'
+                ? 'bg-sky-300 text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+                : 'bg-paper text-ink/70 hover:bg-white'
+            }`}
+          >
+            <Users size={16} />
+            <span>好友小队</span>
+            <span className="text-[9px] opacity-75 font-normal">小队可见</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setVisibility('private')}
+            className={`py-3 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center justify-center gap-1 ${
+              visibility === 'private'
+                ? 'bg-ink text-white shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
+                : 'bg-paper text-ink/70 hover:bg-white'
+            }`}
+          >
+            <Lock size={16} />
+            <span>仅自己</span>
+            <span className="text-[9px] opacity-75 font-normal">个人历史</span>
+          </button>
+        </div>
+      </div>
+
       {/* Submit Button */}
       <button
         type="submit"
@@ -866,6 +922,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
           </>
         )}
       </button>
+
     </form>
   );
 }

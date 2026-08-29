@@ -743,8 +743,28 @@ export function calculateFullWorkoutAnalytics(
     [WorkoutCategory.Cardio]: { maxScore: 0 },
   };
 
+  // Dynamically derive PRs directly from all provided workout logs
+  const computedPrsFromLogs: Record<string, number> = {};
+  logs.forEach((log) => {
+    (log.exercises || []).forEach((ex) => {
+      if (ex.type === 'strength' && typeof ex.weight === 'number' && ex.name) {
+        const cleanName = ex.name.trim();
+        if (cleanName) {
+          if (computedPrsFromLogs[cleanName] === undefined || ex.weight > computedPrsFromLogs[cleanName]) {
+            computedPrsFromLogs[cleanName] = ex.weight;
+          }
+        }
+      }
+    });
+  });
+
+  // If logs are present, computedPrsFromLogs is the primary dynamic source of truth
+  const effectivePrs = Object.keys(computedPrsFromLogs).length > 0
+    ? { ...userPrs, ...computedPrsFromLogs }
+    : userPrs;
+
   // Evaluate user PRs
-  Object.entries(userPrs).forEach(([name, weight]) => {
+  Object.entries(effectivePrs).forEach(([name, weight]) => {
     if (typeof weight !== 'number') return;
     const muscles = resolveExerciseMuscles(name);
     const std = findExerciseStandard(name);
@@ -776,6 +796,7 @@ export function calculateFullWorkoutAnalytics(
       }
     }
   });
+
 
   // Also check best single-set performances in recent logs for PRs
   recentLogs.forEach((log) => {

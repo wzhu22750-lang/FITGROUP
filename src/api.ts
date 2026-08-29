@@ -1,5 +1,8 @@
 import type { User } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
+import type { WorkoutLog, WorkoutVisibility, Team, TeamMember, TeamDashboardData, AppNotification } from './types';
+import { DEFAULT_MAX_TEAM_MEMBERS } from './constants/teamConfig';
+
 
 export type AppUser = {
   id: string;
@@ -44,6 +47,24 @@ type WorkoutLogRow = {
   photo_url: string;
   likes_count: number;
   comments_count: number;
+  visibility?: string;
+};
+
+type TeamRow = {
+  id: string;
+  name: string;
+  code: string;
+  created_by: string;
+  max_members: number;
+  created_at: string;
+};
+
+type TeamMemberRow = {
+  id: string;
+  team_id: string;
+  user_id: string;
+  role: string;
+  joined_at: string;
 };
 
 type CommentRow = {
@@ -55,6 +76,7 @@ type CommentRow = {
   content: string;
   created_at: string;
 };
+
 
 let cachedUser: AppUser | null = null;
 
@@ -351,6 +373,9 @@ export const createWorkoutLog = async (logData: Record<string, unknown>) => {
 
   const categoryStr = categoriesList.join(', ');
   const fallbackPrimaryCategory = categoriesList[0] || 'Others';
+  const visibility: WorkoutVisibility = (
+    logData.visibility === 'friends' || logData.visibility === 'private' ? logData.visibility : 'public'
+  ) as WorkoutVisibility;
 
   let { error } = await supabase.from('workout_logs').insert({
     id: logId,
@@ -361,6 +386,7 @@ export const createWorkoutLog = async (logData: Record<string, unknown>) => {
     exercises,
     note: String(logData.note || '').slice(0, 500),
     photo_url: String(logData.photoUrl || ''),
+    visibility,
   });
 
   // Fallback retry if DB has strict check constraint on single category enum value
@@ -374,8 +400,24 @@ export const createWorkoutLog = async (logData: Record<string, unknown>) => {
       exercises,
       note: String(logData.note || '').slice(0, 500),
       photo_url: String(logData.photoUrl || ''),
+      visibility,
     });
     error = retryRes.error;
+  }
+
+  // Fallback retry without visibility column if database hasn't migrated yet
+  if (error && error.code === '42703') {
+    const retryWithoutVis = await supabase.from('workout_logs').insert({
+      id: logId,
+      user_id: user.id,
+      user_name: String(logData.userName || profile.displayName || 'FitGroup').slice(0, 50),
+      user_photo: String(logData.userPhoto || profile.photoURL || ''),
+      category: categoryStr,
+      exercises,
+      note: String(logData.note || '').slice(0, 500),
+      photo_url: String(logData.photoUrl || ''),
+    });
+    error = retryWithoutVis.error;
   }
 
   if (error) {
@@ -394,6 +436,80 @@ export const createWorkoutLog = async (logData: Record<string, unknown>) => {
 
   return { id: logId };
 };
+
+export const updateWorkoutLog = async (workoutLogId: string, updates: Record<string, unknown>) => {
+  const user = await currentAuthUser();
+  if (!user) throw new Error('未登录');
+
+  const { data: existing, error: readError } = await supabase
+    .from('workout_logs')
+    .select('id, user_id')
+    .eq('id', workoutLogId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!existing) throw new Error('打卡记录不存在');
+  if (existing.user_id !== user.id) {
+    throw new Error('只能编辑自己的打卡记录');
+  }
+
+  const payload: Record<string, unknown> = {};
+
+  if ('exercises' in updates && Array.isArray(updates.exercises)) {
+    payload.exercises = updates.exercises;
+  }
+
+  if ('categories' in updates || 'category' in updates) {
+    const categoriesList = Array.isArray(updates.categories) && updates.categories.length > 0
+      ? (updates.categories as string[])
+      : (typeof updates.category === 'string' ? [updates.category] : ['Others']);
+    payload.category = categoriesList.join(', ');
+  }
+
+  if ('note' in updates && typeof updates.note === 'string') {
+    payload.note = updates.note.slice(0, 500);
+  }
+
+  if ('photoUrl' in updates && typeof updates.photoUrl === 'string') {
+    payload.photo_url = updates.photoUrl;
+  }
+
+  if ('visibility' in updates && typeof updates.visibility === 'string') {
+    const vis = updates.visibility;
+    if (['public', 'friends', 'private'].includes(vis)) {
+      payload.visibility = vis;
+    }
+  }
+
+  let { error } = await supabase
+    .from('workout_logs')
+    .update(payload)
+    .eq('id', workoutLogId);
+
+  // Fallback retry if DB has strict check constraint on single category enum value
+  if (error && error.code === '23514' && typeof payload.category === 'string' && payload.category.includes(',')) {
+    const fallbackCategory = payload.category.split(',')[0].trim() || 'Others';
+    const retryRes = await supabase
+      .from('workout_logs')
+      .update({ ...payload, category: fallbackCategory })
+      .eq('id', workoutLogId);
+    error = retryRes.error;
+  }
+
+  // Fallback if visibility column does not exist in legacy table
+  if (error && error.code === '42703' && 'visibility' in payload) {
+    const fallbackPayload = { ...payload };
+    delete fallbackPayload.visibility;
+    const retryRes = await supabase
+      .from('workout_logs')
+      .update(fallbackPayload)
+      .eq('id', workoutLogId);
+    error = retryRes.error;
+  }
+
+  if (error) throw error;
+  return { id: workoutLogId };
+};
+
 
 export const deleteWorkoutLog = async (workoutLogId: string) => {
   const user = await currentAuthUser();
@@ -414,7 +530,12 @@ export const deleteWorkoutLog = async (workoutLogId: string) => {
   if (error) throw error;
 };
 
-function normalizeLog(row: WorkoutLogRow) {
+function normalizeLog(row: WorkoutLogRow): WorkoutLog {
+  const rawVis = (row.visibility || '').toLowerCase();
+  const visibility: WorkoutVisibility = (
+    rawVis === 'friends' || rawVis === 'private' ? rawVis : 'public'
+  );
+
   return {
     id: row.id,
     userId: row.user_id,
@@ -422,15 +543,34 @@ function normalizeLog(row: WorkoutLogRow) {
     userPhoto: row.user_photo,
     timestamp: toIso(row.created_at) || new Date().toISOString(),
     category: row.category,
-    exercises: Array.isArray(row.exercises) ? row.exercises : [],
+    exercises: Array.isArray(row.exercises) ? row.exercises as any : [],
     note: row.note || '',
     photoUrl: row.photo_url || '',
     likesCount: Number(row.likes_count || 0),
     commentsCount: Number(row.comments_count || 0),
+    visibility,
   };
 }
 
-async function fetchWorkoutLogs(maxCount: number) {
+export async function fetchPublicWorkoutLogs(maxCount = 30): Promise<WorkoutLog[]> {
+  const { data, error } = await supabase
+    .from('workout_logs')
+    .select('*')
+    .eq('visibility', 'public')
+    .order('created_at', { ascending: false })
+    .limit(maxCount);
+
+  if (error) {
+    if (error.code === '42703') {
+      // Legacy table fallback without visibility column
+      return fetchAllWorkoutLogsLegacy(maxCount);
+    }
+    throw error;
+  }
+  return (data as WorkoutLogRow[]).map(normalizeLog);
+}
+
+async function fetchAllWorkoutLogsLegacy(maxCount: number): Promise<WorkoutLog[]> {
   const { data, error } = await supabase
     .from('workout_logs')
     .select('*')
@@ -440,24 +580,73 @@ async function fetchWorkoutLogs(maxCount: number) {
   return (data as WorkoutLogRow[]).map(normalizeLog);
 }
 
-export const subscribeToWorkoutLogs = (
-  callback: (logs: unknown[]) => void,
+export async function fetchTeamWorkoutLogs(teamId: string, maxCount = 30): Promise<WorkoutLog[]> {
+  if (!teamId) return [];
+
+  // 1. Get member user IDs of this squad
+  const { data: members, error: mErr } = await supabase
+    .from('team_members')
+    .select('user_id')
+    .eq('team_id', teamId);
+  if (mErr) throw mErr;
+  if (!members || members.length === 0) return [];
+
+  const memberIds = members.map((m: any) => m.user_id);
+
+  // 2. Fetch public and friends workouts from those squad members (never private!)
+  const { data, error } = await supabase
+    .from('workout_logs')
+    .select('*')
+    .in('user_id', memberIds)
+    .in('visibility', ['public', 'friends'])
+    .order('created_at', { ascending: false })
+    .limit(maxCount);
+
+  if (error) {
+    if (error.code === '42703') {
+      const { data: legacyData, error: fbError } = await supabase
+        .from('workout_logs')
+        .select('*')
+        .in('user_id', memberIds)
+        .order('created_at', { ascending: false })
+        .limit(maxCount);
+      if (fbError) throw fbError;
+      return (legacyData as WorkoutLogRow[]).map(normalizeLog);
+    }
+    throw error;
+  }
+  return (data as WorkoutLogRow[]).map(normalizeLog);
+}
+
+export async function fetchMyWorkoutLogs(userId: string, maxCount = 100): Promise<WorkoutLog[]> {
+  const { data, error } = await supabase
+    .from('workout_logs')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(maxCount);
+  if (error) throw error;
+  return (data as WorkoutLogRow[]).map(normalizeLog);
+}
+
+export const subscribeToPublicWorkoutLogs = (
+  callback: (logs: WorkoutLog[]) => void,
   onError?: (error: Error) => void,
   maxCount = 30,
 ) => {
   const pull = () => {
-    void fetchWorkoutLogs(maxCount)
+    void fetchPublicWorkoutLogs(maxCount)
       .then(callback)
       .catch((e) => {
-        console.error('Workout logs listen error:', e);
-        onError?.(e instanceof Error ? e : new Error('动态加载失败'));
+        console.error('Public workout logs listen error:', e);
+        onError?.(e instanceof Error ? e : new Error('全员广场动态加载失败'));
         callback([]);
       });
   };
 
   pull();
   const channel = supabase
-    .channel(`workout_logs_feed_${newId('ch')}`)
+    .channel(`public_feed_${newId('ch')}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_logs' }, pull)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_likes' }, pull)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_comments' }, pull)
@@ -467,6 +656,78 @@ export const subscribeToWorkoutLogs = (
     void supabase.removeChannel(channel);
   };
 };
+
+export const subscribeToTeamWorkoutLogs = (
+  teamId: string,
+  callback: (logs: WorkoutLog[]) => void,
+  onError?: (error: Error) => void,
+  maxCount = 30,
+) => {
+  if (!teamId) {
+    callback([]);
+    return () => {};
+  }
+
+  const pull = () => {
+    void fetchTeamWorkoutLogs(teamId, maxCount)
+      .then(callback)
+      .catch((e) => {
+        console.error('Team workout logs listen error:', e);
+        onError?.(e instanceof Error ? e : new Error('小队动态加载失败'));
+        callback([]);
+      });
+  };
+
+  pull();
+  const channel = supabase
+    .channel(`team_feed_${teamId}_${newId('ch')}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_logs' }, pull)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_likes' }, pull)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_comments' }, pull)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, pull)
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+};
+
+export const subscribeToMyWorkoutLogs = (
+  userId: string,
+  callback: (logs: WorkoutLog[]) => void,
+  onError?: (error: Error) => void,
+  maxCount = 100,
+) => {
+  const pull = () => {
+    void fetchMyWorkoutLogs(userId, maxCount)
+      .then(callback)
+      .catch((e) => {
+        console.error('My workout logs listen error:', e);
+        onError?.(e instanceof Error ? e : new Error('个人打卡记录加载失败'));
+        callback([]);
+      });
+  };
+
+  pull();
+  const channel = supabase
+    .channel(`my_feed_${userId}_${newId('ch')}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'workout_logs', filter: `user_id=eq.${userId}` },
+      pull
+    )
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_likes' }, pull)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_comments' }, pull)
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+};
+
+// Backward-compatible alias
+export const subscribeToWorkoutLogs = subscribeToPublicWorkoutLogs;
+
 
 export const checkUserLike = async (workoutLogId: string, userId: string) => {
   const { data, error } = await supabase
@@ -703,6 +964,368 @@ export const getLastWorkoutsByCategories = async (
   return result;
 };
 
+// ---------------------------------------------------------------------------
+// Squads & Teams (好友小队)
+// ---------------------------------------------------------------------------
+
+function toLocalDateKey(isoOrDate: string | Date): string {
+  const d = new Date(isoOrDate);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export const getUserTeams = async (userId: string): Promise<Team[]> => {
+  try {
+    const { data: memberships, error: mErr } = await supabase
+      .from('team_members')
+      .select('team_id')
+      .eq('user_id', userId);
+    if (mErr) {
+      if (mErr.code === '42P01') return []; // Table doesn't exist yet
+      throw mErr;
+    }
+    if (!memberships || memberships.length === 0) return [];
+
+    const teamIds = memberships.map((m: any) => m.team_id);
+    const { data: teams, error: tErr } = await supabase
+      .from('teams')
+      .select('*')
+      .in('id', teamIds)
+      .order('created_at', { ascending: false });
+    if (tErr) throw tErr;
+
+    // Get member counts for each team
+    const { data: allMembers } = await supabase
+      .from('team_members')
+      .select('team_id')
+      .in('team_id', teamIds);
+    const countsMap = new Map<string, number>();
+    (allMembers || []).forEach((m: any) => {
+      countsMap.set(m.team_id, (countsMap.get(m.team_id) || 0) + 1);
+    });
+
+    return (teams as TeamRow[]).map((t) => ({
+      id: t.id,
+      name: t.name,
+      code: t.code,
+      createdBy: t.created_by,
+      maxMembers: Number(t.max_members || DEFAULT_MAX_TEAM_MEMBERS),
+      createdAt: toIso(t.created_at) || t.created_at,
+      memberCount: countsMap.get(t.id) || 1,
+    }));
+  } catch (err) {
+    console.warn('Failed to get user teams:', err);
+    return [];
+  }
+};
+
+export const subscribeToUserTeams = (
+  userId: string,
+  callback: (teams: Team[]) => void,
+) => {
+  const pull = () => {
+    void getUserTeams(userId).then(callback).catch(() => callback([]));
+  };
+
+  pull();
+  const channel = supabase
+    .channel(`user_teams_${userId}_${newId('ch')}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'team_members', filter: `user_id=eq.${userId}` },
+      pull
+    )
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'teams' }, pull)
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+};
+
+export const createTeam = async (name: string, maxMembers = DEFAULT_MAX_TEAM_MEMBERS): Promise<Team> => {
+  const user = await currentAuthUser();
+  if (!user) throw new Error('未登录');
+
+  const cleanName = name.trim().slice(0, 50);
+  if (!cleanName) throw new Error('小队名称不能为空');
+
+  // Try RPC function first
+  try {
+    const { data, error } = await supabase.rpc('create_new_team', {
+      p_name: cleanName,
+      p_max_members: maxMembers,
+    });
+    if (!error && data) {
+      return {
+        id: data.id,
+        name: data.name,
+        code: data.code,
+        createdBy: data.created_by,
+        maxMembers: Number(data.max_members || maxMembers),
+        createdAt: toIso(data.created_at) || new Date().toISOString(),
+        memberCount: 1,
+      };
+    }
+  } catch (rpcErr) {
+    console.warn('RPC create_new_team failed, fallback to client table insert:', rpcErr);
+  }
+
+  // Fallback client-side generation and insert
+  const teamId = newId('team');
+  const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  let codeSuffix = '';
+  for (let i = 0; i < 4; i++) {
+    codeSuffix += chars[Math.floor(Math.random() * chars.length)];
+  }
+  const code = `FIT-${codeSuffix}`;
+
+  const { data: createdTeam, error: tErr } = await supabase
+    .from('teams')
+    .insert({
+      id: teamId,
+      name: cleanName,
+      code,
+      created_by: user.id,
+      max_members: maxMembers,
+    })
+    .select()
+    .single();
+  if (tErr) throw tErr;
+
+  const { error: mErr } = await supabase.from('team_members').insert({
+    id: newId('tm'),
+    team_id: teamId,
+    user_id: user.id,
+    role: 'owner',
+  });
+  if (mErr) throw mErr;
+
+  return {
+    id: createdTeam.id,
+    name: createdTeam.name,
+    code: createdTeam.code,
+    createdBy: createdTeam.created_by,
+    maxMembers: Number(createdTeam.max_members || maxMembers),
+    createdAt: toIso(createdTeam.created_at) || new Date().toISOString(),
+    memberCount: 1,
+  };
+};
+
+export const joinTeamByCode = async (code: string): Promise<Team> => {
+  const user = await currentAuthUser();
+  if (!user) throw new Error('未登录');
+
+  const cleanCode = code.trim().toUpperCase();
+  if (!cleanCode) throw new Error('请输入小队口令');
+
+  // Try RPC function first
+  try {
+    const { data, error } = await supabase.rpc('join_team_by_code', {
+      p_code: cleanCode,
+    });
+    if (error) throw new Error(error.message || '加入小队失败');
+    if (data) {
+      return {
+        id: data.id,
+        name: data.name,
+        code: data.code,
+        createdBy: data.created_by,
+        maxMembers: Number(data.max_members || DEFAULT_MAX_TEAM_MEMBERS),
+        createdAt: toIso(data.created_at) || new Date().toISOString(),
+      };
+    }
+  } catch (rpcErr) {
+    if (rpcErr instanceof Error && rpcErr.message && !rpcErr.message.includes('function') && !rpcErr.message.includes('42883')) {
+      throw rpcErr;
+    }
+  }
+
+  // Fallback client check & insert
+  const { data: team, error: findErr } = await supabase
+    .from('teams')
+    .select('*')
+    .ilike('code', cleanCode)
+    .maybeSingle();
+  if (findErr) throw findErr;
+  if (!team) throw new Error('无效的小队口令，请核对后重试');
+
+  const { data: existingMember } = await supabase
+    .from('team_members')
+    .select('id')
+    .eq('team_id', team.id)
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (existingMember) throw new Error('您已经是该小队的成员，无需重复加入');
+
+  const { count, error: countErr } = await supabase
+    .from('team_members')
+    .select('*', { count: 'exact', head: true })
+    .eq('team_id', team.id);
+  if (countErr) throw countErr;
+  if (typeof count === 'number' && count >= team.max_members) {
+    throw new Error(`该小队人数已达上限（${team.max_members}人）`);
+  }
+
+  const { error: joinErr } = await supabase.from('team_members').insert({
+    id: newId('tm'),
+    team_id: team.id,
+    user_id: user.id,
+    role: 'member',
+  });
+  if (joinErr) throw joinErr;
+
+  return {
+    id: team.id,
+    name: team.name,
+    code: team.code,
+    createdBy: team.created_by,
+    maxMembers: Number(team.max_members || DEFAULT_MAX_TEAM_MEMBERS),
+    createdAt: toIso(team.created_at) || new Date().toISOString(),
+  };
+};
+
+export const leaveTeam = async (teamId: string): Promise<void> => {
+  const user = await currentAuthUser();
+  if (!user) throw new Error('未登录');
+
+  try {
+    const { error } = await supabase.rpc('leave_team_by_id', { p_team_id: teamId });
+    if (!error) return;
+  } catch (rpcErr) {
+    console.warn('RPC leave_team_by_id failed, fallback:', rpcErr);
+  }
+
+  const { error } = await supabase
+    .from('team_members')
+    .delete()
+    .eq('team_id', teamId)
+    .eq('user_id', user.id);
+  if (error) throw error;
+};
+
+export const getTeamDashboard = async (teamId: string): Promise<TeamDashboardData> => {
+  const { data: teamRow, error: tErr } = await supabase
+    .from('teams')
+    .select('*')
+    .eq('id', teamId)
+    .maybeSingle();
+  if (tErr) throw tErr;
+  if (!teamRow) throw new Error('小队不存在');
+
+  const { data: memberRows, error: mErr } = await supabase
+    .from('team_members')
+    .select('id, team_id, user_id, role, joined_at')
+    .eq('team_id', teamId)
+    .order('joined_at', { ascending: true });
+  if (mErr) throw mErr;
+
+  const memberUserIds = (memberRows || []).map((m: any) => m.user_id);
+  const { data: profileRows } = memberUserIds.length > 0
+    ? await supabase.from('profiles').select('*').in('id', memberUserIds)
+    : { data: [] };
+  const profilesMap = new Map((profileRows || []).map((p: any) => [p.id, p]));
+
+  // Today check-in status calculation (last 36 hours query to cover local day boundaries)
+  const todayStr = toLocalDateKey(new Date());
+  const thirtySixHoursAgo = new Date(Date.now() - 36 * 3600 * 1000).toISOString();
+  const { data: recentLogs } = memberUserIds.length > 0
+    ? await supabase
+        .from('workout_logs')
+        .select('id, user_id, created_at')
+        .in('user_id', memberUserIds)
+        .gte('created_at', thirtySixHoursAgo)
+    : { data: [] };
+
+  const todayLogsByUser = new Map<string, number>();
+  (recentLogs || []).forEach((l: any) => {
+    if (toLocalDateKey(l.created_at) === todayStr) {
+      todayLogsByUser.set(l.user_id, (todayLogsByUser.get(l.user_id) || 0) + 1);
+    }
+  });
+
+  let checkedInCount = 0;
+  const members: TeamMember[] = (memberRows || []).map((mr: any) => {
+    const prof = profilesMap.get(mr.user_id);
+    const count = todayLogsByUser.get(mr.user_id) || 0;
+    const hasCheckedIn = count > 0;
+    if (hasCheckedIn) checkedInCount++;
+
+    return {
+      id: mr.id,
+      teamId: mr.team_id,
+      userId: mr.user_id,
+      role: mr.role as 'owner' | 'member',
+      joinedAt: toIso(mr.joined_at) || mr.joined_at,
+      profile: prof
+        ? {
+            displayName: prof.display_name,
+            photoURL: prof.photo_url,
+            streak: Number(prof.streak || 0),
+            totalWorkouts: Number(prof.total_workouts || 0),
+            lastWorkoutDate: toIso(prof.last_workout_date),
+          }
+        : undefined,
+      hasCheckedInToday: hasCheckedIn,
+      todayWorkoutCount: count,
+    };
+  });
+
+  const totalMembers = members.length;
+  const attendanceRate = totalMembers > 0 ? Math.round((checkedInCount / totalMembers) * 100) : 0;
+
+  const team: Team = {
+    id: teamRow.id,
+    name: teamRow.name,
+    code: teamRow.code,
+    createdBy: teamRow.created_by,
+    maxMembers: Number(teamRow.max_members || DEFAULT_MAX_TEAM_MEMBERS),
+    createdAt: toIso(teamRow.created_at) || teamRow.created_at,
+    memberCount: totalMembers,
+  };
+
+  return {
+    team,
+    members,
+    todayCheckinCount: checkedInCount,
+    totalMembers,
+    attendanceRate,
+  };
+};
+
+export const subscribeToTeamDashboard = (
+  teamId: string,
+  callback: (data: TeamDashboardData) => void,
+  onError?: (err: Error) => void
+) => {
+  if (!teamId) return () => {};
+
+  const pull = () => {
+    void getTeamDashboard(teamId)
+      .then(callback)
+      .catch((err) => {
+        console.warn('Dashboard fetch error:', err);
+        onError?.(err instanceof Error ? err : new Error('小队数据加载失败'));
+      });
+  };
+
+  pull();
+  const channel = supabase
+    .channel(`team_dashboard_${teamId}_${newId('ch')}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'teams', filter: `id=eq.${teamId}` }, pull)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members', filter: `team_id=eq.${teamId}` }, pull)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_logs' }, pull)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, pull)
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+};
+
+
 export const waitForAuthReady = (timeoutMs = 3000) => new Promise<AppUser | null>((resolve) => {
   let settled = false;
   const timer = setTimeout(() => {
@@ -749,4 +1372,100 @@ export const waitForAuthReady = (timeoutMs = 3000) => new Promise<AppUser | null
     });
 });
 
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+
+export const fetchNotifications = async (userId: string, limit = 50): Promise<AppNotification[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      userId: row.user_id,
+      actorId: row.actor_id,
+      actorName: row.actor_name,
+      actorPhoto: row.actor_photo,
+      type: row.type,
+      logId: row.log_id,
+      content: row.content,
+      logCategory: row.log_category,
+      isRead: Boolean(row.is_read),
+      createdAt: row.created_at,
+    }));
+  } catch (err) {
+    console.warn('fetchNotifications error:', err);
+    return [];
+  }
+};
+
+export const subscribeToNotifications = (
+  userId: string,
+  callback: (notifications: AppNotification[]) => void,
+  limit = 50
+) => {
+  const pull = () => {
+    void fetchNotifications(userId, limit).then(callback);
+  };
+
+  pull();
+
+  const channel = supabase
+    .channel(`notifications_${userId}_${newId('ch')}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
+      pull
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+};
+
+export const markNotificationAsRead = async (notificationId: string): Promise<void> => {
+  try {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', notificationId);
+    if (error) throw error;
+  } catch (err) {
+    console.warn('markNotificationAsRead error:', err);
+  }
+};
+
+export const markAllNotificationsAsRead = async (userId: string): Promise<void> => {
+  try {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('user_id', userId)
+      .eq('is_read', false);
+    if (error) throw error;
+  } catch (err) {
+    console.warn('markAllNotificationsAsRead error:', err);
+  }
+};
+
+export const deleteNotification = async (notificationId: string): Promise<void> => {
+  try {
+    const { error } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('id', notificationId);
+    if (error) throw error;
+  } catch (err) {
+    console.warn('deleteNotification error:', err);
+  }
+};
+
 export default supabase;
+

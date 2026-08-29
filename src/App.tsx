@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef, ReactNode, lazy, Suspense } from 'react';
-import { logout, onAuthStateChangedFn, waitForAuthReady } from './api';
+import { logout, onAuthStateChangedFn, waitForAuthReady, subscribeToNotifications } from './api';
 import { supabaseConfigError } from './lib/supabase';
 import { exitApp, hideSplash, listenAndroidBack } from './native';
 import {
@@ -14,14 +14,17 @@ import {
   Plus,
   Layout,
   Activity,
+  Bell,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import type { AppNotification } from './types';
 
 const AuthScreen = lazy(() => import('./components/AuthScreen'));
 const Feed = lazy(() => import('./components/Feed'));
 const WorkoutLogger = lazy(() => import('./components/WorkoutLogger'));
 const Statistics = lazy(() => import('./components/Statistics'));
 const Profile = lazy(() => import('./components/Profile'));
+const NotificationModal = lazy(() => import('./components/NotificationModal'));
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider } from './components/Toast';
 
@@ -29,8 +32,11 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(!supabaseConfigError);
   const [activeTab, setActiveTab] = useState<'feed' | 'log' | 'stats' | 'profile'>('feed');
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
+
 
   useEffect(() => {
     if (supabaseConfigError) {
@@ -55,6 +61,20 @@ export default function App() {
     });
     return () => unsub?.();
   }, []);
+
+  useEffect(() => {
+    if (!user?.id && !user?.uid) {
+      setNotifications([]);
+      return;
+    }
+    const uid = user.id || user.uid;
+    const unsub = subscribeToNotifications(uid, (list) => {
+      setNotifications(list);
+    });
+    return () => unsub();
+  }, [user?.id, user?.uid]);
+
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   useEffect(() => {
     return listenAndroidBack(() => {
@@ -119,17 +139,33 @@ export default function App() {
           </div>
           <span className="text-3xl font-black tracking-tighter text-ink uppercase italic">FitGroup</span>
         </div>
-        <div className="flex items-center gap-4">
-           {activeTab === 'feed' && (
-             <button 
-               onClick={() => setActiveTab('log')}
-               className="bg-neon text-ink border-2 border-ink p-2 font-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none active:translate-x-0.5 active:translate-y-0.5 transition-all cursor-pointer"
-             >
-               <Plus size={24} />
-             </button>
-           )}
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setShowNotificationsModal(true)}
+            className="relative bg-white text-ink border-2 border-ink p-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-neon active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer"
+            title="消息通知"
+          >
+            <Bell size={20} />
+            {unreadCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white text-[9px] font-black min-w-4 h-4 px-1 rounded-full border border-ink flex items-center justify-center animate-bounce shadow-xs">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+
+          {activeTab === 'feed' && (
+            <button 
+              onClick={() => setActiveTab('log')}
+              className="bg-neon text-ink border-2 border-ink p-2 font-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none active:translate-x-0.5 active:translate-y-0.5 transition-all cursor-pointer"
+              title="快速打卡"
+            >
+              <Plus size={20} />
+            </button>
+          )}
         </div>
       </header>
+
 
       <main className="p-4">
         <Suspense fallback={
@@ -162,7 +198,23 @@ export default function App() {
         </Suspense>
       </main>
 
+      {/* Notifications Modal */}
+      <AnimatePresence>
+        {showNotificationsModal && (
+          <Suspense fallback={null}>
+            <NotificationModal
+              onClose={() => setShowNotificationsModal(false)}
+              onSelectLog={() => {
+                setShowNotificationsModal(false);
+                setActiveTab('feed');
+              }}
+            />
+          </Suspense>
+        )}
+      </AnimatePresence>
+
       <nav className="app-tabbar fixed bottom-0 left-0 right-0 bg-white border-t-4 border-ink px-2 pt-3 flex items-center justify-around max-w-[calc(32rem-8px)] mx-auto z-40">
+
         <NavButton active={activeTab === 'feed'} onClick={() => setActiveTab('feed')} icon={<Layout size={24} />} label="发现" />
         <NavButton active={activeTab === 'log'} onClick={() => setActiveTab('log')} icon={<Dumbbell size={24} />} label="打卡" />
         <NavButton active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} icon={<BarChart3 size={24} />} label="统计" />

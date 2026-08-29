@@ -19,6 +19,8 @@ export interface Exercise {
   type: 'strength' | 'cardio';
 }
 
+export type WorkoutVisibility = 'public' | 'friends' | 'private';
+
 export interface WorkoutLog {
   id: string;
   userId: string;
@@ -32,8 +34,43 @@ export interface WorkoutLog {
   note?: string;
   likesCount: number;
   commentsCount: number;
+  visibility?: WorkoutVisibility;
 }
 
+export interface Team {
+  id: string;
+  name: string;
+  code: string;
+  createdBy: string;
+  maxMembers: number;
+  createdAt: string;
+  memberCount?: number;
+}
+
+export interface TeamMember {
+  id: string;
+  teamId: string;
+  userId: string;
+  role: 'owner' | 'member';
+  joinedAt: string;
+  profile?: {
+    displayName: string;
+    photoURL: string;
+    streak: number;
+    totalWorkouts: number;
+    lastWorkoutDate?: string;
+  };
+  hasCheckedInToday?: boolean;
+  todayWorkoutCount?: number;
+}
+
+export interface TeamDashboardData {
+  team: Team;
+  members: TeamMember[];
+  todayCheckinCount: number;
+  totalMembers: number;
+  attendanceRate: number; // Percentage (e.g. 75)
+}
 
 export type Sex = 'male' | 'female';
 
@@ -57,4 +94,22 @@ export interface UserProfile {
   heightCm?: number | null;
   bodyMetricsUpdatedAt?: string | null;
 }
+
+export type NotificationType = 'like' | 'comment';
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  actorId: string;
+  actorName: string;
+  actorPhoto?: string;
+  type: NotificationType;
+  logId: string;
+  content?: string;
+  logCategory?: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+
 

@@ -1,101 +1,115 @@
 import { useState, useEffect, useRef } from 'react';
-import { pushBackHandler } from '../backStack';
-import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment, getUserProfile, deleteWorkoutLog } from '../api';
+import {
+  subscribeToPublicWorkoutLogs,
+  subscribeToMyWorkoutLogs,
+  getCurrentUser,
+} from '../api';
 import { WorkoutLog } from '../types';
-import { parseCategories, getCategoryBadgeColor, CATEGORY_META, inferLogCategories } from '../constants/workoutPresets';
-import { Heart, MessageCircle, Share2, Clock, Dumbbell, User as UserIcon, Send, Trash2 } from 'lucide-react';
+import LogCard from './LogCard';
+import TeamDashboard from './TeamDashboard';
+import { Globe, Users, User as UserIcon, Dumbbell, Activity, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { formatDistanceToNow } from 'date-fns';
-import { zhCN } from 'date-fns/locale/zh-CN';
-import SharePosterModal from './SharePosterModal';
 
-function formatCompactTime(timestamp?: string): string {
-  if (!timestamp) return '刚刚';
-  const time = new Date(timestamp).getTime();
-  if (isNaN(time)) return '刚刚';
+type FeedTab = 'public' | 'team' | 'my';
 
-  const diffMs = Date.now() - time;
-  if (diffMs < 0 || diffMs < 60 * 1000) return '刚刚';
-
-  const diffMin = Math.floor(diffMs / (60 * 1000));
-  if (diffMin < 60) return `${diffMin}分钟前`;
-
-  const diffHours = Math.floor(diffMs / (3600 * 1000));
-  if (diffHours < 24) return `${diffHours}小时前`;
-
-  const diffDays = Math.floor(diffMs / (24 * 3600 * 1000));
-  if (diffDays < 7) return `${diffDays}天前`;
-
-  const date = new Date(timestamp);
-  const m = date.getMonth() + 1;
-  const d = date.getDate();
-  return `${m}月${d}日`;
+interface FeedProps {
+  onNavigateToLog?: () => void;
 }
 
-export default function Feed() {
-  const [logs, setLogs] = useState<WorkoutLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+export default function Feed({ onNavigateToLog }: FeedProps) {
+  const [activeDomain, setActiveDomain] = useState<FeedTab>('public');
+  const currentUser = getCurrentUser();
+
+  // Public Feed State
+  const [publicLogs, setPublicLogs] = useState<WorkoutLog[]>([]);
+  const [publicLoading, setPublicLoading] = useState(true);
+  const [publicError, setPublicError] = useState('');
+
+  // My Logs State
+  const [myLogs, setMyLogs] = useState<WorkoutLog[]>([]);
+  const [myLoading, setMyLoading] = useState(true);
+  const [myError, setMyError] = useState('');
+
   const touchY = useRef(0);
   const [refreshing, setRefreshing] = useState(false);
 
+  // 1. Subscribe to Public Feed
   useEffect(() => {
-    setLoading(true);
-    const channel = subscribeToWorkoutLogs((data) => {
-      setLogs(data as WorkoutLog[]);
-      setLoading(false);
-      setError('');
-    }, (err) => {
-      setError(err.message || '网络异常，请稍后重试');
-      setLoading(false);
-    });
+    setPublicLoading(true);
+    const unsub = subscribeToPublicWorkoutLogs(
+      (data) => {
+        setPublicLogs(data);
+        setPublicLoading(false);
+        setPublicError('');
+      },
+      (err) => {
+        setPublicError(err.message || '广场动态加载失败');
+        setPublicLoading(false);
+      }
+    );
 
-    return () => channel();
+    return () => unsub();
   }, []);
+
+  // 2. Subscribe to My Logs Feed
+  useEffect(() => {
+    if (!currentUser) {
+      setMyLoading(false);
+      return;
+    }
+
+    setMyLoading(true);
+    const unsub = subscribeToMyWorkoutLogs(
+      currentUser.uid,
+      (data) => {
+        setMyLogs(data);
+        setMyLoading(false);
+        setMyError('');
+      },
+      (err) => {
+        setMyError(err.message || '个人打卡记录加载失败');
+        setMyLoading(false);
+      }
+    );
+
+    return () => unsub();
+  }, [currentUser?.uid]);
 
   const handlePullRefresh = () => {
     setRefreshing(true);
-    const stop = subscribeToWorkoutLogs((data) => {
-      setLogs(data as WorkoutLog[]);
-      setLoading(false);
-      setError('');
-      setRefreshing(false);
-      stop();
-    }, (err) => {
-      setError(err.message || '网络异常，请稍后重试');
-      setRefreshing(false);
-      stop();
-    });
+    if (activeDomain === 'public') {
+      const stop = subscribeToPublicWorkoutLogs(
+        (data) => {
+          setPublicLogs(data);
+          setRefreshing(false);
+          stop();
+        },
+        () => {
+          setRefreshing(false);
+          stop();
+        }
+      );
+    } else if (activeDomain === 'my' && currentUser) {
+      const stop = subscribeToMyWorkoutLogs(
+        currentUser.uid,
+        (data) => {
+          setMyLogs(data);
+          setRefreshing(false);
+          stop();
+        },
+        () => {
+          setRefreshing(false);
+          stop();
+        }
+      );
+    } else {
+      setTimeout(() => setRefreshing(false), 500);
+    }
   };
-
-  if (loading && logs.length === 0) {
-    return (
-      <div className="space-y-4">
-        {[1, 2, 3].map(i => (
-          <div key={i} className="bg-white h-64 rounded-3xl animate-pulse border border-slate-100" />
-        ))}
-      </div>
-    );
-  }
-
-  if (error && logs.length === 0) {
-    return (
-      <div className="bg-white border-4 border-ink p-8 text-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-        <p className="font-black text-ink text-xl mb-4 uppercase">加载失败</p>
-        <p className="text-ink/50 font-bold text-sm mb-6">{error}</p>
-        <button
-          onClick={handlePullRefresh}
-          className="bg-neon text-ink border-2 border-ink px-6 py-3 font-black uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none cursor-pointer"
-        >
-          重试
-        </button>
-      </div>
-    );
-  }
 
   return (
     <div
-      className="space-y-6"
+      className="space-y-5"
       onTouchStart={(e) => { touchY.current = e.touches[0].clientY; }}
       onTouchEnd={(e) => {
         if (e.changedTouches[0].clientY - touchY.current > 80 && window.scrollY < 10) {
@@ -103,332 +117,175 @@ export default function Feed() {
         }
       }}
     >
+      {/* Three Segmented Domain Tabs */}
+      <div className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-1.5 grid grid-cols-3 gap-1">
+        <button
+          type="button"
+          onClick={() => setActiveDomain('public')}
+          className={`py-2.5 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            activeDomain === 'public'
+              ? 'bg-neon text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+              : 'bg-paper text-ink/70 hover:bg-white hover:text-ink'
+          }`}
+        >
+          <Globe size={15} />
+          <span>全员广场</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveDomain('team')}
+          className={`py-2.5 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            activeDomain === 'team'
+              ? 'bg-neon text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+              : 'bg-paper text-ink/70 hover:bg-white hover:text-ink'
+          }`}
+        >
+          <Users size={15} />
+          <span>好友小队</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveDomain('my')}
+          className={`py-2.5 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            activeDomain === 'my'
+              ? 'bg-neon text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+              : 'bg-paper text-ink/70 hover:bg-white hover:text-ink'
+          }`}
+        >
+          <UserIcon size={15} />
+          <span>我的打卡</span>
+        </button>
+      </div>
+
       {refreshing && (
         <div className="text-center py-2">
-          <motion.div animate={{ rotate: 360 }} transition={{ duration: 0.6, repeat: Infinity, ease: 'linear' }} className="inline-block">
-            <Dumbbell size={20} className="text-neon" />
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 0.6, repeat: Infinity, ease: 'linear' }}
+            className="inline-block"
+          >
+            <Dumbbell size={22} className="text-neon" />
           </motion.div>
         </div>
       )}
 
-      {logs.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-3xl border border-slate-100 italic text-slate-400">
-          还没有人打卡，快来做第一个"卷王"吧！
-        </div>
-      ) : (
-        logs.map((log) => <LogCard key={log.id} log={log} />)
-      )}
-    </div>
-  );
-}
-
-function LogCard({ log }: { log: WorkoutLog; key?: string }) {
-  const [hasLiked, setHasLiked] = useState(false);
-  const [likesCount, setLikesCount] = useState(Number(log.likesCount) || 0);
-  const [showComments, setShowComments] = useState(false);
-  const [comments, setComments] = useState<any[]>([]);
-  const [commentsCount, setCommentsCount] = useState(Number(log.commentsCount) || 0);
-  const [commentText, setCommentText] = useState('');
-  const [sending, setSending] = useState(false);
-  const [commentError, setCommentError] = useState('');
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [userStats, setUserStats] = useState<{ streak: number; totalWorkouts: number } | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const currentUser = getCurrentUser();
-  const isOwner = Boolean(currentUser && log.userId === currentUser.uid);
-
-  // Synchronize counts when log prop updates from server
-  useEffect(() => {
-    setLikesCount(Number(log.likesCount) || 0);
-  }, [log.likesCount]);
-
-  useEffect(() => {
-    setCommentsCount(Number(log.commentsCount) || 0);
-  }, [log.commentsCount]);
-
-  const handleDelete = async () => {
-    if (!deleteConfirm) {
-      setDeleteConfirm(true);
-      setTimeout(() => setDeleteConfirm(false), 3500);
-      return;
-    }
-    if (!log.id || deleting) return;
-    setDeleting(true);
-    try {
-      await deleteWorkoutLog(log.id);
-    } catch (e) {
-      console.error('Delete failed:', e);
-      setDeleting(false);
-      setDeleteConfirm(false);
-    }
-  };
-
-  useEffect(() => {
-    const user = getCurrentUser();
-    if (!user || !log.id) return;
-    checkUserLike(log.id, user.uid).then(setHasLiked);
-  }, [log.id]);
-
-  useEffect(() => {
-    if (!showComments || !log.id) return;
-    const unsub = subscribeToComments(log.id, (data) => {
-      setComments(data as any[]);
-      setCommentsCount(Array.isArray(data) ? data.length : 0);
-    });
-    return () => unsub();
-  }, [showComments, log.id]);
-
-  useEffect(() => {
-    if (!showComments) return;
-    return pushBackHandler(() => {
-      setShowComments(false);
-      return true;
-    });
-  }, [showComments]);
-
-  const handleToggleLike = async () => {
-    const user = getCurrentUser();
-    if (!user || !log.id) return;
-    const prevLiked = hasLiked;
-    const nextLiked = !prevLiked;
-
-    // Instant optimistic update
-    setHasLiked(nextLiked);
-    setLikesCount((prev) => Math.max(0, prev + (nextLiked ? 1 : -1)));
-
-    try {
-      await toggleLike(log.id, user.uid, prevLiked);
-    } catch (err) {
-      // Revert if network error
-      console.error('Like failed:', err);
-      setHasLiked(prevLiked);
-      setLikesCount((prev) => Math.max(0, prev + (prevLiked ? 1 : -1)));
-    }
-  };
-
-  const handleSendComment = async () => {
-    const user = getCurrentUser();
-    if (!user || !log.id || !commentText.trim()) return;
-    setSending(true);
-    setCommentError('');
-    const textToSend = commentText.trim();
-    try {
-      await addComment(log.id, user.uid, user.displayName || 'User', user.photoURL || '', textToSend);
-      setCommentText('');
-      setCommentsCount((prev) => prev + 1);
-    } catch (e) {
-      console.error('Comment failed:', e);
-      setCommentError('评论发送失败，请重试');
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const handleShare = async () => {
-    try {
-      const user = getCurrentUser();
-      if (user) {
-        const profile = await getUserProfile(user.uid);
-        setUserStats({
-          streak: profile.streak ?? 0,
-          totalWorkouts: profile.totalWorkouts ?? 0,
-        });
-      }
-    } catch {
-      setUserStats(null);
-    }
-    setShowShareModal(true);
-  };
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: -20 }}
-      whileInView={{ opacity: 1, x: 0 }}
-      viewport={{ once: true }}
-      className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] mb-6"
-    >
-      <div className="p-4 sm:p-5">
-        <div className="flex items-start justify-between mb-3.5 gap-2">
-          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            <div className="border-2 border-ink p-0.5 bg-paper shrink-0">
-              {log.userPhoto ? (
-                <img src={log.userPhoto} className="w-9 h-9 sm:w-10 sm:h-10 object-cover" />
-              ) : (
-                <div className="w-9 h-9 sm:w-10 sm:h-10 bg-paper flex items-center justify-center">
-                  <UserIcon size={18} className="text-ink/30" />
-                </div>
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <h3 className="font-black text-ink leading-tight mb-0.5 uppercase tracking-tighter truncate text-sm sm:text-base" title={log.userName}>
-                {log.userName}
-              </h3>
-              <p className="text-[10px] font-bold text-ink/50 flex items-center gap-1 whitespace-nowrap">
-                <Clock size={10} className="shrink-0 text-ink/40" />
-                <span className="whitespace-nowrap">{formatCompactTime(log.timestamp)}</span>
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end max-w-[55%] pt-0.5">
-            {inferLogCategories(log.category, log.categories, log.exercises).map((cat) => (
-              <div
-                key={cat}
-                className={`px-1.5 sm:px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase tracking-tighter shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap ${getCategoryBadgeColor(cat)}`}
-              >
-                {CATEGORY_META[cat]?.zh || cat}
+      {/* Domain Content */}
+      <AnimatePresence mode="wait">
+        {/* Domain 1: 🌐 全员广场 */}
+        {activeDomain === 'public' && (
+          <motion.div
+            key="public-domain"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-6"
+          >
+            {publicLoading && publicLogs.length === 0 ? (
+              <div className="space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="bg-white h-56 border-4 border-ink animate-pulse" />
+                ))}
               </div>
-            ))}
-            {isOwner && (
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={deleting}
-                className={`px-1.5 sm:px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase transition-all cursor-pointer flex items-center gap-0.5 shrink-0 whitespace-nowrap ${
-                  deleteConfirm
-                    ? 'bg-red-500 text-white shadow-none animate-pulse'
-                    : 'bg-white text-ink/40 hover:text-red-500 hover:border-red-500 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'
-                }`}
-                title="删除打卡"
-              >
-                <Trash2 size={11} />
-                {deleteConfirm ? <span>{deleting ? '...' : '确认?'}</span> : <span>删除</span>}
-              </button>
-            )}
-          </div>
-        </div>
-
-        {log.note && (
-          <p className="text-ink text-base sm:text-lg leading-snug mb-4 font-black uppercase tracking-tight break-words whitespace-pre-wrap">"{log.note}"</p>
-        )}
-
-        <div className="space-y-2 mb-4">
-          {(log.exercises || []).map((ex) => (
-            <div key={ex.id} className="bg-paper border-2 border-ink p-3 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <div className="bg-ink p-1 shrink-0">
-                  <Dumbbell size={14} className="text-neon" />
-                </div>
-                <span className="font-black text-ink text-xs uppercase tracking-tighter truncate" title={ex.name}>{ex.name}</span>
-              </div>
-              <div className="text-[10px] font-black text-ink uppercase space-x-1 sm:space-x-2 shrink-0 flex items-center">
-                {ex.type === 'strength' ? (
-                  <>
-                    <span className="bg-neon px-1">{ex.weight}KG</span>
-                    <span>x</span>
-                    <span>{ex.sets}S</span>
-                    <span>x</span>
-                    <span>{ex.reps}R</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="bg-neon px-1">{ex.duration || 0}M</span>
-                    {typeof ex.distance === 'number' && ex.distance > 0 ? (
-                      <>
-                        <span>/</span>
-                        <span>{ex.distance}K</span>
-                      </>
-                    ) : null}
-                    {typeof ex.calories === 'number' && ex.calories > 0 ? (
-                      <>
-                        <span>/</span>
-                        <span>{ex.calories}C</span>
-                      </>
-                    ) : null}
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex items-center justify-between pt-4 border-t-2 border-ink/10">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleToggleLike}
-              className={`flex items-center gap-2 text-xs font-black px-3 py-1 border-2 border-ink transition-all cursor-pointer ${hasLiked ? 'bg-ink text-neon' : 'bg-white text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'}`}
-            >
-              <Heart size={16} fill={hasLiked ? 'currentColor' : 'none'} />
-              <span>{likesCount}</span>
-            </button>
-            <button
-              onClick={() => setShowComments(!showComments)}
-              className={`flex items-center gap-2 text-xs font-black px-3 py-1 border-2 border-ink transition-all cursor-pointer ${showComments ? 'bg-ink text-neon' : 'bg-white text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'}`}
-            >
-              <MessageCircle size={16} />
-              <span>{commentsCount}</span>
-            </button>
-          </div>
-          <button onClick={handleShare} className="bg-paper p-1 border-2 border-ink hover:bg-neon transition-colors cursor-pointer">
-            <Share2 size={16} />
-          </button>
-        </div>
-
-        <AnimatePresence>
-          {showComments && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="overflow-hidden mt-4 border-t-2 border-ink pt-4"
-            >
-              <div className="space-y-3 mb-4 max-h-60 overflow-y-auto">
-                {comments.length === 0 ? (
-                  <p className="text-[10px] font-black text-ink/30 uppercase italic text-center py-4">还没有评论</p>
-                ) : (
-                  comments.map(c => (
-                    <div key={c.id} className="flex gap-2 items-start">
-                      <div className="border border-ink w-6 h-6 flex-shrink-0">
-                        {c.userPhoto ? (
-                          <img src={c.userPhoto} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full bg-paper flex items-center justify-center">
-                            <UserIcon size={10} className="text-ink/30" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[10px] font-black text-ink uppercase truncate block" title={c.userName}>{c.userName}</span>
-                        <p className="text-xs text-ink/70 break-words whitespace-pre-wrap leading-tight">{c.content}</p>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-              {commentError && (
-                <p className="text-[10px] font-black text-red-600 uppercase mb-2">{commentError}</p>
-              )}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={commentText}
-                  onChange={(e) => { setCommentText(e.target.value); setCommentError(''); }}
-                  placeholder="说点什么..."
-                  className="flex-1 bg-paper border-2 border-ink p-2 text-base font-black text-ink outline-none focus:bg-white uppercase placeholder:opacity-30"
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleSendComment(); }}
-                />
+            ) : publicError && publicLogs.length === 0 ? (
+              <div className="bg-white border-4 border-ink p-8 text-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                <p className="font-black text-ink text-lg mb-2 uppercase">广场动态加载失败</p>
+                <p className="text-ink/50 font-bold text-xs mb-4">{publicError}</p>
                 <button
-                  onClick={handleSendComment}
-                  disabled={sending || !commentText.trim()}
-                  className="bg-neon text-ink border-2 border-ink px-3 py-2 font-black text-xs uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none disabled:opacity-50 cursor-pointer"
+                  onClick={handlePullRefresh}
+                  className="bg-neon text-ink border-2 border-ink px-6 py-2.5 font-black uppercase text-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 cursor-pointer"
                 >
-                  <Send size={14} />
+                  点击重试
                 </button>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+            ) : publicLogs.length === 0 ? (
+              <div className="bg-white border-4 border-ink p-12 text-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-3">
+                <Globe size={36} className="text-ink/30 mx-auto" />
+                <p className="font-black text-ink/70 text-sm uppercase">全员广场暂无公开打卡</p>
+                <p className="text-xs font-bold text-ink/40">发布全员公开打卡，即可在此被所有 FitGroup 健友看到！</p>
+              </div>
+            ) : (
+              publicLogs.map((log) => <LogCard key={log.id} log={log} />)
+            )}
+          </motion.div>
+        )}
 
-      <AnimatePresence>
-        {showShareModal && (
-          <SharePosterModal
-            log={log}
-            userStats={userStats}
-            onClose={() => setShowShareModal(false)}
-          />
+        {/* Domain 2: 👥 好友小队 */}
+        {activeDomain === 'team' && (
+          <motion.div
+            key="team-domain"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
+            <TeamDashboard />
+          </motion.div>
+        )}
+
+        {/* Domain 3: 👤 我的打卡 (个人训练历史管理主要入口) */}
+        {activeDomain === 'my' && (
+          <motion.div
+            key="my-domain"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-6"
+          >
+            {/* My History Stats Banner */}
+            <div className="bg-ink text-white border-4 border-ink p-4 sm:p-5 shadow-[4px_4px_0px_0px_rgba(223,255,0,1)] flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-black text-neon uppercase tracking-widest block">
+                  个人训练历史管理 / MY LOGS
+                </span>
+                <div className="text-2xl font-black italic mt-0.5">
+                  累计 {myLogs.length} <span className="text-xs font-bold text-white/80 not-italic">次打卡</span>
+                </div>
+              </div>
+              <span className="text-[11px] font-black bg-white text-ink px-2.5 py-1 border-2 border-neon">
+                公开 · 小队 · 私密
+              </span>
+            </div>
+
+            {myLoading && myLogs.length === 0 ? (
+              <div className="space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="bg-white h-56 border-4 border-ink animate-pulse" />
+                ))}
+              </div>
+            ) : myError && myLogs.length === 0 ? (
+              <div className="bg-white border-4 border-ink p-8 text-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                <p className="font-black text-ink text-lg mb-2 uppercase">记录加载失败</p>
+                <p className="text-ink/50 font-bold text-xs mb-4">{myError}</p>
+                <button
+                  onClick={handlePullRefresh}
+                  className="bg-neon text-ink border-2 border-ink px-6 py-2.5 font-black uppercase text-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 cursor-pointer"
+                >
+                  点击重试
+                </button>
+              </div>
+            ) : myLogs.length === 0 ? (
+              <div className="bg-white border-4 border-ink p-12 text-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-3">
+                <Dumbbell size={36} className="text-ink/30 mx-auto" />
+                <p className="font-black text-ink/70 text-sm uppercase">你还没有任何打卡记录</p>
+                <p className="text-xs font-bold text-ink/40">点击下方打卡按钮，记录你的第一笔训练吧！</p>
+              </div>
+            ) : (
+              myLogs.map((log) => (
+                <LogCard
+                  key={log.id}
+                  log={log}
+                  onLogUpdated={() => {
+                    if (currentUser) {
+                      subscribeToMyWorkoutLogs(currentUser.uid, (data) => setMyLogs(data))();
+                    }
+                  }}
+                />
+              ))
+            )}
+          </motion.div>
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }

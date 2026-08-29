@@ -97,22 +97,23 @@ export const EXERCISE_MUSCLE_COEFFICIENTS: ExerciseMuscleCoefficient[] = [
   // ================= 胸部 Chest =================
   {
     name: '上斜杠铃卧推',
-    aliases: ['上斜哑铃卧推', '史密斯上斜推胸', '杠铃上斜卧推', '哑铃上斜卧推'],
+    aliases: ['上斜哑铃卧推', '史密斯上斜推胸', '杠铃上斜卧推', '哑铃上斜卧推', '上斜哑铃推胸', '哑铃上斜推胸', '上斜推胸', '上斜卧推'],
     primaryCategory: WorkoutCategory.Chest,
     subMuscles: { [SubMuscleGroup.UpperChest]: 0.8, [SubMuscleGroup.MiddleChest]: 0.2 },
   },
   {
     name: '平板杠铃卧推',
-    aliases: ['平板哑铃卧推', '杠铃平板卧推', '哑铃平板卧推'],
+    aliases: ['平板哑铃卧推', '杠铃平板卧推', '哑铃平板卧推', '哑铃推胸', '哑铃卧推', '平板推胸', '推胸', '杠铃推胸', '平板哑铃推胸', '卧推'],
     primaryCategory: WorkoutCategory.Chest,
     subMuscles: { [SubMuscleGroup.UpperChest]: 0.2, [SubMuscleGroup.MiddleChest]: 0.8 },
   },
   {
     name: '器械推胸',
-    aliases: [],
+    aliases: ['坐姿推胸', '坐姿器械推胸', '推胸机', '器械卧推', '坐姿推胸机'],
     primaryCategory: WorkoutCategory.Chest,
     subMuscles: { [SubMuscleGroup.UpperChest]: 0.2, [SubMuscleGroup.MiddleChest]: 0.8 },
   },
+
   {
     name: '蝴蝶机夹胸',
     aliases: [],

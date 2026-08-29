@@ -31,12 +31,13 @@ export async function initNativeShell() {
   if (!isNative()) return;
 
   try {
-    await StatusBar.setOverlaysWebView({ overlay: true });
-    await StatusBar.setStyle({ style: Style.Light });
+    await StatusBar.setOverlaysWebView({ overlay: false });
+    await StatusBar.setStyle({ style: Style.Dark });
     await StatusBar.setBackgroundColor({ color: '#F4F4F4' });
   } catch (error) {
     console.warn('StatusBar init failed:', error);
   }
+
 
   const onKeyboardShow = (info: { keyboardHeight: number }) => {
     setKeyboardHeight(info.keyboardHeight);
