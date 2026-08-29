@@ -9,6 +9,29 @@ import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale/zh-CN';
 import SharePosterModal from './SharePosterModal';
 
+function formatCompactTime(timestamp?: string): string {
+  if (!timestamp) return '刚刚';
+  const time = new Date(timestamp).getTime();
+  if (isNaN(time)) return '刚刚';
+
+  const diffMs = Date.now() - time;
+  if (diffMs < 0 || diffMs < 60 * 1000) return '刚刚';
+
+  const diffMin = Math.floor(diffMs / (60 * 1000));
+  if (diffMin < 60) return `${diffMin}分钟前`;
+
+  const diffHours = Math.floor(diffMs / (3600 * 1000));
+  if (diffHours < 24) return `${diffHours}小时前`;
+
+  const diffDays = Math.floor(diffMs / (24 * 3600 * 1000));
+  if (diffDays < 7) return `${diffDays}天前`;
+
+  const date = new Date(timestamp);
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  return `${m}月${d}日`;
+}
+
 export default function Feed() {
   const [logs, setLogs] = useState<WorkoutLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -225,31 +248,33 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
       viewport={{ once: true }}
       className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] mb-6"
     >
-      <div className="p-5">
-        <div className="flex items-center justify-between mb-4 gap-2">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
+      <div className="p-4 sm:p-5">
+        <div className="flex items-start justify-between mb-3.5 gap-2">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <div className="border-2 border-ink p-0.5 bg-paper shrink-0">
               {log.userPhoto ? (
-                <img src={log.userPhoto} className="w-10 h-10 object-cover" />
+                <img src={log.userPhoto} className="w-9 h-9 sm:w-10 sm:h-10 object-cover" />
               ) : (
-                <div className="w-10 h-10 bg-paper flex items-center justify-center">
-                  <UserIcon size={20} className="text-ink/30" />
+                <div className="w-9 h-9 sm:w-10 sm:h-10 bg-paper flex items-center justify-center">
+                  <UserIcon size={18} className="text-ink/30" />
                 </div>
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="font-black text-ink leading-tight mb-1 uppercase tracking-tighter truncate" title={log.userName}>{log.userName}</h3>
-              <p className="text-[10px] font-black text-ink/40 uppercase tracking-widest flex items-center gap-1">
-                <Clock size={10} className="shrink-0" />
-                <span className="truncate">{log.timestamp ? formatDistanceToNow(new Date(log.timestamp), { addSuffix: true, locale: zhCN }) : '刚刚'}</span>
+              <h3 className="font-black text-ink leading-tight mb-0.5 uppercase tracking-tighter truncate text-sm sm:text-base" title={log.userName}>
+                {log.userName}
+              </h3>
+              <p className="text-[10px] font-bold text-ink/50 flex items-center gap-1 whitespace-nowrap">
+                <Clock size={10} className="shrink-0 text-ink/40" />
+                <span className="whitespace-nowrap">{formatCompactTime(log.timestamp)}</span>
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end max-w-[55%]">
+          <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end max-w-[55%] pt-0.5">
             {inferLogCategories(log.category, log.categories, log.exercises).map((cat) => (
               <div
                 key={cat}
-                className={`px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase tracking-tighter shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${getCategoryBadgeColor(cat)}`}
+                className={`px-1.5 sm:px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase tracking-tighter shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap ${getCategoryBadgeColor(cat)}`}
               >
                 {CATEGORY_META[cat]?.zh || cat}
               </div>
@@ -259,15 +284,15 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
                 type="button"
                 onClick={handleDelete}
                 disabled={deleting}
-                className={`px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
+                className={`px-1.5 sm:px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase transition-all cursor-pointer flex items-center gap-0.5 shrink-0 whitespace-nowrap ${
                   deleteConfirm
                     ? 'bg-red-500 text-white shadow-none animate-pulse'
                     : 'bg-white text-ink/40 hover:text-red-500 hover:border-red-500 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'
                 }`}
                 title="删除打卡"
               >
-                <Trash2 size={12} />
-                {deleteConfirm ? <span>{deleting ? '删除中...' : '确认?'}</span> : <span>删除</span>}
+                <Trash2 size={11} />
+                {deleteConfirm ? <span>{deleting ? '...' : '确认?'}</span> : <span>删除</span>}
               </button>
             )}
           </div>
