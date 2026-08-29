@@ -10,6 +10,10 @@ import {
   CATEGORY_META,
   PRESET_EXERCISES_BY_CATEGORY,
   PresetExercise,
+  getCardioMET,
+  estimateCardioCalories,
+  isCardioDistanceOptional,
+  inferLogCategories,
 } from '../constants/workoutPresets';
 import {
   Plus,
@@ -50,6 +54,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState('');
+  const [userWeight, setUserWeight] = useState<number>(65);
   const mutationIdRef = useRef<string>(
     Math.random().toString(36).slice(2, 11) + Date.now().toString(36)
   );
@@ -79,6 +84,19 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
     }
   };
 
+  // Load user bodyweight for accurate calorie estimations
+  useEffect(() => {
+    const user = getCurrentUser();
+    if (!user) return;
+    getUserProfile(user.uid)
+      .then((p) => {
+        if (p && typeof p.bodyweightKg === 'number' && p.bodyweightKg > 0) {
+          setUserWeight(p.bodyweightKg);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
   // Query last workouts for selected categories
   useEffect(() => {
     const user = getCurrentUser();
@@ -102,6 +120,8 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       showToast('每次打卡最多添加 10 个动作');
       return;
     }
+    const defaultDuration = 30;
+    const defaultCal = type === 'cardio' ? estimateCardioCalories('', defaultDuration, userWeight) : 0;
     setExercises([
       ...exercises,
       {
@@ -110,7 +130,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         type,
         ...(type === 'strength'
           ? { weight: 0, sets: 0, reps: 0 }
-          : { duration: 0, distance: 0, calories: 0 }),
+          : { duration: defaultDuration, distance: 0, calories: defaultCal }),
       },
     ]);
   };
@@ -120,6 +140,12 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       showToast('每次打卡最多添加 10 个动作');
       return;
     }
+
+    const duration = preset.defaultDuration ?? 30;
+    const calculatedCalories =
+      preset.type === 'cardio'
+        ? estimateCardioCalories(preset.name, duration, userWeight)
+        : 0;
 
     const newEx: Exercise = {
       id: Math.random().toString(36).slice(2, 11),
@@ -132,9 +158,9 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
             reps: preset.defaultReps ?? 10,
           }
         : {
-            duration: preset.defaultDuration ?? 30,
+            duration,
             distance: preset.defaultDistance ?? 0,
-            calories: preset.defaultCalories ?? 0,
+            calories: calculatedCalories || preset.defaultCalories || 0,
           }),
     };
 
@@ -144,7 +170,60 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       setExercises([...exercises, newEx]);
     }
 
+    // Auto-detect and sync category if newly added preset stimulates extra groups
+    const newlyInferred = inferLogCategories('', selectedCategories, [newEx]);
+    if (newlyInferred.length > selectedCategories.length) {
+      setSelectedCategories(newlyInferred);
+    }
+
     showToast(`已添加「${preset.name}」`);
+  };
+
+  const handleToggleType = (id: string) => {
+    const target = exercises.find((e) => e.id === id);
+    if (!target) return;
+    const nextType = target.type === 'strength' ? 'cardio' : 'strength';
+    if (nextType === 'cardio') {
+      const dur = target.duration && target.duration > 0 ? target.duration : 30;
+      updateExercise(id, {
+        type: 'cardio',
+        duration: dur,
+        distance: 0,
+        calories: estimateCardioCalories(target.name, dur, userWeight),
+      });
+    } else {
+      updateExercise(id, {
+        type: 'strength',
+        weight: 0,
+        sets: 4,
+        reps: 10,
+      });
+    }
+  };
+
+  const handleNameChange = (id: string, name: string) => {
+    const target = exercises.find((e) => e.id === id);
+    if (!target) return;
+    if (target.type === 'cardio' && target.duration && target.duration > 0) {
+      const newCalories = estimateCardioCalories(name, target.duration, userWeight);
+      updateExercise(id, { name, calories: newCalories });
+    } else {
+      updateExercise(id, { name });
+    }
+
+    if (name.trim().length >= 2) {
+      const newlyInferred = inferLogCategories('', selectedCategories, [{ name, type: target.type }]);
+      if (newlyInferred.length > selectedCategories.length) {
+        setSelectedCategories(newlyInferred);
+      }
+    }
+  };
+
+  const handleCardioDurationChange = (id: string, durationNum: number) => {
+    const target = exercises.find((e) => e.id === id);
+    if (!target) return;
+    const newCalories = durationNum > 0 ? estimateCardioCalories(target.name, durationNum, userWeight) : 0;
+    updateExercise(id, { duration: durationNum, calories: newCalories });
   };
 
   const handleImportData = (force = false) => {
@@ -272,6 +351,8 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       calories: ex.type === 'cardio' ? (Number(ex.calories) || 0) : undefined,
     }));
 
+    const finalCategories = inferLogCategories('', selectedCategories, sanitizedExercises);
+
     setIsSubmitting(true);
     try {
       await createWorkoutLog({
@@ -279,8 +360,8 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         userId: user.uid,
         userName: user.displayName || 'Anonymous',
         userPhoto: user.photoURL || '',
-        category: selectedCategories.join(', '),
-        categories: selectedCategories,
+        category: finalCategories.join(', '),
+        categories: finalCategories,
         exercises: sanitizedExercises,
         note,
         likesCount: 0,
@@ -582,11 +663,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
                   className={`p-2 border-2 border-ink cursor-pointer select-none ${
                     ex.type === 'strength' ? 'bg-neon' : 'bg-white'
                   }`}
-                  onClick={() =>
-                    updateExercise(ex.id, {
-                      type: ex.type === 'strength' ? 'cardio' : 'strength',
-                    })
-                  }
+                  onClick={() => handleToggleType(ex.id)}
                   title="点击切换力量/有氧类型"
                 >
                   {ex.type === 'strength' ? (
@@ -600,20 +677,20 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
                   placeholder={
                     ex.type === 'strength'
                       ? '动作名称 (如 杠铃卧推)'
-                      : '项目名称 (如 跑步机跑步)'
+                      : '项目名称 (如 羽毛球、跑步机跑步)'
                   }
                   value={ex.name}
-                  onChange={(e) => updateExercise(ex.id, { name: e.target.value })}
+                  onChange={(e) => handleNameChange(ex.id, e.target.value)}
                   className="flex-1 font-black text-ink border-b-4 border-ink focus:border-neon outline-none placeholder:opacity-30 uppercase placeholder:italic text-base"
                   required
                 />
               </div>
 
               {ex.type === 'strength' ? (
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-3 gap-3 sm:gap-4">
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-[10px] font-black text-ink uppercase">
+                    <div className="flex items-center justify-between mb-1 gap-1">
+                      <label className="text-[10px] font-black text-ink uppercase whitespace-nowrap">
                         KG (重量)
                       </label>
                       <button
@@ -622,7 +699,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
                           const currentWeight = typeof ex.weight === 'number' ? ex.weight : (parseFloat(String(ex.weight)) || 0);
                           updateExercise(ex.id, { weight: currentWeight === 0 ? -10 : -currentWeight });
                         }}
-                        className={`text-[9px] font-black px-1.5 py-0.2 border border-ink transition-colors cursor-pointer ${
+                        className={`text-[9px] font-black px-1 py-0.2 border border-ink transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                           typeof ex.weight === 'number' && ex.weight < 0
                             ? 'bg-ink text-neon shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
                             : 'bg-paper text-ink/70 hover:bg-neon'
@@ -650,7 +727,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-black text-ink uppercase block mb-1">
+                    <label className="text-[10px] font-black text-ink uppercase block mb-1 whitespace-nowrap">
                       Sets (组数)
                     </label>
                     <input
@@ -665,7 +742,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-black text-ink uppercase block mb-1">
+                    <label className="text-[10px] font-black text-ink uppercase block mb-1 whitespace-nowrap">
                       Reps (次数)
                     </label>
                     <input
@@ -681,53 +758,60 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-ink uppercase block mb-1">
-                      Min (分钟)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.1"
-                      value={ex.duration || ''}
-                      onChange={(e) =>
-                        updateExercise(ex.id, { duration: Number(e.target.value) || 0 })
-                      }
-                      placeholder="0"
-                      className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-ink uppercase block mb-1">
-                      Km (公里)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.1"
-                      value={ex.distance || ''}
-                      onChange={(e) =>
-                        updateExercise(ex.id, { distance: Number(e.target.value) || 0 })
-                      }
-                      placeholder="0"
-                      className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-ink uppercase block mb-1">
-                      Kcal (大卡)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={ex.calories || ''}
-                      onChange={(e) =>
-                        updateExercise(ex.id, { calories: Number(e.target.value) || 0 })
-                      }
-                      placeholder="0"
-                      className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                    />
+                <div>
+                  <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                    <div>
+                      <label className="text-[10px] font-black text-ink uppercase block mb-1 whitespace-nowrap">
+                        Min (分钟)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={ex.duration || ''}
+                        onChange={(e) =>
+                          handleCardioDurationChange(ex.id, Number(e.target.value) || 0)
+                        }
+                        placeholder="30"
+                        className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-ink uppercase block mb-1 whitespace-nowrap truncate" title={isCardioDistanceOptional(ex.name) ? 'Km (选填)' : 'Km (公里)'}>
+                        Km ({isCardioDistanceOptional(ex.name) ? '选填' : '公里'})
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={ex.distance || ''}
+                        onChange={(e) =>
+                          updateExercise(ex.id, { distance: Number(e.target.value) || 0 })
+                        }
+                        placeholder={isCardioDistanceOptional(ex.name) ? '无' : '0'}
+                        className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1 gap-1">
+                        <label className="text-[10px] font-black text-ink uppercase whitespace-nowrap">
+                          Kcal (大卡)
+                        </label>
+                        <span className="text-[8px] font-black bg-neon text-ink px-1 border border-ink/40 whitespace-nowrap shrink-0" title="按时长和运动类型自动估算">
+                          自动
+                        </span>
+                      </div>
+                      <input
+                        type="number"
+                        min="0"
+                        value={ex.calories || ''}
+                        onChange={(e) =>
+                          updateExercise(ex.id, { calories: Number(e.target.value) || 0 })
+                        }
+                        placeholder="0"
+                        className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                      />
+                    </div>
                   </div>
                 </div>
               )}

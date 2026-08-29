@@ -36,7 +36,6 @@ import {
   PolarRadiusAxis,
   Radar,
   ResponsiveContainer,
-  Tooltip,
 } from 'recharts';
 import {
   calculateFullWorkoutAnalytics,
@@ -70,6 +69,8 @@ export default function Statistics() {
 
   // Toggle radar view: Training Capacity Index (28-day volume+freq+weight) vs Pure Strength PR
   const [radarMode, setRadarMode] = useState<'composite' | 'strength'>('composite');
+  // Chart visualization style: Radar Polygon vs 6-Dimension Progress Bars
+  const [chartView, setChartView] = useState<'radar' | 'bars'>('radar');
   // Timeframe for volume distribution: 7 days vs 28 days
   const [volumeTimeframe, setVolumeTimeframe] = useState<7 | 28>(28);
   // Filter for PR list
@@ -141,15 +142,45 @@ export default function Statistics() {
   }, [analytics, volumeTimeframe, workoutLogs, userProfile?.prs, bodyContext]);
 
   const radarChartData = useMemo(() => {
-    return analytics.radarData.map((d) => ({
-      subject: d.subject,
-      score: radarMode === 'composite' ? d.composite : d.strength,
-      composite: d.composite,
-      strength: d.strength,
-      activity: d.activity,
-      fullMark: 100,
-    }));
+    const rawItems = analytics.radarData.map((d) => {
+      const rawScore = radarMode === 'composite' ? d.composite : d.strength;
+      // Visual baseline offset of 6 pts prevents 0-score dimensions from collapsing into a dead center needle
+      const visualScore = rawScore === 0 ? 6 : rawScore;
+      return {
+        subject: d.subject,
+        score: visualScore,
+        rawScore,
+        composite: d.composite,
+        strength: d.strength,
+        activity: d.activity,
+        benchmark: 40,
+        fullMark: 100,
+        category: d.category,
+      };
+    });
+
+    // Dynamic Adjacent Clustering:
+    // Place all active/trained dimensions (score > 0) in contiguous adjacent positions,
+    // followed by unactivated dimensions on the remaining side.
+    const active = rawItems.filter((item) => item.rawScore > 0);
+    const inactive = rawItems.filter((item) => item.rawScore === 0);
+
+    if (active.length > 0 && inactive.length > 0) {
+      // Sort active dimensions so strongest are connected together in a solid contiguous polygon
+      active.sort((a, b) => b.rawScore - a.rawScore);
+      return [...active, ...inactive];
+    }
+
+    return rawItems;
   }, [analytics.radarData, radarMode]);
+
+  const unactivatedCategories = useMemo(() => {
+    return Object.values(WorkoutCategory).filter((cat) => {
+      const detail = analytics.categoryDetails[cat];
+      const score = radarMode === 'composite' ? detail.compositeScore : detail.strengthScore;
+      return score === 0;
+    });
+  }, [analytics.categoryDetails, radarMode]);
 
   const filteredPrs = useMemo(() => {
     if (selectedPrCategory === 'ALL') {
@@ -329,16 +360,42 @@ export default function Statistics() {
         <div className="flex items-center justify-between mb-3 gap-2">
           <h3 className="font-black text-ink uppercase tracking-tight flex items-center gap-1 sm:gap-1.5 italic text-xs sm:text-base min-w-0">
             <Target size={16} className="text-ink shrink-0 sm:w-[18px] sm:h-[18px]" />
-            <span className="truncate">六维雷达图 <span className="text-[10px] sm:text-xs text-ink/50 font-normal not-italic ml-0.5">/ RADAR</span></span>
+            <span className="truncate">能力图谱 <span className="text-[10px] sm:text-xs text-ink/50 font-normal not-italic ml-0.5">/ SPECTRUM</span></span>
           </h3>
-          <button
-            type="button"
-            onClick={() => setShowStandardsModal(true)}
-            className="flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-ink/80 hover:text-ink bg-paper px-1.5 sm:px-2 py-1 border-2 border-ink cursor-pointer transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 shrink-0 whitespace-nowrap"
-          >
-            <HelpCircle size={12} className="shrink-0" />
-            <span>评分规则 & 进阶标准</span>
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* View Switcher: Radar vs Bars */}
+            <div className="flex border-2 border-ink bg-paper p-0.5">
+              <button
+                type="button"
+                onClick={() => setChartView('radar')}
+                className={`px-2 py-0.5 text-[10px] font-black uppercase transition-all cursor-pointer ${
+                  chartView === 'radar' ? 'bg-ink text-neon shadow-[1px_1px_0px_0px_rgba(0,0,0,0.5)]' : 'text-ink/60 hover:text-ink'
+                }`}
+                title="雷达图视图"
+              >
+                雷达
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartView('bars')}
+                className={`px-2 py-0.5 text-[10px] font-black uppercase transition-all cursor-pointer ${
+                  chartView === 'bars' ? 'bg-ink text-neon shadow-[1px_1px_0px_0px_rgba(0,0,0,0.5)]' : 'text-ink/60 hover:text-ink'
+                }`}
+                title="条形进度明细视图"
+              >
+                条形
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowStandardsModal(true)}
+              className="flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-ink/80 hover:text-ink bg-paper px-1.5 sm:px-2 py-1 border-2 border-ink cursor-pointer transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 shrink-0 whitespace-nowrap"
+            >
+              <HelpCircle size={12} className="shrink-0" />
+              <span>标准</span>
+            </button>
+          </div>
         </div>
 
         {/* Mode Switcher */}
@@ -369,58 +426,109 @@ export default function Statistics() {
 
         {hasAnyData ? (
           <div>
-            {/* Responsive chart */}
-            <div className="h-[250px] sm:h-[270px] w-full relative">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={230}>
-                <RadarChart cx="50%" cy="50%" outerRadius="66%" data={radarChartData}>
-                  <PolarGrid stroke="#e2e8f0" strokeWidth={1.5} />
-                  <PolarAngleAxis
-                    dataKey="subject"
-                    tick={{ fill: '#000', fontSize: 10, fontWeight: '900' }}
-                  />
-                  <PolarRadiusAxis
-                    angle={30}
-                    domain={[0, 100]}
-                    tickCount={6}
-                    stroke="#94a3b8"
-                    tick={{ fontSize: 8, fill: '#64748b' }}
-                  />
-                  <Tooltip
-                    content={({ active, payload }) => {
-                      if (!active || !payload || !payload.length) return null;
-                      const data = payload[0].payload;
-                      const tier = getStrengthTier(data.score);
-                      return (
-                        <div className="bg-ink text-white p-2.5 sm:p-3 border-2 border-neon text-xs font-black shadow-[4px_4px_0px_0px_rgba(223,255,0,1)]">
-                          <p className="text-neon font-black text-sm mb-1">{data.subject}</p>
-                          <p>
-                            {radarMode === 'composite' ? '训练能力评分' : '极限力量评分'}:{' '}
-                            <span className="text-neon text-sm">{data.score} 分</span> ({tier.zh})
-                          </p>
-                          {radarMode === 'composite' ? (
-                            <p className="text-[10px] text-white/70 mt-1">
-                              频率/覆盖: {data.activity}分 · 极限PR: {data.strength}分
-                            </p>
-                          ) : (
-                            <p className="text-[10px] text-white/70 mt-1">
-                              基于标准 1RM 力量等级评估
-                            </p>
-                          )}
+            {chartView === 'radar' ? (
+              /* Responsive Radar chart */
+              <div className="h-[250px] sm:h-[270px] w-full relative">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={230}>
+                  <RadarChart cx="50%" cy="50%" outerRadius="66%" data={radarChartData}>
+                    <PolarGrid stroke="#e2e8f0" strokeWidth={1.5} />
+                    <PolarAngleAxis
+                      dataKey="subject"
+                      tick={{ fill: '#000', fontSize: 10, fontWeight: '900' }}
+                    />
+                    <PolarRadiusAxis
+                      angle={30}
+                      domain={[0, 100]}
+                      tickCount={6}
+                      stroke="#94a3b8"
+                      tick={{ fontSize: 8, fill: '#64748b' }}
+                    />
+                    {/* Benchmark Polygon (进阶均衡基准 40分) */}
+                    <Radar
+                      name="进阶参考 (40分)"
+                      dataKey="benchmark"
+                      stroke="#cbd5e1"
+                      strokeDasharray="3 3"
+                      fill="#f8fafc"
+                      fillOpacity={0.4}
+                      strokeWidth={1.5}
+                    />
+                    {/* User Ability Polygon */}
+                    <Radar
+                      name="能力评分"
+                      dataKey="score"
+                      stroke="#000"
+                      fill="#DFFF00"
+                      fillOpacity={0.75}
+                      strokeWidth={2.5}
+                      dot={false}
+                      activeDot={false}
+                    />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              /* 6-Dimension Progress Bars View (Linear & clean for asymmetric training) */
+              <div className="py-2 space-y-2 mb-2">
+                {Object.values(WorkoutCategory).map((cat) => {
+                  const detail = analytics.categoryDetails[cat];
+                  const meta = CATEGORY_META[cat];
+                  const score = radarMode === 'composite' ? detail.compositeScore : detail.strengthScore;
+                  const tier = getStrengthTier(score);
+                  const isZero = score === 0;
+
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setSelectedCategoryForModal(cat)}
+                      className="w-full bg-paper hover:bg-white border-2 border-ink p-2 sm:p-2.5 flex flex-col gap-1.5 transition-all text-left cursor-pointer group shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-black text-xs text-ink flex items-center gap-1.5 truncate">
+                          <span className={`w-2.5 h-2.5 border border-ink ${meta.color}`} />
+                          <span>{meta.zh}</span>
+                          <span className="text-[10px] text-ink/40 font-normal">({meta.en})</span>
+                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span
+                            className={`text-[9px] font-black px-1.5 py-0.2 border border-ink whitespace-nowrap ${
+                              isZero ? 'bg-ink/10 text-ink/50' : `${tier.badgeBg} ${tier.badgeText}`
+                            }`}
+                          >
+                            {isZero ? '待激活' : tier.zh}
+                          </span>
+                          <span className="text-xs font-black italic">
+                            {score} <span className="text-[9px] text-ink/50 not-italic">分</span>
+                          </span>
+                          <ChevronRight size={12} className="text-ink/40 group-hover:text-ink transition-colors" />
                         </div>
-                      );
-                    }}
-                  />
-                  <Radar
-                    name="能力评分"
-                    dataKey="score"
-                    stroke="#000"
-                    fill="#DFFF00"
-                    fillOpacity={0.75}
-                    strokeWidth={2.5}
-                  />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
+                      </div>
+
+                      {/* Progress bar */}
+                      <div className="w-full bg-ink/10 border border-ink h-2.5 overflow-hidden p-0.5 relative">
+                        <div
+                          className={`h-full transition-all duration-500 ${
+                            isZero ? 'bg-transparent' : 'bg-neon border-r border-ink'
+                          }`}
+                          style={{ width: `${Math.min(score, 100)}%` }}
+                        />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Unactivated Muscle Reminder */}
+            {unactivatedCategories.length > 0 && (
+              <div className="mt-2 bg-paper/80 border-2 border-dashed border-ink/40 p-2 text-[11px] font-bold text-ink/80 flex items-center gap-1.5">
+                <Sparkles size={13} className="text-ink shrink-0" />
+                <span className="truncate">
+                  待激活维度：<strong>{unactivatedCategories.map((c) => CATEGORY_META[c].zh).join('、')}</strong>（加入打卡即可点亮评分）
+                </span>
+              </div>
+            )}
 
             {/* 6 Category Breakdown Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3 pt-3 border-t-2 border-paper">
@@ -445,7 +553,7 @@ export default function Statistics() {
                       <span
                         className={`text-[9px] font-black px-1.5 py-0.2 border border-ink shrink-0 whitespace-nowrap ${tier.badgeBg} ${tier.badgeText}`}
                       >
-                        {tier.zh}
+                        {score === 0 ? '待激活' : tier.zh}
                       </span>
                     </div>
 

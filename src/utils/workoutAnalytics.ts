@@ -12,7 +12,7 @@ import {
   BW_CLAMP_MAX,
   REF_BW,
 } from '../constants/strengthStandards';
-import { CATEGORY_META, parseCategories } from '../constants/workoutPresets';
+import { CATEGORY_META, parseCategories, estimateCardioCalories } from '../constants/workoutPresets';
 import {
   SubMuscleGroup,
   CATEGORY_SUB_MUSCLES,
@@ -236,7 +236,32 @@ export function resolveExerciseMuscles(
   if (clean.includes('弯举') || clean.includes('臂屈伸') || clean.includes('二头') || clean.includes('三头') || clean.includes('手臂') || clean.includes('腹') || clean.includes('核心') || clean.includes('支撑') || clean.includes('arm') || clean.includes('abs') || clean.includes('curl')) {
     matchedCategories.add(WorkoutCategory.Others);
   }
-  if (clean.includes('跑') || clean.includes('骑') || clean.includes('单车') || clean.includes('跳绳') || clean.includes('爬楼') || clean.includes('椭圆') || clean.includes('有氧') || clean.includes('cardio') || clean.includes('run') || clean.includes('hiit')) {
+  if (
+    clean.includes('跑') ||
+    clean.includes('骑') ||
+    clean.includes('单车') ||
+    clean.includes('跳绳') ||
+    clean.includes('爬楼') ||
+    clean.includes('椭圆') ||
+    clean.includes('有氧') ||
+    clean.includes('cardio') ||
+    clean.includes('run') ||
+    clean.includes('hiit') ||
+    clean.includes('羽毛球') ||
+    clean.includes('篮球') ||
+    clean.includes('足球') ||
+    clean.includes('乒乓') ||
+    clean.includes('网球') ||
+    clean.includes('游泳') ||
+    clean.includes('拳击') ||
+    clean.includes('搏击') ||
+    clean.includes('散步') ||
+    clean.includes('健走') ||
+    clean.includes('瑜伽') ||
+    clean.includes('普拉提') ||
+    clean.includes('尊巴') ||
+    clean.includes('swim')
+  ) {
     matchedCategories.add(WorkoutCategory.Cardio);
   }
 
@@ -465,19 +490,18 @@ export function getNextMilestone(
 /**
  * Helper to estimate calories from a cardio exercise
  */
-function extractOrEstimateCalories(ex: Exercise): number {
+function extractOrEstimateCalories(ex: Exercise, bodyweightKg = 65): number {
   if (typeof ex.calories === 'number' && ex.calories > 0) {
     return ex.calories;
   }
   const dur = ex.duration || 0;
   const dist = ex.distance || 0;
+  if (dur > 0) {
+    return estimateCardioCalories(ex.name, dur, bodyweightKg);
+  }
   if (dist > 0) {
     // ~60 kcal per km running/cycling average
     return Math.round(dist * 60);
-  }
-  if (dur > 0) {
-    // ~8 kcal per minute moderate intensity
-    return Math.round(dur * 8);
   }
   return 0;
 }
@@ -586,7 +610,7 @@ export function calculateFullWorkoutAnalytics(
 
       if (ex.type === 'cardio' || cleanIsCardio(ex.name)) {
         if (isCurrent) {
-          const cal = extractOrEstimateCalories(ex);
+          const cal = extractOrEstimateCalories(ex, ctx?.bodyweightKg || 65);
           totalCardioCalories += cal;
           categorySets[WorkoutCategory.Cardio] += sets;
           logCategoriesTouched.add(WorkoutCategory.Cardio);
@@ -671,7 +695,32 @@ export function calculateFullWorkoutAnalytics(
 
   function cleanIsCardio(name: string): boolean {
     const clean = normalizeName(name);
-    return clean.includes('跑') || clean.includes('骑') || clean.includes('单车') || clean.includes('跳绳') || clean.includes('爬楼') || clean.includes('椭圆') || clean.includes('有氧') || clean.includes('cardio') || clean.includes('run') || clean.includes('hiit');
+    return (
+      clean.includes('跑') ||
+      clean.includes('骑') ||
+      clean.includes('单车') ||
+      clean.includes('跳绳') ||
+      clean.includes('爬楼') ||
+      clean.includes('椭圆') ||
+      clean.includes('有氧') ||
+      clean.includes('cardio') ||
+      clean.includes('run') ||
+      clean.includes('hiit') ||
+      clean.includes('羽毛球') ||
+      clean.includes('篮球') ||
+      clean.includes('足球') ||
+      clean.includes('乒乓') ||
+      clean.includes('网球') ||
+      clean.includes('游泳') ||
+      clean.includes('拳击') ||
+      clean.includes('搏击') ||
+      clean.includes('散步') ||
+      clean.includes('健走') ||
+      clean.includes('瑜伽') ||
+      clean.includes('普拉提') ||
+      clean.includes('尊巴') ||
+      clean.includes('swim')
+    );
   }
 
   // 1. Process recent logs (current period)

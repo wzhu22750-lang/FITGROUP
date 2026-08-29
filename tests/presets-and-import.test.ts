@@ -6,6 +6,10 @@ import {
   formatCategoriesZh,
   formatCategoriesEn,
   getCategoryBadgeColor,
+  getCardioMET,
+  estimateCardioCalories,
+  isCardioDistanceOptional,
+  inferLogCategories,
 } from '../src/constants/workoutPresets';
 
 function assert(condition: boolean, msg: string) {
@@ -119,6 +123,76 @@ console.log('--- Testing Multi-Category Combined Import Logic ---');
   assert(imported[0].name === '杠铃平板卧推' && imported[0].weight === 80, 'First Chest exercise present');
   assert(imported[2].name === '坐姿哑铃推举' && imported[2].weight === 20, 'First Shoulder exercise present');
   assert(new Set(imported.map((e) => e.id)).size === 4, 'All generated IDs are unique');
+}
+
+console.log('--- Testing Cardio MET & Automatic Calorie Calculation ---');
+
+// 4. Test Cardio MET and Calorie Calculations
+{
+  // MET lookup
+  assert(getCardioMET('羽毛球') === 6.5, 'MET for 羽毛球 is 6.5');
+  assert(getCardioMET('打羽毛球') === 6.5, 'MET for 打羽毛球 alias is 6.5');
+  assert(getCardioMET('篮球') === 7.0, 'MET for 篮球 is 7.0');
+  assert(getCardioMET('游泳') === 7.0, 'MET for 游泳 is 7.0');
+  assert(getCardioMET('跳绳') === 9.0, 'MET for 跳绳 is 9.0');
+  assert(getCardioMET('户外跑步') === 9.0, 'MET for 户外跑步 is 9.0');
+  assert(getCardioMET('乒乓球') === 4.0, 'MET for 乒乓球 is 4.0');
+
+  // Calorie calculations (MET * Weight * (Duration / 60))
+  // Badminton: 6.5 * 65 * (45 / 60) = 316.875 -> 317 kcal
+  const calBadminton65 = estimateCardioCalories('羽毛球', 45, 65);
+  assert(calBadminton65 === 317, `Badminton 45min at 65kg = 317 kcal (actual: ${calBadminton65})`);
+
+  // Badminton 70kg 60min: 6.5 * 70 * 1 = 455 kcal
+  const calBadminton70 = estimateCardioCalories('羽毛球', 60, 70);
+  assert(calBadminton70 === 455, `Badminton 60min at 70kg = 455 kcal (actual: ${calBadminton70})`);
+
+  // Running 30min at 70kg: 9.0 * 70 * 0.5 = 315 kcal
+  const calRun70 = estimateCardioCalories('户外跑步', 30, 70);
+  assert(calRun70 === 315, `Running 30min at 70kg = 315 kcal (actual: ${calRun70})`);
+
+  // Zero duration returns 0
+  assert(estimateCardioCalories('羽毛球', 0, 70) === 0, 'Zero duration returns 0 kcal');
+
+  // Distance optional check
+  assert(isCardioDistanceOptional('羽毛球') === true, 'Distance is optional for 羽毛球');
+  assert(isCardioDistanceOptional('篮球') === true, 'Distance is optional for 篮球');
+  assert(isCardioDistanceOptional('跳绳') === true, 'Distance is optional for 跳绳');
+  assert(isCardioDistanceOptional('拳击') === true, 'Distance is optional for 拳击');
+  assert(isCardioDistanceOptional('户外跑步') === false, 'Distance is relevant for 户外跑步');
+  assert(isCardioDistanceOptional('动感单车') === false, 'Distance is relevant for 动感单车');
+}
+
+console.log('--- Testing Compound Movement & Auto Category Inference ---');
+
+// 5. Test inferLogCategories for Compound Movements
+{
+  // Test Deadlift (硬拉) - originally only tagged Back -> infers Back + Legs
+  const deadliftCategories = inferLogCategories('Back', undefined, [{ name: '传统硬拉', type: 'strength' }]);
+  assert(deadliftCategories.includes(WorkoutCategory.Back), 'Deadlift includes Back');
+  assert(deadliftCategories.includes(WorkoutCategory.Legs), 'Deadlift includes Legs');
+  assert(deadliftCategories.length === 2, 'Deadlift infers exactly 2 categories (Back + Legs)');
+
+  // Test Incline Bench (上斜卧推) - originally only tagged Chest -> infers Chest + Shoulders
+  const inclineCategories = inferLogCategories('Chest', undefined, [{ name: '哑铃上斜卧推', type: 'strength' }]);
+  assert(inclineCategories.includes(WorkoutCategory.Chest), 'Incline bench includes Chest');
+  assert(inclineCategories.includes(WorkoutCategory.Shoulders), 'Incline bench includes Shoulders');
+
+  // Test Multi-exercise log - Bench Press + Seated Row (Chest + Back)
+  const multiExCategories = inferLogCategories('Chest', undefined, [
+    { name: '杠铃平板卧推', type: 'strength' },
+    { name: '高位下拉', type: 'strength' },
+  ]);
+  assert(multiExCategories.includes(WorkoutCategory.Chest), 'Multi includes Chest');
+  assert(multiExCategories.includes(WorkoutCategory.Back), 'Multi includes Back');
+
+  // Test Cardio + Strength mix
+  const mixCategories = inferLogCategories('Cardio', undefined, [
+    { name: '羽毛球', type: 'cardio' },
+    { name: '引体向上', type: 'strength' },
+  ]);
+  assert(mixCategories.includes(WorkoutCategory.Cardio), 'Mix includes Cardio');
+  assert(mixCategories.includes(WorkoutCategory.Back), 'Mix includes Back');
 }
 
 console.log('\n🎉 ALL PRESET & MULTI-CATEGORY WORKOUT TESTS PASSED SUCCESSFULLY!\n');

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { pushBackHandler } from '../backStack';
 import { subscribeToWorkoutLogs, getCurrentUser, toggleLike, checkUserLike, subscribeToComments, addComment, getUserProfile, deleteWorkoutLog } from '../api';
 import { WorkoutLog } from '../types';
-import { parseCategories, getCategoryBadgeColor, CATEGORY_META } from '../constants/workoutPresets';
+import { parseCategories, getCategoryBadgeColor, CATEGORY_META, inferLogCategories } from '../constants/workoutPresets';
 import { Heart, MessageCircle, Share2, Clock, Dumbbell, User as UserIcon, Send, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDistanceToNow } from 'date-fns';
@@ -246,7 +246,7 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end max-w-[55%]">
-            {parseCategories(log.category).map((cat) => (
+            {inferLogCategories(log.category, log.categories, log.exercises).map((cat) => (
               <div
                 key={cat}
                 className={`px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase tracking-tighter shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${getCategoryBadgeColor(cat)}`}
@@ -297,11 +297,19 @@ function LogCard({ log }: { log: WorkoutLog; key?: string }) {
                   </>
                 ) : (
                   <>
-                    <span className="bg-neon px-1">{ex.duration}M</span>
-                    <span>/</span>
-                    <span>{ex.distance}K</span>
-                    <span>/</span>
-                    <span>{ex.calories}C</span>
+                    <span className="bg-neon px-1">{ex.duration || 0}M</span>
+                    {typeof ex.distance === 'number' && ex.distance > 0 ? (
+                      <>
+                        <span>/</span>
+                        <span>{ex.distance}K</span>
+                      </>
+                    ) : null}
+                    {typeof ex.calories === 'number' && ex.calories > 0 ? (
+                      <>
+                        <span>/</span>
+                        <span>{ex.calories}C</span>
+                      </>
+                    ) : null}
                   </>
                 )}
               </div>

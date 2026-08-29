@@ -1,6 +1,6 @@
 import { Flame, Award, Target, Dumbbell, Timer, User as UserIcon } from 'lucide-react';
 import { WorkoutLog } from '../types';
-import { parseCategories, getCategoryBadgeColor, CATEGORY_META } from '../constants/workoutPresets';
+import { getCategoryBadgeColor, CATEGORY_META, inferLogCategories } from '../constants/workoutPresets';
 
 interface SharePosterProps {
   log: WorkoutLog;
@@ -27,7 +27,7 @@ const StatIcon = {
 
 export default function SharePoster({ log, statLabel, statValue, statIcon }: SharePosterProps) {
   const Icon = StatIcon[statIcon];
-  const categories = parseCategories(log.category);
+  const categories = inferLogCategories(log.category, log.categories, log.exercises);
 
   return (
     <div className="bg-white border-4 border-ink shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] w-[375px] max-w-full p-5 font-sans select-none">
@@ -95,8 +95,12 @@ export default function SharePoster({ log, statLabel, statValue, statIcon }: Sha
               ) : (
                 <>
                   <Pill label={`${ex.duration || '--'} MIN`} />
-                  <Pill label={`${ex.distance || '--'} KM`} />
-                  <Pill label={`${ex.calories || '--'} CAL`} />
+                  {typeof ex.distance === 'number' && ex.distance > 0 ? (
+                    <Pill label={`${ex.distance} KM`} />
+                  ) : null}
+                  {typeof ex.calories === 'number' && ex.calories > 0 ? (
+                    <Pill label={`${ex.calories} CAL`} />
+                  ) : null}
                 </>
               )}
             </div>

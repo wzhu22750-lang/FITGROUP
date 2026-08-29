@@ -28,6 +28,12 @@
   select {
     font-size: 16px;
   }
+
+  label,
+  button,
+  th {
+    white-space: nowrap;
+  }
 }
 
 .app-header {

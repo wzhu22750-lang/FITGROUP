@@ -247,6 +247,25 @@ console.log('--- Testing 6-Dimension 28-Day Scoring Engine & Sub-Muscles ---');
   assert(cardioDetail.cardioCalories?.target === DEFAULT_CARDIO_CALORIE_TARGET, 'Cardio target is 2000 kcal');
   assert(cardioDetail.trainingScore === 15, `Cardio training score = 300/2000 * 100 = 15 (actual: ${cardioDetail.trainingScore})`);
 
+  // Test Badminton log with only duration (no distance, no explicit calories)
+  const badmintonLog: WorkoutLog = {
+    id: 'log-badminton',
+    userId: 'u1',
+    userName: 'Alice',
+    userPhoto: '',
+    timestamp: now,
+    category: 'Cardio',
+    categories: [WorkoutCategory.Cardio],
+    exercises: [
+      { id: 'eb1', name: '羽毛球', type: 'cardio', duration: 60 }, // 60 min at 55kg: 6.5 * 55 * 1 = ~358 kcal
+    ],
+    likesCount: 0,
+    commentsCount: 0,
+  };
+  const badmintonAnalytics = calculateFullWorkoutAnalytics([badmintonLog], {}, 28, f55Ctx);
+  const badmintonCal = badmintonAnalytics.categoryDetails[WorkoutCategory.Cardio].cardioCalories?.actual;
+  assert(badmintonCal === 358, `Badminton 60min at 55kg auto estimates to 358 kcal (actual: ${badmintonCal})`);
+
   // Insights generated
   assert(analytics.insights.highlights.length > 0, 'Highlights generated');
   assert(analytics.insights.recommendations.length > 0, 'Recommendations generated');
