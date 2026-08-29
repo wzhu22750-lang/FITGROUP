@@ -25,14 +25,13 @@ import {
   Check,
   History,
   RotateCcw,
-  Sparkles,
-  Zap,
   ChevronDown,
   ChevronUp,
   Globe,
   Users,
   Lock,
 } from 'lucide-react';
+
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 
@@ -67,8 +66,8 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
 
   // History logs for selected categories
   const [lastLogs, setLastLogs] = useState<Record<string, WorkoutLog>>({});
-  const [dismissedBannerKeys, setDismissedBannerKeys] = useState<string[]>([]);
   const [confirmReimport, setConfirmReimport] = useState(false);
+
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -275,14 +274,9 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
 
     setExercises(imported);
     setConfirmReimport(false);
-
-    const bannerKey = selectedCategories.sort().join('_');
-    if (!dismissedBannerKeys.includes(bannerKey)) {
-      setDismissedBannerKeys([...dismissedBannerKeys, bannerKey]);
-    }
-
     showToast(`已导入上次 ${imported.length} 个训练动作！`);
   };
+
 
   const handleRemoveExercise = (id: string) => {
     if (deleteConfirm === id) {
@@ -416,7 +410,6 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
     .filter(({ log }) => Boolean(log && log.exercises && log.exercises.length > 0));
 
   const hasAnyLastLog = availableLastLogsList.length > 0;
-  const showPromptBanner = hasAnyLastLog && !dismissedBannerKeys.includes(bannerKey);
   const currentPresets = PRESET_EXERCISES_BY_CATEGORY[activePresetCategory] || [];
 
   return (
@@ -460,58 +453,6 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         </div>
       </div>
 
-      {/* Smart Import Banner for Last Workout Data */}
-      <AnimatePresence>
-        {showPromptBanner && (
-          <motion.div
-            initial={{ opacity: 0, y: -10, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, height: 0, overflow: 'hidden' }}
-            className="bg-neon border-4 border-ink p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] relative"
-          >
-            <button
-              type="button"
-              onClick={() => setDismissedBannerKeys([...dismissedBannerKeys, bannerKey])}
-              className="absolute top-2 right-2 p-1 text-ink/60 hover:text-ink hover:bg-black/10 transition-colors cursor-pointer"
-              title="暂不导入"
-            >
-              <X size={16} />
-            </button>
-
-            <div className="flex items-start gap-3 mb-3 pr-6">
-              <div className="bg-ink text-neon p-2 border-2 border-ink shrink-0 mt-0.5">
-                <Sparkles size={18} />
-              </div>
-              <div>
-                <h4 className="font-black text-ink text-sm uppercase tracking-tight">
-                  发现上次训练数据 ({availableLastLogsList.map((item) => CATEGORY_META[item.category].zh).join(' + ')})
-                </h4>
-                <p className="text-xs font-black text-ink/70 mt-1 leading-snug">
-                  点击一键导入上次填写的动作与重量数据
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => handleImportData(true)}
-                className="flex-1 bg-ink text-neon border-2 border-ink py-2.5 px-4 font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-black/80 transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
-              >
-                <Zap size={15} />
-                一键导入上次数据
-              </button>
-              <button
-                type="button"
-                onClick={() => setDismissedBannerKeys([...dismissedBannerKeys, bannerKey])}
-                className="bg-white text-ink border-2 border-ink py-2.5 px-3 font-black uppercase text-xs hover:bg-paper transition-all cursor-pointer"
-              >
-                暂不导入
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Preset / Common Exercises Quick Selection with Category Tabs (Collapsible) */}
       <div className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all">
