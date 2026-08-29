@@ -1,4 +1,4 @@
-import { WorkoutCategory, WorkoutLog } from '../src/types';
+import { WorkoutCategory, WorkoutLog, StrengthBodyContext } from '../src/types';
 import {
   resolveExerciseMuscles,
   calculateStandardizedScore,
@@ -7,6 +7,8 @@ import {
   calculateFullWorkoutAnalytics,
   findExerciseStandard,
   estimateOneRepMax,
+  bodyContextFromProfile,
+  scaleThresholds,
 } from '../src/utils/workoutAnalytics';
 import { STRENGTH_TIERS, EXERCISE_STANDARDS } from '../src/constants/strengthStandards';
 import { CATEGORY_META } from '../src/constants/workoutPresets';
@@ -71,40 +73,114 @@ console.log('--- Testing Estimated 1RM Formula (Epley) ---');
   assert(est3 === 0, `0kg x 10 reps = 0kg (actual: ${est3})`);
 }
 
-console.log('--- Testing Standardized 5-Tier Strength Benchmarks ---');
+console.log('--- Testing Backward Compatibility (Male 70kg Baseline when ctx is null) ---');
 
-// 3. Test Standardized Scoring Across Exercises
+// 3. Test Standardized Scoring Across Exercises with Default (ctx = null)
 {
   const bench30 = calculateStandardizedScore('杠铃平板卧推', 30, WorkoutCategory.Chest);
-  assert(bench30 === 13, `Bench 30kg = 13 pts (actual: ${bench30})`);
+  assert(bench30 === 13, `Default Bench 30kg = 13 pts (actual: ${bench30})`);
 
   const bench50 = calculateStandardizedScore('杠铃平板卧推', 50, WorkoutCategory.Chest);
-  assert(bench50 === 24, `Bench 50kg = 24 pts (actual: ${bench50})`);
+  assert(bench50 === 24, `Default Bench 50kg = 24 pts (actual: ${bench50})`);
 
   const bench75 = calculateStandardizedScore('杠铃平板卧推', 75, WorkoutCategory.Chest);
-  assert(bench75 === 50, `Bench 75kg = 50 pts (actual: ${bench75})`);
+  assert(bench75 === 50, `Default Bench 75kg = 50 pts (actual: ${bench75})`);
 
   const squat100 = calculateStandardizedScore('杠铃深蹲', 100, WorkoutCategory.Legs);
-  assert(squat100 === 49, `Squat 100kg = 49 pts (actual: ${squat100})`);
+  assert(squat100 === 49, `Default Squat 100kg = 49 pts (actual: ${squat100})`);
 
   const deadlift120 = calculateStandardizedScore('传统硬拉', 120, WorkoutCategory.Back);
-  assert(deadlift120 === 50, `Deadlift 120kg = 50 pts (actual: ${deadlift120})`);
+  assert(deadlift120 === 50, `Default Deadlift 120kg = 50 pts (actual: ${deadlift120})`);
 }
 
-console.log('--- Testing Milestone Next Goal Target ---');
+console.log('--- Testing Model F Personalized Strength Scaling (Sex & Bodyweight) ---');
 
-// 4. Test Milestone next-tier target
+// 4. Test Model F Threshold Scaling & Scores
+{
+  // A. Female 55kg: Bench press 40kg
+  const female55Ctx: StrengthBodyContext = { sex: 'female', bodyweightKg: 55 };
+  const benchStd = findExerciseStandard('杠铃平板卧推')!;
+  const f55BenchThresholds = scaleThresholds(benchStd, female55Ctx);
+  // Expected thresholds ≈ [18.5, 30.1, 44.5, 62.0, 81.1]
+  assert(f55BenchThresholds[2] >= 43 && f55BenchThresholds[2] <= 46, `Female 55kg Bench Intermediate threshold ≈ 44.5kg (actual: ${f55BenchThresholds[2]})`);
+
+  const f55BenchScore = calculateStandardizedScore('杠铃平板卧推', 40, WorkoutCategory.Chest, female55Ctx);
+  assert(f55BenchScore >= 53 && f55BenchScore <= 56, `Female 55kg Bench 40kg score ≈ 54 pts (Intermediate level) (actual: ${f55BenchScore})`);
+
+  // B. Female 60kg: Squat 72kg (Strength Level 60kg female intermediate = 72kg)
+  const female60Ctx: StrengthBodyContext = { sex: 'female', bodyweightKg: 60 };
+  const squatStd = findExerciseStandard('杠铃深蹲')!;
+  const f60SquatThresholds = scaleThresholds(squatStd, female60Ctx);
+  assert(Math.round(f60SquatThresholds[2]) === 72, `Female 60kg Squat Intermediate threshold is 72kg (actual: ${f60SquatThresholds[2]})`);
+  const f60SquatScore = calculateStandardizedScore('杠铃深蹲', 72, WorkoutCategory.Legs, female60Ctx);
+  assert(f60SquatScore === 60, `Female 60kg Squat 72kg score = 60 pts (actual: ${f60SquatScore})`);
+
+  // C. Female 60kg: Deadlift 85kg (Strength Level 60kg female intermediate = 86kg)
+  const deadliftStd = findExerciseStandard('传统硬拉')!;
+  const f60DeadliftThresholds = scaleThresholds(deadliftStd, female60Ctx);
+  assert(Math.round(f60DeadliftThresholds[2]) === 85, `Female 60kg Deadlift Intermediate threshold is 85kg (actual: ${f60DeadliftThresholds[2]})`);
+
+  // D. Male 80kg: Squat 131kg (Strength Level 80kg male intermediate = 132kg)
+  const male80Ctx: StrengthBodyContext = { sex: 'male', bodyweightKg: 80 };
+  const m80SquatThresholds = scaleThresholds(squatStd, male80Ctx);
+  assert(Math.round(m80SquatThresholds[2]) === 131, `Male 80kg Squat Intermediate threshold is 131kg (actual: ${m80SquatThresholds[2]})`);
+
+  // E. Male 100kg: Bench Press 100kg (Tighter benchmark compared to 70kg baseline)
+  const male100Ctx: StrengthBodyContext = { sex: 'male', bodyweightKg: 100 };
+  const m100BenchThresholds = scaleThresholds(benchStd, male100Ctx);
+  assert(Math.round(m100BenchThresholds[2]) === 118, `Male 100kg Bench Intermediate threshold is 118kg (actual: ${m100BenchThresholds[2]})`);
+  const m100BenchScore = calculateStandardizedScore('杠铃平板卧推', 100, WorkoutCategory.Chest, male100Ctx);
+  assert(m100BenchScore >= 46 && m100BenchScore <= 48, `Male 100kg Bench 100kg score ≈ 47 pts (actual: ${m100BenchScore})`);
+
+  // F. Male 100kg: Pull-ups (Bodyweight reps reverse scaling)
+  const pullUpStd = findExerciseStandard('引体向上')!;
+  const m100PullUpThresholds = scaleThresholds(pullUpStd, male100Ctx);
+  // 70kg intermediate is 14 reps -> 100kg intermediate is ~12 reps
+  assert(m100PullUpThresholds[2] < 14, `Male 100kg Pull-up Intermediate threshold reduced for heavier lifter (actual: ${m100PullUpThresholds[2]})`);
+  const m100PullUpScore = calculateStandardizedScore('引体向上', 12, WorkoutCategory.Back, male100Ctx);
+  assert(m100PullUpScore >= 58 && m100PullUpScore <= 62, `Male 100kg Pull-up 12 reps score ≈ 60 pts (actual: ${m100PullUpScore})`);
+}
+
+console.log('--- Testing Bodyweight Clamp & Missing Profile Fallback ---');
+
+// 5. Test Bodyweight Clamp Boundary & Fallback Helper
+{
+  // Underweight clamped to 45kg
+  const underCtx = bodyContextFromProfile({ sex: 'female', bodyweightKg: 35 });
+  assert(underCtx?.bodyweightKg === 45, `35kg input clamped to 45kg (actual: ${underCtx?.bodyweightKg})`);
+
+  // Overweight clamped to 130kg
+  const overCtx = bodyContextFromProfile({ sex: 'male', bodyweightKg: 160 });
+  assert(overCtx?.bodyweightKg === 130, `160kg input clamped to 130kg (actual: ${overCtx?.bodyweightKg})`);
+
+  // Only sex set -> defaults to 70kg with that sex
+  const onlySexCtx = bodyContextFromProfile({ sex: 'female' });
+  assert(onlySexCtx?.sex === 'female' && onlySexCtx?.bodyweightKg === 70, 'Only sex set defaults to 70kg with female sex');
+
+  // Nothing set -> returns null (triggers male 70kg default)
+  const emptyCtx = bodyContextFromProfile({});
+  assert(emptyCtx === null, 'Empty profile returns null context');
+}
+
+console.log('--- Testing Milestone Next Goal Target with Context ---');
+
+// 6. Test Milestone next-tier target
 {
   const nextFromBench50 = getNextMilestone('杠铃平板卧推', 50);
-  assert(Boolean(nextFromBench50), 'Next milestone calculated for Bench 50kg');
-  assert(nextFromBench50?.targetWeight === 64, `Next milestone target weight is 64kg (actual: ${nextFromBench50?.targetWeight})`);
-  assert(nextFromBench50?.deltaWeight === 14, `Next milestone delta is 14kg (actual: ${nextFromBench50?.deltaWeight})`);
-  assert(nextFromBench50?.nextTier.zh === '入门', `Next tier is 入门 (actual: ${nextFromBench50?.nextTier.zh})`);
+  assert(Boolean(nextFromBench50), 'Next milestone calculated for Bench 50kg (default)');
+  assert(nextFromBench50?.targetWeight === 64, `Default next milestone target weight is 64kg (actual: ${nextFromBench50?.targetWeight})`);
+
+  // Female 55kg next milestone for 25kg bench
+  const f55Ctx: StrengthBodyContext = { sex: 'female', bodyweightKg: 55 };
+  const nextF55 = getNextMilestone('杠铃平板卧推', 25, f55Ctx);
+  assert(Boolean(nextF55), 'Next milestone calculated for Female 55kg Bench 25kg');
+  assert(Math.round(nextF55!.targetWeight) === 30, `Female 55kg next milestone target is ~30kg (actual: ${nextF55?.targetWeight})`);
+  assert(nextF55?.nextTier.zh === '入门', `Next tier is 入门 (actual: ${nextF55?.nextTier.zh})`);
 }
 
 console.log('--- Testing 6-Dimension 28-Day Scoring Engine & Sub-Muscles ---');
 
-// 5. Test Full Analytics Engine with Sub-muscle breakdown
+// 7. Test Full Analytics Engine with Sub-muscle breakdown and personal context
 {
   const now = new Date().toISOString();
   const mockLogs: WorkoutLog[] = [
@@ -146,7 +222,8 @@ console.log('--- Testing 6-Dimension 28-Day Scoring Engine & Sub-Muscles ---');
     '引体向上': -15, // Assisted pull-up (-15kg assistance)
   };
 
-  const analytics = calculateFullWorkoutAnalytics(mockLogs, mockPrs, 28);
+  const f55Ctx: StrengthBodyContext = { sex: 'female', bodyweightKg: 55 };
+  const analytics = calculateFullWorkoutAnalytics(mockLogs, mockPrs, 28, f55Ctx);
 
   // Check 6 dimensions
   assert(analytics.radarData.length === 6, 'Radar data has all 6 dimensions');
@@ -177,7 +254,7 @@ console.log('--- Testing 6-Dimension 28-Day Scoring Engine & Sub-Muscles ---');
 
 console.log('--- Testing Tier Alignment & Monotonicity ---');
 
-// 6. Tier mapping and monotonicity
+// 8. Tier mapping and monotonicity
 {
   assert(getStrengthTier(80).zh === '精英', `Score 80 maps to 精英 (actual: ${getStrengthTier(80).zh})`);
   assert(getStrengthTier(60).zh === '熟练', `Score 60 maps to 熟练 (actual: ${getStrengthTier(60).zh})`);
@@ -186,4 +263,4 @@ console.log('--- Testing Tier Alignment & Monotonicity ---');
   assert(getStrengthTier(10).zh === '新手', `Score 10 maps to 新手 (actual: ${getStrengthTier(10).zh})`);
 }
 
-console.log('\n🎉 ALL 6-DIMENSION WORKOUT ANALYTICS TESTS PASSED SUCCESSFULLY!\n');
+console.log('\n🎉 ALL 6-DIMENSION & MODEL-F WORKOUT ANALYTICS TESTS PASSED SUCCESSFULLY!\n');

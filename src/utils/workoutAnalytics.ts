@@ -1,10 +1,16 @@
-import { WorkoutCategory, WorkoutLog, Exercise } from '../types';
+import { WorkoutCategory, WorkoutLog, Exercise, Sex, StrengthBodyContext, UserProfile } from '../types';
 import {
   EXERCISE_STANDARDS,
   STRENGTH_TIERS,
   StrengthTierKey,
   StrengthTierMeta,
   ExerciseStandard,
+  StrengthFamily,
+  G_CURVES,
+  EXPONENT_B,
+  BW_CLAMP_MIN,
+  BW_CLAMP_MAX,
+  REF_BW,
 } from '../constants/strengthStandards';
 import { CATEGORY_META, parseCategories } from '../constants/workoutPresets';
 import {
@@ -269,12 +275,59 @@ export function resolveExerciseMuscles(
 }
 
 /**
+ * Extracts normalized StrengthBodyContext from a UserProfile or AppUser object.
+ * Returns null if both sex and bodyweight are unset (triggers 70kg Male baseline).
+ */
+export function bodyContextFromProfile(p?: any): StrengthBodyContext | null {
+  if (!p) return null;
+  const sex = p.sex === 'female' ? 'female' : p.sex === 'male' ? 'male' : null;
+  const rawBw = typeof p.bodyweightKg === 'number' && p.bodyweightKg > 0 ? p.bodyweightKg : null;
+  if (!sex && !rawBw) return null;
+  return {
+    sex: sex || 'male',
+    bodyweightKg: rawBw ? Math.min(BW_CLAMP_MAX, Math.max(BW_CLAMP_MIN, rawBw)) : REF_BW,
+  };
+}
+
+/**
+ * Dynamically scales 5-tier standard thresholds based on the user's sex and bodyweight.
+ * Uses 70kg Male as the baseline anchor.
+ */
+export function scaleThresholds(
+  std: ExerciseStandard,
+  ctx?: StrengthBodyContext | null
+): [number, number, number, number, number] {
+  if (!ctx || !std.strengthFamily || std.strengthFamily === 'none') {
+    return std.thresholds;
+  }
+  const { sex, bodyweightKg } = ctx;
+  const clampedBw = Math.min(BW_CLAMP_MAX, Math.max(BW_CLAMP_MIN, bodyweightKg));
+  const b = sex === 'female' ? EXPONENT_B.female : EXPONENT_B.male;
+  const gCurve = G_CURVES[std.strengthFamily];
+
+  return std.thresholds.map((refVal, idx) => {
+    const g = sex === 'female' && gCurve ? gCurve[idx] : 1.0;
+    let scaled = refVal;
+    if (std.strengthFamily === 'bodyweight_reps') {
+      // Bodyweight reps: reverse scaling (heavier person needs fewer reps for same percentile)
+      scaled = refVal * g * Math.pow(REF_BW / clampedBw, EXPONENT_B.bodyweightReps);
+    } else {
+      // Resistance: allometric power scaling
+      scaled = refVal * g * Math.pow(clampedBw / REF_BW, b);
+    }
+    // Round to 1 decimal place, minimum 1
+    return Number(Math.max(1, Math.round(scaled * 10) / 10).toFixed(1));
+  }) as [number, number, number, number, number];
+}
+
+/**
  * Calculates a standardized 0 - 100 score for a PR value based on 5 standard tiers
  */
 export function calculateStandardizedScore(
   exerciseName: string,
   value: number,
-  category: WorkoutCategory
+  category: WorkoutCategory,
+  ctx?: StrengthBodyContext | null
 ): number {
   if (value <= 0) return 0;
   const std = findExerciseStandard(exerciseName);
@@ -282,7 +335,7 @@ export function calculateStandardizedScore(
   let thresholds: [number, number, number, number, number] = [30, 50, 75, 100, 125];
 
   if (std && std.thresholds) {
-    thresholds = std.thresholds;
+    thresholds = scaleThresholds(std, ctx);
   } else {
     // Default fallback thresholds by category
     switch (category) {
@@ -346,40 +399,48 @@ export function getStrengthTier(score: number): StrengthTierMeta {
 export function resolveStrengthAssessment(
   exerciseName: string,
   value: number,
-  category?: WorkoutCategory
+  category?: WorkoutCategory,
+  ctx?: StrengthBodyContext | null
 ): { score: number; tier: StrengthTierMeta; nextMilestone?: CategorizedPrItem['nextMilestone'] } {
   const std = findExerciseStandard(exerciseName);
   const score = calculateStandardizedScore(
     exerciseName,
     value,
-    category || std?.primaryCategory || WorkoutCategory.Others
+    category || std?.primaryCategory || WorkoutCategory.Others,
+    ctx
   );
 
   if (!std?.thresholds || value <= 0) {
     return { score, tier: getStrengthTier(score) };
   }
 
+  const scaledThresholds = scaleThresholds(std, ctx);
   const tierOrder: StrengthTierKey[] = ['novice', 'beginner', 'intermediate', 'proficient', 'elite'];
   let tier = STRENGTH_TIERS.novice;
-  for (let i = 0; i < std.thresholds.length; i++) {
-    if (value >= std.thresholds[i]) tier = STRENGTH_TIERS[tierOrder[i]];
+  for (let i = 0; i < scaledThresholds.length; i++) {
+    if (value >= scaledThresholds[i]) tier = STRENGTH_TIERS[tierOrder[i]];
   }
 
   return {
     score,
     tier,
-    nextMilestone: getNextMilestone(exerciseName, value),
+    nextMilestone: getNextMilestone(exerciseName, value, ctx),
   };
 }
 
 /**
  * Calculates the next milestone target for an exercise
  */
-export function getNextMilestone(exerciseName: string, currentWeight: number) {
+export function getNextMilestone(
+  exerciseName: string,
+  currentWeight: number,
+  ctx?: StrengthBodyContext | null
+) {
   const std = findExerciseStandard(exerciseName);
   if (!std || !std.thresholds) return undefined;
 
-  const [t1, t2, t3, t4, t5] = std.thresholds;
+  const scaledThresholds = scaleThresholds(std, ctx);
+  const [t1, t2, t3, t4, t5] = scaledThresholds;
   const tiers: Array<{ threshold: number; tier: StrengthTierMeta }> = [
     { threshold: t1, tier: STRENGTH_TIERS.novice },
     { threshold: t2, tier: STRENGTH_TIERS.beginner },
@@ -432,7 +493,8 @@ function extractOrEstimateCalories(ex: Exercise): number {
 export function calculateFullWorkoutAnalytics(
   logs: WorkoutLog[],
   userPrs: Record<string, number> = {},
-  days = SCORING_PERIOD_DAYS
+  days = SCORING_PERIOD_DAYS,
+  ctx?: StrengthBodyContext | null
 ): {
   categoryDetails: Record<WorkoutCategory, CategoryScoreDetail>;
   radarData: RadarDataPoint[];
@@ -639,7 +701,7 @@ export function calculateFullWorkoutAnalytics(
     const std = findExerciseStandard(name);
     const primary = std?.primaryCategory || (Object.keys(muscles)[0] as WorkoutCategory);
 
-    const assessment = resolveStrengthAssessment(name, Math.max(0, weight), primary);
+    const assessment = resolveStrengthAssessment(name, Math.max(0, weight), primary, ctx);
     const singleScore = weight < 0 ? Math.max(5, Math.round(20 + weight)) : assessment.score;
 
     categorizedPrs.push({
@@ -674,7 +736,7 @@ export function calculateFullWorkoutAnalytics(
         const muscles = resolveExerciseMuscles(ex.name);
         const std = findExerciseStandard(ex.name);
         const primary = std?.primaryCategory || (Object.keys(muscles)[0] as WorkoutCategory);
-        const score = calculateStandardizedScore(ex.name, est1RM, primary);
+        const score = calculateStandardizedScore(ex.name, est1RM, primary, ctx);
 
         for (const [catStr, share] of Object.entries(muscles)) {
           const cat = catStr as WorkoutCategory;
@@ -693,7 +755,8 @@ export function calculateFullWorkoutAnalytics(
     const cardioScore = calculateStandardizedScore(
       maxCardioDuration.exerciseName,
       maxCardioDuration.minutes,
-      WorkoutCategory.Cardio
+      WorkoutCategory.Cardio,
+      ctx
     );
     categoryStrengthScores[WorkoutCategory.Cardio] = {
       maxScore: cardioScore,

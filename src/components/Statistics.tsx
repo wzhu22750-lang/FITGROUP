@@ -43,6 +43,8 @@ import {
   resolveExerciseMuscles,
   findExerciseStandard,
   getStrengthTier,
+  bodyContextFromProfile,
+  scaleThresholds,
   CategoryScoreDetail,
 } from '../utils/workoutAnalytics';
 import { STRENGTH_TIERS, EXERCISE_STANDARDS } from '../constants/strengthStandards';
@@ -75,6 +77,7 @@ export default function Statistics() {
   // Standards modal & active tab
   const [showStandardsModal, setShowStandardsModal] = useState(false);
   const [modalTab, setModalTab] = useState<'rules' | 'tiers'>('rules');
+  const [standardsTableMode, setStandardsTableMode] = useState<'personalized' | 'anchor'>('personalized');
 
   // Category Sub-muscle detail modal
   const [selectedCategoryForModal, setSelectedCategoryForModal] = useState<WorkoutCategory | null>(null);
@@ -119,18 +122,23 @@ export default function Statistics() {
     };
   }, []);
 
+  // Extract body context for strength scoring
+  const bodyContext = useMemo(() => {
+    return bodyContextFromProfile(userProfile);
+  }, [userProfile?.sex, userProfile?.bodyweightKg]);
+
   // Compute full analytics data for 7/28 days
   const analytics = useMemo(() => {
     const prs = (userProfile?.prs || {}) as Record<string, number>;
-    return calculateFullWorkoutAnalytics(workoutLogs, prs, volumeTimeframe);
-  }, [workoutLogs, userProfile?.prs, volumeTimeframe]);
+    return calculateFullWorkoutAnalytics(workoutLogs, prs, volumeTimeframe, bodyContext);
+  }, [workoutLogs, userProfile?.prs, volumeTimeframe, bodyContext]);
 
   // Compute 28-day analytics for top overview
   const overviewAnalytics = useMemo(() => {
     if (volumeTimeframe === 28) return analytics;
     const prs = (userProfile?.prs || {}) as Record<string, number>;
-    return calculateFullWorkoutAnalytics(workoutLogs, prs, 28);
-  }, [analytics, volumeTimeframe, workoutLogs, userProfile?.prs]);
+    return calculateFullWorkoutAnalytics(workoutLogs, prs, 28, bodyContext);
+  }, [analytics, volumeTimeframe, workoutLogs, userProfile?.prs, bodyContext]);
 
   const radarChartData = useMemo(() => {
     return analytics.radarData.map((d) => ({
@@ -301,19 +309,34 @@ export default function Statistics() {
         </div>
       </div>
 
+      {/* 1.5 Incomplete Profile Banner */}
+      {(!userProfile?.sex || !userProfile?.bodyweightKg) && (
+        <div className="bg-neon/20 border-4 border-ink p-3 sm:p-3.5 flex items-start sm:items-center justify-between gap-2.5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+          <div className="flex items-start sm:items-center gap-2 min-w-0">
+            <Info size={18} className="text-ink shrink-0 mt-0.5 sm:mt-0" />
+            <p className="text-xs font-black text-ink leading-tight sm:leading-normal">
+              完善性别与体重后，极限力量分将按你的个人身体条件精准计算
+            </p>
+          </div>
+          <span className="text-[10px] font-black bg-ink text-neon px-2 py-0.5 whitespace-nowrap shrink-0 border border-ink self-start sm:self-center">
+            {userProfile?.sex ? `${userProfile.sex === 'female' ? '女' : '男'} · 缺体重` : userProfile?.bodyweightKg ? `${userProfile.bodyweightKg}kg · 缺性别` : '未完善身体数据'}
+          </span>
+        </div>
+      )}
+
       {/* 2. Ability Radar / 六维能力图谱 (Mobile responsive) */}
       <div className="bg-white p-4 sm:p-5 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <h3 className="font-black text-ink uppercase tracking-tight flex items-center gap-1.5 italic text-sm sm:text-base">
-            <Target size={18} className="text-ink shrink-0" />
-            <span>六维能力图谱 <span className="text-xs text-ink/50 font-normal not-italic ml-0.5">/ RADAR</span></span>
+        <div className="flex items-center justify-between mb-3 gap-2">
+          <h3 className="font-black text-ink uppercase tracking-tight flex items-center gap-1 sm:gap-1.5 italic text-xs sm:text-base min-w-0">
+            <Target size={16} className="text-ink shrink-0 sm:w-[18px] sm:h-[18px]" />
+            <span className="truncate">六维雷达图 <span className="text-[10px] sm:text-xs text-ink/50 font-normal not-italic ml-0.5">/ RADAR</span></span>
           </h3>
           <button
             type="button"
             onClick={() => setShowStandardsModal(true)}
-            className="flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-ink/80 hover:text-ink bg-paper px-2 py-1 border-2 border-ink cursor-pointer transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 shrink-0 whitespace-nowrap"
+            className="flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-ink/80 hover:text-ink bg-paper px-1.5 sm:px-2 py-1 border-2 border-ink cursor-pointer transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 shrink-0 whitespace-nowrap"
           >
-            <HelpCircle size={12} />
+            <HelpCircle size={12} className="shrink-0" />
             <span>评分规则 & 进阶标准</span>
           </button>
         </div>
@@ -329,7 +352,7 @@ export default function Statistics() {
                 : 'text-ink/60 hover:text-ink'
             }`}
           >
-            训练能力指数 (28天负荷)
+            训练能力指数
           </button>
           <button
             type="button"
@@ -340,7 +363,7 @@ export default function Statistics() {
                 : 'text-ink/60 hover:text-ink'
             }`}
           >
-            极限力量水平 (动作PR)
+            极限力量水平
           </button>
         </div>
 
@@ -469,10 +492,10 @@ export default function Statistics() {
 
       {/* 3. Training Load / 训练负荷分布 */}
       <div className="bg-white p-4 sm:p-5 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-        <div className="flex items-center justify-between mb-3.5 flex-wrap gap-2">
-          <h3 className="font-black text-ink uppercase tracking-tight flex items-center gap-1.5 italic text-sm sm:text-base">
-            <Zap size={18} className="text-ink shrink-0" />
-            <span>训练负荷分布 <span className="text-xs text-ink/50 font-normal not-italic ml-0.5">/ LOAD</span></span>
+        <div className="flex items-center justify-between mb-3.5 gap-2">
+          <h3 className="font-black text-ink uppercase tracking-tight flex items-center gap-1 sm:gap-1.5 italic text-xs sm:text-base min-w-0">
+            <Zap size={16} className="text-ink shrink-0 sm:w-[18px] sm:h-[18px]" />
+            <span className="truncate">训练负荷分布<span className="text-[10px] sm:text-xs text-ink/50 font-normal not-italic ml-0.5 hidden min-[380px]:inline"> / LOAD</span></span>
           </h3>
           <div className="flex bg-paper border-2 border-ink p-0.5 shrink-0 whitespace-nowrap">
             <button
@@ -960,9 +983,12 @@ export default function Statistics() {
                 </div>
               ) : (
                 <div className="space-y-3 text-xs font-bold text-ink">
-                  <p className="text-ink/80 leading-relaxed text-[11px]">
-                    极限力量采用国际标准（StrengthLevel / NSCA）与 Epley 1RM 公式（<code className="bg-paper px-1 border border-ink/40">1RM = 重量 × (1 + 次数/30)</code>），按 5 档标准无偏差量化。
-                  </p>
+                  <div className="bg-paper p-2.5 sm:p-3 border-2 border-ink space-y-1">
+                    <p className="font-black text-xs sm:text-sm text-ink">⚡️ 极限力量个人化评估</p>
+                    <p className="text-ink/80 leading-relaxed text-[11px]">
+                      极限力量按 Epley 估算 1RM（<code className="bg-white px-1 border border-ink/40">1RM = 重量 × (1 + 次数/30)</code>），再根据<strong>你的性别与体重</strong>生成五档标准（基准锚点来自 Strength Level 男性 70kg 社区数据，使用幂函数缩放到个人）。未填写身体数据时，暂按 70kg 男性参考。身高仅用于 BMI，不参与力量分。
+                    </p>
+                  </div>
 
                   <div className="space-y-1.5">
                     {Object.values(STRENGTH_TIERS).map((t) => (
@@ -976,7 +1002,38 @@ export default function Statistics() {
                   </div>
 
                   <div className="border-t-2 border-ink pt-2.5">
-                    <h5 className="font-black text-ink text-xs uppercase mb-1.5">代表动作各档位参考对照</h5>
+                    <div className="flex items-center justify-between mb-2 gap-2">
+                      <h5 className="font-black text-ink text-xs uppercase">代表动作各档位参考对照</h5>
+                      <div className="flex bg-paper border-2 border-ink p-0.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setStandardsTableMode('personalized')}
+                          className={`px-1.5 py-0.5 text-[9px] font-black cursor-pointer transition-all ${
+                            standardsTableMode === 'personalized' ? 'bg-ink text-neon' : 'text-ink/60 hover:text-ink'
+                          }`}
+                        >
+                          我的标准
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setStandardsTableMode('anchor')}
+                          className={`px-1.5 py-0.5 text-[9px] font-black cursor-pointer transition-all ${
+                            standardsTableMode === 'anchor' ? 'bg-ink text-neon' : 'text-ink/60 hover:text-ink'
+                          }`}
+                        >
+                          男70kg参考
+                        </button>
+                      </div>
+                    </div>
+
+                    <p className="text-[10px] text-ink/60 mb-1.5 font-bold">
+                      {standardsTableMode === 'personalized'
+                        ? bodyContext
+                          ? `💡 当前展示：${bodyContext.sex === 'female' ? '女性' : '男性'} ${bodyContext.bodyweightKg}kg 专属力量阈值`
+                          : '💡 当前展示：暂未设置身体数据，默认采用男 70kg 基准'
+                        : '💡 当前展示：Strength Level 国际 70kg 男性锚点对照表'}
+                    </p>
+
                     <div className="overflow-x-auto border-2 border-ink">
                       <table className="w-full text-[9px] sm:text-[10px] text-left">
                         <thead className="bg-ink text-white font-black">
@@ -993,11 +1050,14 @@ export default function Statistics() {
                           {STANDARDS_TABLE_EXERCISES.map((name) => {
                             const std = findExerciseStandard(name);
                             if (!std) return null;
+                            const thresholds = standardsTableMode === 'personalized'
+                              ? scaleThresholds(std, bodyContext)
+                              : std.thresholds;
                             return (
                               <tr key={std.name}>
                                 <td className="p-1 sm:p-1.5 font-black">{std.name}</td>
-                                {std.thresholds.map((t) => (
-                                  <td key={t} className="p-1 sm:p-1.5">
+                                {thresholds.map((t, idx) => (
+                                  <td key={idx} className="p-1 sm:p-1.5">
                                     {t}
                                     {std.unit}
                                   </td>

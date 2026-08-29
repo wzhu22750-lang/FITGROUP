@@ -12,6 +12,10 @@ export type AppUser = {
   totalWorkouts?: number;
   lastWorkoutDate?: string;
   prs?: Record<string, number>;
+  sex?: 'male' | 'female' | null;
+  bodyweightKg?: number | null;
+  heightCm?: number | null;
+  bodyMetricsUpdatedAt?: string | null;
 };
 
 type ProfileRow = {
@@ -22,6 +26,10 @@ type ProfileRow = {
   total_workouts: number;
   last_workout_date: string | null;
   prs: Record<string, number> | null;
+  sex?: string | null;
+  bodyweight_kg?: number | string | null;
+  height_cm?: number | string | null;
+  body_metrics_updated_at?: string | null;
 };
 
 type WorkoutLogRow = {
@@ -65,6 +73,14 @@ function newId(prefix = 'id'): string {
 }
 
 function profileFromRow(row: ProfileRow, authUser?: User | null): AppUser {
+  const rawSex = row.sex === 'male' || row.sex === 'female' ? row.sex : null;
+  const rawWeight = row.bodyweight_kg !== undefined && row.bodyweight_kg !== null && row.bodyweight_kg !== ''
+    ? Number(row.bodyweight_kg)
+    : null;
+  const rawHeight = row.height_cm !== undefined && row.height_cm !== null && row.height_cm !== ''
+    ? Number(row.height_cm)
+    : null;
+
   return {
     id: row.id,
     uid: row.id,
@@ -76,6 +92,10 @@ function profileFromRow(row: ProfileRow, authUser?: User | null): AppUser {
     totalWorkouts: Number(row.total_workouts || 0),
     lastWorkoutDate: toIso(row.last_workout_date),
     prs: row.prs && typeof row.prs === 'object' ? row.prs : {},
+    sex: rawSex,
+    bodyweightKg: rawWeight !== null && !isNaN(rawWeight) ? rawWeight : null,
+    heightCm: rawHeight !== null && !isNaN(rawHeight) ? rawHeight : null,
+    bodyMetricsUpdatedAt: toIso(row.body_metrics_updated_at) || null,
   };
 }
 
@@ -90,6 +110,10 @@ function authOnlyUser(user: User): AppUser {
     streak: 0,
     totalWorkouts: 0,
     prs: {},
+    sex: null,
+    bodyweightKg: null,
+    heightCm: null,
+    bodyMetricsUpdatedAt: null,
   };
 }
 
@@ -247,6 +271,39 @@ export const updateUserProfileFn = async (userId: string, updates: Record<string
   if (typeof updates.displayName === 'string') payload.display_name = updates.displayName.trim().slice(0, 50);
   if (typeof updates.photoURL === 'string') payload.photo_url = updates.photoURL;
 
+  let hasMetricsUpdate = false;
+  if ('sex' in updates) {
+    const s = updates.sex;
+    payload.sex = s === 'male' || s === 'female' ? s : null;
+    hasMetricsUpdate = true;
+  }
+
+  if ('bodyweightKg' in updates) {
+    const bw = updates.bodyweightKg;
+    if (bw === null || bw === '' || bw === undefined) {
+      payload.bodyweight_kg = null;
+    } else {
+      const num = Number(bw);
+      payload.bodyweight_kg = !isNaN(num) && num > 0 ? Number(num.toFixed(1)) : null;
+    }
+    hasMetricsUpdate = true;
+  }
+
+  if ('heightCm' in updates) {
+    const h = updates.heightCm;
+    if (h === null || h === '' || h === undefined) {
+      payload.height_cm = null;
+    } else {
+      const num = Number(h);
+      payload.height_cm = !isNaN(num) && num > 0 ? Math.round(num) : null;
+    }
+    hasMetricsUpdate = true;
+  }
+
+  if (hasMetricsUpdate) {
+    payload.body_metrics_updated_at = new Date().toISOString();
+  }
+
   if (Object.keys(payload).length === 0) {
     return getUserProfile(userId);
   }
@@ -268,6 +325,10 @@ export const updateUserProfileFn = async (userId: string, updates: Record<string
       ...cachedUser,
       displayName: typeof payload.display_name === 'string' ? payload.display_name : cachedUser.displayName,
       photoURL: typeof payload.photo_url === 'string' ? payload.photo_url : cachedUser.photoURL,
+      sex: 'sex' in payload ? (payload.sex as 'male' | 'female' | null) : cachedUser.sex,
+      bodyweightKg: 'bodyweight_kg' in payload ? (payload.bodyweight_kg as number | null) : cachedUser.bodyweightKg,
+      heightCm: 'height_cm' in payload ? (payload.height_cm as number | null) : cachedUser.heightCm,
+      bodyMetricsUpdatedAt: 'body_metrics_updated_at' in payload ? (payload.body_metrics_updated_at as string) : cachedUser.bodyMetricsUpdatedAt,
     };
   }
 };

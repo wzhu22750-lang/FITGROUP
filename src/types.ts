@@ -35,6 +35,13 @@ export interface WorkoutLog {
 }
 
 
+export type Sex = 'male' | 'female';
+
+export interface StrengthBodyContext {
+  sex: Sex;
+  bodyweightKg: number;
+}
+
 export interface UserProfile {
   uid: string;
   displayName: string;
@@ -45,4 +52,9 @@ export interface UserProfile {
   lastWorkoutDate?: string;
   totalWorkouts: number;
   prs: Record<string, number>; // exerciseName: weight
+  sex?: Sex | null;
+  bodyweightKg?: number | null;
+  heightCm?: number | null;
+  bodyMetricsUpdatedAt?: string | null;
 }
+

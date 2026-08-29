@@ -66,6 +66,32 @@ export const STRENGTH_TIERS: Record<StrengthTierKey, StrengthTierMeta> = {
   },
 };
 
+export type StrengthFamily = 'upper' | 'lower' | 'bodyweight_reps' | 'none';
+
+/**
+ * 5-tier Gender Ratio Curves G (Female / Male benchmark ratio across 5 tiers)
+ * Calibrated against Strength Level community data (50M+ lifts)
+ */
+export const G_CURVES: Record<StrengthFamily, [number, number, number, number, number]> = {
+  upper: [0.47, 0.56, 0.62, 0.67, 0.71],
+  lower: [0.60, 0.65, 0.69, 0.73, 0.76],
+  bodyweight_reps: [0.00, 0.00, 0.36, 0.50, 0.58],
+  none: [1.0, 1.0, 1.0, 1.0, 1.0],
+};
+
+/**
+ * Allometric scaling exponent constants
+ */
+export const EXPONENT_B = {
+  male: 0.92,
+  female: 0.70,
+  bodyweightReps: 0.40,
+};
+
+export const BW_CLAMP_MIN = 45;
+export const BW_CLAMP_MAX = 130;
+export const REF_BW = 70;
+
 export interface ExerciseStandard {
   name: string;
   aliases: string[];
@@ -78,8 +104,10 @@ export interface ExerciseStandard {
   unit: 'kg' | 'min' | 'km' | 'reps';
   /**
    * Standard threshold values for [Novice(20), Beginner(40), Intermediate(60), Proficient(80), Elite(100)]
+   * Represents 70kg Male Anchor baseline.
    */
   thresholds: [number, number, number, number, number];
+  strengthFamily?: StrengthFamily;
   isDumbbellSingle?: boolean; // Single dumbbell weight (e.g. 20kg dumbbell = 20kg per hand)
   type: 'strength' | 'cardio';
 }
@@ -87,6 +115,7 @@ export interface ExerciseStandard {
 /**
  * Standard exercise benchmarks calibrated against international strength standards
  * (StrengthLevel / ExRx / NSCA standards for typical adult lifters)
+ * Uses 70kg Male as reference anchor.
  */
 export const EXERCISE_STANDARDS: ExerciseStandard[] = [
   // ==================== 胸部 (CHEST) ====================
@@ -97,6 +126,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Chest]: 0.85, [WorkoutCategory.Others]: 0.15 },
     unit: 'kg',
     thresholds: [47, 64, 85, 110, 136],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -106,6 +136,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Chest]: 0.85, [WorkoutCategory.Others]: 0.15 },
     unit: 'kg',
     thresholds: [16, 24, 35, 48, 62],
+    strengthFamily: 'upper',
     isDumbbellSingle: true,
     type: 'strength',
   },
@@ -116,6 +147,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Chest]: 0.75, [WorkoutCategory.Shoulders]: 0.25 },
     unit: 'kg',
     thresholds: [23, 36, 52, 71, 92],
+    strengthFamily: 'upper',
     isDumbbellSingle: true,
     type: 'strength',
   },
@@ -126,6 +158,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Chest]: 0.8, [WorkoutCategory.Shoulders]: 0.2 },
     unit: 'kg',
     thresholds: [35, 48, 64, 83, 102],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -135,6 +168,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Chest]: 0.75, [WorkoutCategory.Shoulders]: 0.25 },
     unit: 'kg',
     thresholds: [25, 45, 70, 90, 115],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -144,6 +178,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Chest]: 1.0 },
     unit: 'kg',
     thresholds: [24, 32, 43, 55, 68],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -153,6 +188,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Chest]: 1.0 },
     unit: 'kg',
     thresholds: [19, 26, 35, 44, 54],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -162,6 +198,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Chest]: 0.55, [WorkoutCategory.Others]: 0.35, [WorkoutCategory.Shoulders]: 0.1 },
     unit: 'kg',
     thresholds: [5, 20, 40, 63, 75],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -171,6 +208,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Chest]: 0.65, [WorkoutCategory.Others]: 0.25, [WorkoutCategory.Shoulders]: 0.1 },
     unit: 'reps',
     thresholds: [5, 20, 40, 64, 89],
+    strengthFamily: 'bodyweight_reps',
     type: 'strength',
   },
 
@@ -182,6 +220,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Back]: 0.85, [WorkoutCategory.Others]: 0.15 },
     unit: 'kg',
     thresholds: [42, 57, 77, 99, 123],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -191,6 +230,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Back]: 0.8, [WorkoutCategory.Shoulders]: 0.1, [WorkoutCategory.Others]: 0.1 },
     unit: 'kg',
     thresholds: [40, 56, 77, 101, 127],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -200,6 +240,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Back]: 0.85, [WorkoutCategory.Others]: 0.15 },
     unit: 'kg',
     thresholds: [40, 57, 78, 102, 128],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -209,6 +250,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Back]: 0.85, [WorkoutCategory.Others]: 0.15 },
     unit: 'kg',
     thresholds: [16, 25, 38, 53, 69],
+    strengthFamily: 'upper',
     isDumbbellSingle: true,
     type: 'strength',
   },
@@ -219,6 +261,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Legs]: 0.55, [WorkoutCategory.Back]: 0.45 },
     unit: 'kg',
     thresholds: [75, 103, 137, 175, 216],
+    strengthFamily: 'lower',
     type: 'strength',
   },
   {
@@ -228,6 +271,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Back]: 0.85, [WorkoutCategory.Others]: 0.15 },
     unit: 'reps',
     thresholds: [1, 7, 14, 22, 31],
+    strengthFamily: 'bodyweight_reps',
     type: 'strength',
   },
   {
@@ -237,6 +281,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Back]: 0.9, [WorkoutCategory.Others]: 0.1 },
     unit: 'kg',
     thresholds: [15, 25, 35, 45, 55],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -246,6 +291,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Back]: 0.6, [WorkoutCategory.Legs]: 0.4 },
     unit: 'kg',
     thresholds: [0, 10, 20, 35, 50],
+    strengthFamily: 'lower',
     type: 'strength',
   },
 
@@ -257,6 +303,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Legs]: 0.9, [WorkoutCategory.Others]: 0.1 },
     unit: 'kg',
     thresholds: [62, 86, 116, 149, 185],
+    strengthFamily: 'lower',
     type: 'strength',
   },
   {
@@ -266,6 +313,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Legs]: 1.0 },
     unit: 'kg',
     thresholds: [90, 139, 202, 277, 359],
+    strengthFamily: 'lower',
     type: 'strength',
   },
   {
@@ -275,6 +323,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Legs]: 0.75, [WorkoutCategory.Back]: 0.25 },
     unit: 'kg',
     thresholds: [54, 79, 110, 145, 184],
+    strengthFamily: 'lower',
     type: 'strength',
   },
   {
@@ -284,6 +333,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Legs]: 1.0 },
     unit: 'kg',
     thresholds: [42, 65, 95, 130, 169],
+    strengthFamily: 'lower',
     type: 'strength',
   },
   {
@@ -293,6 +343,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Legs]: 1.0 },
     unit: 'kg',
     thresholds: [34, 52, 76, 103, 134],
+    strengthFamily: 'lower',
     type: 'strength',
   },
   {
@@ -302,6 +353,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Legs]: 1.0 },
     unit: 'kg',
     thresholds: [8, 16, 27, 41, 57],
+    strengthFamily: 'lower',
     isDumbbellSingle: true,
     type: 'strength',
   },
@@ -312,6 +364,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Legs]: 1.0 },
     unit: 'kg',
     thresholds: [40, 76, 126, 189, 260],
+    strengthFamily: 'lower',
     type: 'strength',
   },
   {
@@ -321,6 +374,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Legs]: 1.0 },
     unit: 'kg',
     thresholds: [52, 88, 135, 193, 257],
+    strengthFamily: 'lower',
     type: 'strength',
   },
 
@@ -332,6 +386,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Shoulders]: 0.8, [WorkoutCategory.Others]: 0.15, [WorkoutCategory.Chest]: 0.05 },
     unit: 'kg',
     thresholds: [7, 12, 20, 29, 39],
+    strengthFamily: 'upper',
     isDumbbellSingle: true,
     type: 'strength',
   },
@@ -342,6 +397,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Shoulders]: 0.8, [WorkoutCategory.Others]: 0.15, [WorkoutCategory.Chest]: 0.05 },
     unit: 'kg',
     thresholds: [32, 45, 58, 72, 88],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -351,6 +407,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Shoulders]: 1.0 },
     unit: 'kg',
     thresholds: [6, 11, 17, 24, 32],
+    strengthFamily: 'upper',
     isDumbbellSingle: true,
     type: 'strength',
   },
@@ -361,6 +418,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Shoulders]: 1.0 },
     unit: 'kg',
     thresholds: [5, 10, 15, 20, 27],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -370,6 +428,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Shoulders]: 0.7, [WorkoutCategory.Back]: 0.3 },
     unit: 'kg',
     thresholds: [7, 11, 16, 22, 29],
+    strengthFamily: 'upper',
     isDumbbellSingle: true,
     type: 'strength',
   },
@@ -380,6 +439,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Shoulders]: 0.8, [WorkoutCategory.Back]: 0.2 },
     unit: 'kg',
     thresholds: [5, 8, 12, 16, 20],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -389,6 +449,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Shoulders]: 0.6, [WorkoutCategory.Back]: 0.4 },
     unit: 'kg',
     thresholds: [18, 25, 35, 50, 60],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -398,6 +459,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Shoulders]: 0.85, [WorkoutCategory.Chest]: 0.15 },
     unit: 'kg',
     thresholds: [8, 13, 18, 24, 30],
+    strengthFamily: 'upper',
     isDumbbellSingle: true,
     type: 'strength',
   },
@@ -408,6 +470,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Back]: 0.6, [WorkoutCategory.Shoulders]: 0.4 },
     unit: 'kg',
     thresholds: [42, 70, 108, 154, 205],
+    strengthFamily: 'upper',
     type: 'strength',
   },
 
@@ -419,6 +482,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Others]: 1.0 },
     unit: 'kg',
     thresholds: [18, 28, 41, 57, 74],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -428,6 +492,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Others]: 1.0 },
     unit: 'kg',
     thresholds: [4, 9, 15, 23, 32],
+    strengthFamily: 'upper',
     isDumbbellSingle: true,
     type: 'strength',
   },
@@ -438,6 +503,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Others]: 1.0 },
     unit: 'kg',
     thresholds: [8, 19, 30, 41, 53],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -447,6 +513,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Others]: 1.0 },
     unit: 'kg',
     thresholds: [3, 8, 15, 24, 35],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {
@@ -456,6 +523,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Others]: 1.0 },
     unit: 'reps',
     thresholds: [20, 40, 60, 80, 100],
+    strengthFamily: 'bodyweight_reps',
     type: 'strength',
   },
   {
@@ -465,6 +533,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Others]: 1.0 },
     unit: 'reps', // represents duration in seconds
     thresholds: [60, 90, 120, 180, 240],
+    strengthFamily: 'none',
     type: 'strength',
   },
   {
@@ -474,6 +543,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Others]: 1.0 },
     unit: 'reps',
     thresholds: [10, 20, 30, 40, 50],
+    strengthFamily: 'bodyweight_reps',
     type: 'strength',
   },
   {
@@ -483,6 +553,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Others]: 1.0 },
     unit: 'reps',
     thresholds: [10, 15, 20, 25, 30],
+    strengthFamily: 'bodyweight_reps',
     type: 'strength',
   },
 
@@ -494,6 +565,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Cardio]: 1.0 },
     unit: 'min',
     thresholds: [15, 30, 45, 60, 90],
+    strengthFamily: 'none',
     type: 'cardio',
   },
   {
@@ -503,6 +575,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Cardio]: 1.0 },
     unit: 'min',
     thresholds: [20, 35, 50, 65, 90],
+    strengthFamily: 'none',
     type: 'cardio',
   },
   {
@@ -512,6 +585,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Cardio]: 0.8, [WorkoutCategory.Back]: 0.2 },
     unit: 'min',
     thresholds: [10, 20, 30, 45, 60],
+    strengthFamily: 'none',
     type: 'cardio',
   },
   {
@@ -521,6 +595,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Cardio]: 1.0 },
     unit: 'min',
     thresholds: [10, 15, 25, 35, 50],
+    strengthFamily: 'none',
     type: 'cardio',
   },
   {
@@ -530,6 +605,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Cardio]: 0.85, [WorkoutCategory.Legs]: 0.15 },
     unit: 'min',
     thresholds: [10, 15, 25, 35, 50],
+    strengthFamily: 'none',
     type: 'cardio',
   },
   {
@@ -539,6 +615,7 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
     muscleWeights: { [WorkoutCategory.Cardio]: 1.0 },
     unit: 'min',
     thresholds: [10, 15, 25, 35, 45],
+    strengthFamily: 'none',
     type: 'cardio',
   },
 ];
