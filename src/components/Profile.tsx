@@ -609,13 +609,10 @@ function HelpFeedbackPage({ user, onBack }: { user: any; onBack: () => void }) {
       {/* 2. 常见问题 FAQ Tab */}
       {subTab === 'faq' && (
         <div className="bg-white p-6 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-5">
-          <div className="flex items-center justify-between">
+          <div>
             <h3 className="font-black text-ink uppercase tracking-tighter text-lg italic">
               Frequently Asked / 常见问题
             </h3>
-            <span className="text-[10px] font-black bg-neon px-2 py-0.5 border border-ink">
-              {filteredFaqs.length} 条解答
-            </span>
           </div>
 
           {/* Search Box */}
