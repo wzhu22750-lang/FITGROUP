@@ -15,7 +15,6 @@ import {
   ChevronDown,
   ChevronUp,
   Info,
-  Copy,
   Trash2,
   Lock,
   Mail,
@@ -23,7 +22,6 @@ import {
   Sparkles,
   CheckCircle2,
   Clock,
-  KeyRound,
   FileQuestion,
   HelpCircle as QuestionIcon
 } from 'lucide-react';
@@ -68,30 +66,30 @@ export default function Profile({ user, onLogout, unreadCount = 0, onOpenNotific
               {user?.displayName || 'User'}
             </h2>
             <p className="text-ink text-[10px] font-black uppercase tracking-widest mt-2 bg-white px-2 border-2 border-ink truncate max-w-full" title={user?.email}>
-              {user?.email || '健友用户'}
+              {user?.email || 'FitGroup User'}
             </p>
           </div>
 
           <div className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] divide-y-4 divide-ink">
             <ProfileItem
               icon={<Bell size={20} />}
-              label="Notification / 消息通知"
+              label="Notifications"
               count={unreadCount > 0 ? unreadCount : undefined}
               onClick={onOpenNotifications}
             />
             <ProfileItem
               icon={<Shield size={20} />}
-              label="Security / 账号与安全"
+              label="Security"
               onClick={() => setPage('security')}
             />
             <ProfileItem
               icon={<Settings size={20} />}
-              label="Settings / 身体与个人档案"
+              label="Settings"
               onClick={() => setPage('settings')}
             />
             <ProfileItem
               icon={<HelpCircle size={20} />}
-              label="Help & Feedback / 帮助与反馈"
+              label="Help & Feedback"
               onClick={() => setPage('help')}
             />
           </div>
@@ -101,7 +99,7 @@ export default function Profile({ user, onLogout, unreadCount = 0, onOpenNotific
             className="w-full bg-ink text-neon p-5 border-4 border-ink font-black uppercase italic text-xl flex items-center justify-center gap-4 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-1 active:translate-y-1 active:shadow-none transition-all cursor-pointer"
           >
             <LogOut size={24} />
-            退出登录
+            Log Out
           </button>
 
           <div className="text-center text-[10px] font-black text-ink uppercase tracking-[0.4em] py-4 italic">
@@ -187,11 +185,11 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
   return (
     <motion.div key="settings" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-6">
       <button onClick={onBack} className="flex items-center gap-2 font-black text-ink uppercase text-sm hover:text-neon transition-colors cursor-pointer">
-        <ChevronLeft size={20} /> Back
+        <ChevronLeft size={20} /> Back / 返回个人中心
       </button>
 
       <div className="bg-white p-6 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-        <h2 className="font-black text-ink uppercase tracking-tighter text-xl mb-6 italic">Settings / 个人与身体档案</h2>
+        <h2 className="font-black text-ink uppercase tracking-tighter text-xl mb-6 italic">Settings / 身体与个人档案</h2>
 
         <div className="space-y-5">
           {/* 昵称 */}
@@ -310,7 +308,7 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
                 saved ? 'bg-neon text-ink' : 'bg-ink text-white'
               }`}
             >
-              {saved ? <><Check size={20} /> Saved</> : saving ? 'Saving...' : 'Save Changes / 保存设置'}
+              {saved ? <><Check size={20} /> 已保存</> : saving ? '保存中...' : 'Save Changes / 保存设置'}
             </button>
           </div>
         </div>
@@ -325,34 +323,34 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
 
 const FAQ_LIST = [
   {
-    q: '力量分 (Power Score) 是如何评定的？',
-    category: '评分机制',
-    a: 'FitGroup 采用相对力量指数算法。系统根据你的体重与生理性别，结合三大项（卧推/深蹲/硬拉）以及主要复合动作的 1RM 最大做功表现，通过幂函数基准换算评定初学、进阶、高阶及大师级别，真实反映你的自重相对力量水平。'
+    q: '力量分是如何评定的？',
+    category: '评分',
+    a: '根据体重与性别，结合三大项（卧推/深蹲/硬拉）等复合动作的 1RM 表现，通过相对力量指数公式评定等级。'
   },
   {
-    q: '如何创建、加入或管理健身小队？',
-    category: '小队协作',
-    a: '在首页「小队」专区，输入 6 位小队码即可直接加入队伍；你也可以点击「创建新小队」自建队伍并生成专属邀请码。小队支持每日队员打卡排行、出勤率统计与小队动态墙。'
+    q: '如何加入或创建小队？',
+    category: '小队',
+    a: '在首页小队专区输入 6 位小队码即可加入队伍；也可点击「创建新小队」生成你的专属邀请码并管理队伍。'
   },
   {
-    q: '打卡记录的可见范围有哪些？如何保护隐私？',
-    category: '隐私与安全',
-    a: '打卡支持三种可见范围：\n• 公开 (Public)：全站可见并计入公共信息流与排行榜；\n• 小队仅见 (Team)：仅你所在小队的队友可见；\n• 私密 (Private)：仅自己可见。\n发布后可在「我的打卡」随时点击「编辑」修改可见范围。'
+    q: '打卡记录的可见范围？',
+    category: '隐私',
+    a: '支持公开（全站可见并上榜）、小队仅见（仅队友可见）与私密（仅自己可见）。发布后可随时点击编辑修改。'
   },
   {
-    q: '如何添加自定义动作或有氧项目？',
-    category: '训练记录',
-    a: '在「记录训练」页面，点击底部的「自定义力量」或「自定义有氧」按钮，即可自由输入动作名称并配置组数/重量或时长/消耗。系统会自动保存你的常用动作以便下次快速选择。'
+    q: '如何添加自定义动作？',
+    category: '记录',
+    a: '在记录训练页面底部，点击「自定义力量」或「自定义有氧」即可输入动作名称并配置组数/重量/时长。'
   },
   {
-    q: '网络不稳定或离线时可以打卡吗？',
-    category: '数据同步',
-    a: '可以！FitGroup 内置本地离线容灾策略。即使断网，打卡记录也会保存在本地，网络恢复后会自动与 Supabase 云端同步，不会丢失训练成果。'
+    q: '离线状态下可以打卡吗？',
+    category: '同步',
+    a: '可以。打卡记录会先保存在本地，网络恢复后会自动与云端同步，不会丢失训练记录。'
   },
   {
-    q: '身体数据（身高/体重）会被公开展示吗？',
-    category: '隐私与安全',
-    a: '绝对不会。你的具体身高和体重仅保存在个人设置中，用于计算力量分与 BMI 参考值，其他用户在社区和排行榜中只能看到你的力量分等级，无法查看到你的实际体重。'
+    q: '身高体重数据会公开吗？',
+    category: '隐私',
+    a: '不会。身高体重仅用于计算力量分与 BMI，社区中其他用户只能看到你的段位评级，无法查看具体数值。'
   }
 ];
 
@@ -406,11 +404,6 @@ function HelpFeedbackPage({ user, onBack }: { user: any; onBack: () => void }) {
     }
   };
 
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    showToast(`已复制${label}到剪贴板`, 'success');
-  };
-
   const filteredFaqs = FAQ_LIST.filter(
     (item) =>
       item.q.toLowerCase().includes(faqSearch.toLowerCase()) ||
@@ -431,10 +424,10 @@ function HelpFeedbackPage({ user, onBack }: { user: any; onBack: () => void }) {
 
   const getTypeLabel = (type: FeedbackType) => {
     switch (type) {
-      case 'bug': return '🐛 缺陷反馈';
-      case 'feature': return '💡 功能建议';
-      case 'exercise': return '🏋️ 动作需求';
-      default: return '💬 其它交流';
+      case 'bug': return '缺陷反馈';
+      case 'feature': return '功能建议';
+      case 'exercise': return '动作需求';
+      default: return '其它交流';
     }
   };
 
@@ -618,7 +611,7 @@ function HelpFeedbackPage({ user, onBack }: { user: any; onBack: () => void }) {
               type="text"
               value={faqSearch}
               onChange={(e) => setFaqSearch(e.target.value)}
-              placeholder="搜索问题关键词 (如: 力量分、小队、隐私、离线)..."
+              placeholder="搜索问题关键词..."
               className="w-full bg-paper border-4 border-ink pl-10 pr-4 py-2.5 font-bold text-xs text-ink outline-none focus:bg-white"
             />
           </div>
@@ -635,19 +628,21 @@ function HelpFeedbackPage({ user, onBack }: { user: any; onBack: () => void }) {
               filteredFaqs.map((faq, idx) => {
                 const isOpen = openFaqIndex === idx;
                 return (
-                  <div key={idx} className="border-2 border-ink bg-paper transition-all">
+                  <div key={idx} className="border-2 border-ink bg-paper transition-all overflow-hidden">
                     <button
                       type="button"
                       onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
-                      className="w-full p-4 flex items-center justify-between text-left font-black text-ink text-xs sm:text-sm cursor-pointer hover:bg-neon/10 transition-colors"
+                      className="w-full p-3.5 flex items-start justify-between text-left font-black text-ink text-xs sm:text-sm cursor-pointer hover:bg-neon/10 transition-colors gap-3"
                     >
-                      <div className="flex items-center gap-2 pr-3">
-                        <span className="bg-ink text-neon text-[10px] px-1.5 py-0.5 uppercase tracking-wider font-mono">
+                      <div className="flex items-start gap-2 min-w-0 flex-1">
+                        <span className="bg-ink text-neon text-[10px] px-1.5 py-0.5 font-bold shrink-0 mt-0.5">
                           {faq.category}
                         </span>
-                        <span>{faq.q}</span>
+                        <span className="break-words font-black leading-snug flex-1 text-xs sm:text-sm">{faq.q}</span>
                       </div>
-                      {isOpen ? <ChevronUp size={18} className="shrink-0" /> : <ChevronDown size={18} className="shrink-0" />}
+                      <div className="shrink-0 pt-0.5">
+                        {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </div>
                     </button>
                     <AnimatePresence>
                       {isOpen && (
@@ -657,7 +652,7 @@ function HelpFeedbackPage({ user, onBack }: { user: any; onBack: () => void }) {
                           exit={{ height: 0, opacity: 0 }}
                           className="overflow-hidden"
                         >
-                          <div className="p-4 pt-0 border-t border-ink/10 text-xs font-bold text-ink/80 leading-relaxed whitespace-pre-wrap">
+                          <div className="p-3.5 pt-0 border-t border-ink/10 text-xs font-bold text-ink/80 leading-relaxed break-words whitespace-pre-wrap">
                             {faq.a}
                           </div>
                         </motion.div>
@@ -691,7 +686,7 @@ function HelpFeedbackPage({ user, onBack }: { user: any; onBack: () => void }) {
 
             <div className="space-y-4">
               <div>
-                <h4 className="text-xs font-black text-ink uppercase tracking-wider mb-2">⚡ 核心特性</h4>
+                <h4 className="text-xs font-black text-ink uppercase tracking-wider mb-2">核心特性</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-bold text-ink/80">
                   <div className="p-2.5 bg-paper border-2 border-ink flex items-center gap-2">
                     <CheckCircle2 size={14} className="text-ink" /> 相对力量指数与 1RM 评估
@@ -704,41 +699,6 @@ function HelpFeedbackPage({ user, onBack }: { user: any; onBack: () => void }) {
                   </div>
                   <div className="p-2.5 bg-paper border-2 border-ink flex items-center gap-2">
                     <CheckCircle2 size={14} className="text-ink" /> 离线故障自愈与本地容灾
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h4 className="text-xs font-black text-ink uppercase tracking-wider mb-2">📬 联系开发者与技术支持</h4>
-                <div className="space-y-2">
-                  <div className="p-3 bg-paper border-2 border-ink flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] font-black text-ink/50 uppercase block">官方支持邮箱</span>
-                      <span className="text-xs font-mono font-bold text-ink">feedback@fitgroup.app</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => copyToClipboard('feedback@fitgroup.app', '邮箱')}
-                      className="p-2 border-2 border-ink bg-white hover:bg-neon transition-colors cursor-pointer"
-                      title="复制邮箱"
-                    >
-                      <Copy size={14} />
-                    </button>
-                  </div>
-
-                  <div className="p-3 bg-paper border-2 border-ink flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] font-black text-ink/50 uppercase block">健友交流与反馈群</span>
-                      <span className="text-xs font-mono font-bold text-ink">QQ/微信群: 883902114</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => copyToClipboard('883902114', '群号')}
-                      className="p-2 border-2 border-ink bg-white hover:bg-neon transition-colors cursor-pointer"
-                      title="复制群号"
-                    >
-                      <Copy size={14} />
-                    </button>
                   </div>
                 </div>
               </div>
