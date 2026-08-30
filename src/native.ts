@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
-import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Keyboard } from '@capacitor/keyboard';
 import { Share } from '@capacitor/share';
 import { SplashScreen } from '@capacitor/splash-screen';
@@ -115,4 +115,54 @@ export async function shareImageDataUrl(dataUrl: string, filename = 'fitgroup-po
   link.href = dataUrl;
   link.download = filename;
   link.click();
+}
+
+export async function exportTextFile(
+  filename: string,
+  content: string,
+  mimeType = 'application/json'
+) {
+  if (isNative()) {
+    try {
+      const written = await Filesystem.writeFile({
+        path: filename,
+        data: content,
+        directory: Directory.Cache,
+        encoding: Encoding.UTF8,
+      });
+      await Share.share({
+        title: 'FitGroup 数据导出',
+        text: '我的健身数据备份文件',
+        files: [written.uri],
+        dialogTitle: '导出健身数据',
+      });
+      return;
+    } catch (err) {
+      console.warn('Native export text file failed:', err);
+    }
+  }
+
+  const blob = new Blob([content], { type: mimeType });
+  const file = new File([blob], filename, { type: mimeType });
+  if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: 'FitGroup 数据导出',
+        text: '我的健身数据备份文件',
+      });
+      return;
+    } catch (error) {
+      if ((error as { name?: string }).name === 'AbortError') return;
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }

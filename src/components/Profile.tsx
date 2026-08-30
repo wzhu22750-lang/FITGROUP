@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { getCurrentUser, updateUserProfileFn, submitFeedbackFn, fetchUserFeedbacksFn } from '../api';
+import { useState, useEffect, useMemo } from 'react';
+import { getCurrentUser, updateUserProfileFn, submitFeedbackFn, fetchUserFeedbacksFn, getUserWorkoutLogs } from '../api';
 import { supabase } from '../lib/supabase';
 import {
   LogOut,
@@ -23,12 +23,21 @@ import {
   CheckCircle2,
   Clock,
   FileQuestion,
-  HelpCircle as QuestionIcon
+  HelpCircle as QuestionIcon,
+  Download,
+  FileText,
+  FileJson,
+  Copy,
+  Activity,
+  Dumbbell,
+  Layers,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { pushBackHandler } from '../backStack';
 import { useToast } from './Toast';
-import type { FeedbackType, UserFeedback } from '../types';
+import type { FeedbackType, UserFeedback, WorkoutLog } from '../types';
+import { generateExportData, formatExportAsJson, formatExportAsText } from '../utils/dataExport';
+import { exportTextFile } from '../native';
 
 interface ProfileProps {
   user: any;
@@ -38,7 +47,7 @@ interface ProfileProps {
 }
 
 export default function Profile({ user, onLogout, unreadCount = 0, onOpenNotifications }: ProfileProps) {
-  const [page, setPage] = useState<'main' | 'settings' | 'help' | 'security'>('main');
+  const [page, setPage] = useState<'main' | 'settings' | 'help' | 'security' | 'export'>('main');
 
   useEffect(() => {
     if (page === 'main') return;
@@ -78,6 +87,11 @@ export default function Profile({ user, onLogout, unreadCount = 0, onOpenNotific
               onClick={onOpenNotifications}
             />
             <ProfileItem
+              icon={<Download size={20} />}
+              label="Export Data"
+              onClick={() => setPage('export')}
+            />
+            <ProfileItem
               icon={<Shield size={20} />}
               label="Security"
               onClick={() => setPage('security')}
@@ -110,6 +124,10 @@ export default function Profile({ user, onLogout, unreadCount = 0, onOpenNotific
 
       {page === 'settings' && (
         <SettingsPage user={user} onBack={() => setPage('main')} />
+      )}
+
+      {page === 'export' && (
+        <ExportDataPage user={user} onBack={() => setPage('main')} />
       )}
 
       {page === 'help' && (
@@ -814,6 +832,325 @@ function SecurityPage({ user, onBack }: { user: any; onBack: () => void }) {
             FitGroup 采用 Supabase 行级安全策略 (RLS) 与端到端传输加密。你的私密动态、身体数据（体重、身高等）受到最高级别权限隔离保护。
           </p>
         </div>
+      </div>
+    </motion.div>
+  );
+}
+
+/* =========================================================================
+   Export Data Page
+   ========================================================================= */
+
+function ExportDataPage({ user, onBack }: { user: any; onBack: () => void }) {
+  const [logs, setLogs] = useState<WorkoutLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState<'json' | 'text' | null>(null);
+  const [showAllLogs, setShowAllLogs] = useState(false);
+  const { showToast } = useToast();
+
+  const userId = user?.id || user?.uid;
+
+  useEffect(() => {
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    getUserWorkoutLogs(userId, 1000)
+      .then((data) => setLogs(data || []))
+      .catch((err) => console.warn('Failed to load logs for export:', err))
+      .finally(() => setLoading(false));
+  }, [userId]);
+
+  const exportData = useMemo(() => generateExportData(user, logs), [user, logs]);
+
+  const handleExportJson = async () => {
+    setExporting('json');
+    try {
+      const jsonContent = formatExportAsJson(exportData);
+      const today = new Date().toISOString().split('T')[0];
+      const filename = `fitgroup_export_${today}.json`;
+      await exportTextFile(filename, jsonContent, 'application/json');
+      showToast('JSON 数据文件已生成并唤起下载/保存', 'success');
+    } catch (err: any) {
+      console.error('Export JSON failed:', err);
+      showToast('导出 JSON 失败，请重试', 'error');
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const handleExportText = async () => {
+    setExporting('text');
+    try {
+      const textContent = formatExportAsText(exportData);
+      const today = new Date().toISOString().split('T')[0];
+      const filename = `fitgroup_report_${today}.txt`;
+      await exportTextFile(filename, textContent, 'text/plain');
+      showToast('文本报告文件已生成并唤起下载/保存', 'success');
+    } catch (err: any) {
+      console.error('Export text failed:', err);
+      showToast('导出报告失败，请重试', 'error');
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const handleCopyText = async () => {
+    try {
+      const textContent = formatExportAsText(exportData);
+      await navigator.clipboard.writeText(textContent);
+      showToast('已复制完整文本报告到剪贴板', 'success');
+    } catch (err) {
+      showToast('复制到剪贴板失败', 'error');
+    }
+  };
+
+  const displayedLogs = showAllLogs ? exportData.workoutLogs : exportData.workoutLogs.slice(0, 5);
+
+  return (
+    <motion.div key="export" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-6">
+      <button onClick={onBack} className="flex items-center gap-2 font-black text-ink uppercase text-sm hover:text-neon transition-colors cursor-pointer">
+        <ChevronLeft size={20} /> Back / 返回个人中心
+      </button>
+
+      <div className="bg-white p-6 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-6">
+        <div>
+          <h2 className="font-black text-ink uppercase tracking-tighter text-xl italic flex items-center gap-2">
+            <Download size={22} /> Export Data / 健身数据导出
+          </h2>
+          <p className="text-xs text-ink/70 font-bold mt-1">
+            导出你的完整个人身体档案、各维度最大单项重量 (PR) 与累计容量 (Volume)，以及历史训练记录明细。
+          </p>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="space-y-3 bg-paper p-4 border-2 border-ink">
+          <span className="text-[10px] font-black text-ink uppercase tracking-wider block">
+            选择导出与备份格式
+          </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              disabled={exporting !== null}
+              onClick={handleExportJson}
+              className="py-3 px-4 bg-ink text-neon border-2 border-ink font-black text-xs uppercase flex items-center justify-center gap-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 hover:bg-neon hover:text-ink transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <FileJson size={16} />
+              {exporting === 'json' ? '生成中...' : '导出 JSON 备份文件'}
+            </button>
+            <button
+              type="button"
+              disabled={exporting !== null}
+              onClick={handleExportText}
+              className="py-3 px-4 bg-white text-ink border-2 border-ink font-black text-xs uppercase flex items-center justify-center gap-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 hover:bg-neon transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <FileText size={16} />
+              {exporting === 'text' ? '生成中...' : '导出 文本报告 (.txt)'}
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={handleCopyText}
+            className="w-full py-2.5 bg-paper hover:bg-white text-ink border-2 border-dashed border-ink/40 font-black text-xs uppercase flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <Copy size={14} /> 复制文本报告到剪贴板 (直接粘贴分享)
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-8 text-xs font-bold text-ink/50">正在整理训练历史与统计数据...</div>
+        ) : (
+          <>
+            {/* 1. 个人身体档案 */}
+            <div>
+              <h3 className="font-black text-ink uppercase tracking-tight text-sm mb-3 flex items-center gap-1.5">
+                <UserIcon size={16} /> 一、个人身体档案数据
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                <div className="p-3 bg-paper border-2 border-ink">
+                  <span className="text-[10px] font-black text-ink/50 uppercase block">生理性别</span>
+                  <span className="text-sm font-black text-ink">{exportData.profile.sexZh}</span>
+                </div>
+                <div className="p-3 bg-paper border-2 border-ink">
+                  <span className="text-[10px] font-black text-ink/50 uppercase block">身高</span>
+                  <span className="text-sm font-black text-ink">
+                    {exportData.profile.heightCm ? `${exportData.profile.heightCm} cm` : '未设置'}
+                  </span>
+                </div>
+                <div className="p-3 bg-paper border-2 border-ink">
+                  <span className="text-[10px] font-black text-ink/50 uppercase block">体重</span>
+                  <span className="text-sm font-black text-ink">
+                    {exportData.profile.bodyweightKg ? `${exportData.profile.bodyweightKg} kg` : '未设置'}
+                  </span>
+                </div>
+                <div className="p-3 bg-paper border-2 border-ink">
+                  <span className="text-[10px] font-black text-ink/50 uppercase block">BMI 指数</span>
+                  <span className="text-sm font-black text-ink">
+                    {exportData.profile.bmi !== null ? `${exportData.profile.bmi} (${exportData.profile.bmiCategoryZh})` : '未设置'}
+                  </span>
+                </div>
+                <div className="p-3 bg-paper border-2 border-ink">
+                  <span className="text-[10px] font-black text-ink/50 uppercase block">累计打卡</span>
+                  <span className="text-sm font-black text-ink">{exportData.profile.totalWorkouts} 次</span>
+                </div>
+                <div className="p-3 bg-paper border-2 border-ink">
+                  <span className="text-[10px] font-black text-ink/50 uppercase block">连续打卡</span>
+                  <span className="text-sm font-black text-ink">{exportData.profile.streak} 天</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. 各维度最大重量与容量 */}
+            <div>
+              <h3 className="font-black text-ink uppercase tracking-tight text-sm mb-3 flex items-center gap-1.5">
+                <Dumbbell size={16} /> 二、各维度最大重量 (PR) 与累计容量 (Volume)
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {Object.values(exportData.dimensionSummaries).map((dim) => {
+                  const isCardio = dim.category === 'Cardio';
+                  const prEntries = Object.entries(dim.prs);
+
+                  return (
+                    <div key={dim.category} className="p-3.5 bg-paper border-2 border-ink space-y-2">
+                      <div className="flex items-center justify-between border-b border-ink/20 pb-1.5">
+                        <span className="font-black text-xs text-ink uppercase flex items-center gap-1">
+                          <Layers size={14} /> {dim.nameZh} ({dim.nameEn})
+                        </span>
+                        <span className="text-[10px] font-mono font-bold bg-white px-1.5 py-0.5 border border-ink">
+                          {dim.workoutCount} 次训练
+                        </span>
+                      </div>
+
+                      {isCardio ? (
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <span className="text-[10px] font-black text-ink/50 block">总时长</span>
+                            <span className="font-mono font-bold text-ink">{dim.cardioMinutes || 0} 分钟</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-black text-ink/50 block">总能量消耗</span>
+                            <span className="font-mono font-bold text-ink">~{(dim.cardioCaloriesKcal || 0).toLocaleString()} kcal</span>
+                          </div>
+                          {(dim.cardioDistanceKm || 0) > 0 && (
+                            <div className="col-span-2">
+                              <span className="text-[10px] font-black text-ink/50 block">总距离</span>
+                              <span className="font-mono font-bold text-ink">{dim.cardioDistanceKm} km</span>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <span className="text-[10px] font-black text-ink/50 block">最大单项重量</span>
+                              <span className="font-black text-ink text-sm">
+                                {dim.maxWeightKg > 0 ? `${dim.maxWeightKg} kg` : '暂无'}
+                              </span>
+                              {dim.bestExerciseName && (
+                                <span className="text-[9px] text-ink/60 block truncate" title={dim.bestExerciseName}>
+                                  {dim.bestExerciseName}
+                                </span>
+                              )}
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-black text-ink/50 block">累计总容量</span>
+                              <span className="font-black text-ink text-sm font-mono">
+                                {dim.totalVolumeKg.toLocaleString()} kg
+                              </span>
+                              <span className="text-[9px] text-ink/60 block">共 {dim.totalSets} 组</span>
+                            </div>
+                          </div>
+
+                          {prEntries.length > 0 && (
+                            <div className="pt-1.5 border-t border-ink/10">
+                              <span className="text-[9px] font-black text-ink/50 uppercase block mb-1">
+                                动作成绩记录 ({prEntries.length}):
+                              </span>
+                              <div className="flex flex-wrap gap-1">
+                                {prEntries.slice(0, 4).map(([name, w]) => (
+                                  <span key={name} className="text-[10px] font-bold bg-white border border-ink/40 px-1.5 py-0.5">
+                                    {name}: <span className="font-mono font-black">{w}kg</span>
+                                  </span>
+                                ))}
+                                {prEntries.length > 4 && (
+                                  <span className="text-[9px] text-ink/50 self-center font-bold">
+                                    +{prEntries.length - 4} 更多
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 3. 历史训练打卡简略记录 */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-black text-ink uppercase tracking-tight text-sm flex items-center gap-1.5">
+                  <Activity size={16} /> 三、历史训练打卡记录明细 ({exportData.workoutLogs.length} 次)
+                </h3>
+                {exportData.workoutLogs.length > 5 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllLogs(!showAllLogs)}
+                    className="text-[10px] font-black text-ink hover:text-neon underline cursor-pointer"
+                  >
+                    {showAllLogs ? '收起部分' : `展开全部 (${exportData.workoutLogs.length})`}
+                  </button>
+                )}
+              </div>
+
+              {exportData.workoutLogs.length === 0 ? (
+                <div className="p-6 text-center bg-paper border-2 border-dashed border-ink/20">
+                  <p className="text-xs font-black text-ink/40">暂无训练打卡记录</p>
+                </div>
+              ) : (
+                <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                  {displayedLogs.map((log, idx) => (
+                    <div key={log.id || idx} className="p-3 bg-paper border-2 border-ink space-y-1 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-black text-[11px] text-ink">
+                          {log.date} {log.time}
+                        </span>
+                        <span className="font-black text-[10px] bg-white border border-ink px-1.5 py-0.5">
+                          {log.categories}
+                        </span>
+                      </div>
+
+                      {log.totalVolumeKg > 0 && (
+                        <div className="text-[10px] font-bold text-ink/60">
+                          总容量: <span className="font-mono font-black text-ink">{log.totalVolumeKg.toLocaleString()} kg</span> ({log.totalSets} 组)
+                        </div>
+                      )}
+
+                      {log.exercises.length > 0 && (
+                        <ul className="space-y-0.5 pt-1 text-[11px] text-ink/80">
+                          {log.exercises.map((ex, eIdx) => (
+                            <li key={eIdx} className="font-bold truncate">
+                              • {ex}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+
+                      {log.note && (
+                        <p className="text-[10px] font-bold text-ink/60 pt-0.5 italic">
+                          💬 {log.note}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </motion.div>
   );
