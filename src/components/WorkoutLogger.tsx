@@ -774,14 +774,14 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
             onClick={() => addExercise('strength')}
             className="flex-1 bg-white border-4 border-ink text-ink py-3 font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-neon transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
           >
-            <Plus size={18} /> + 自定义力量
+            <Plus size={18} /> 自定义力量
           </button>
           <button
             type="button"
             onClick={() => addExercise('cardio')}
             className="flex-1 bg-white border-4 border-ink text-ink py-3 font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-neon transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
           >
-            <Plus size={18} /> + 自定义有氧
+            <Plus size={18} /> 自定义有氧
           </button>
         </div>
       </div>

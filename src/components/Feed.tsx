@@ -232,21 +232,6 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
             exit={{ opacity: 0, y: -10 }}
             className="space-y-6"
           >
-            {/* My History Stats Banner */}
-            <div className="bg-ink text-white border-4 border-ink p-4 sm:p-5 shadow-[4px_4px_0px_0px_rgba(223,255,0,1)] flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-black text-neon uppercase tracking-widest block">
-                  个人训练历史管理 / MY LOGS
-                </span>
-                <div className="text-2xl font-black italic mt-0.5">
-                  累计 {myLogs.length} <span className="text-xs font-bold text-white/80 not-italic">次打卡</span>
-                </div>
-              </div>
-              <span className="text-[11px] font-black bg-white text-ink px-2.5 py-1 border-2 border-neon">
-                公开 · 小队 · 私密
-              </span>
-            </div>
-
             {myLoading && myLogs.length === 0 ? (
               <div className="space-y-4">
                 {[1, 2, 3].map((i) => (

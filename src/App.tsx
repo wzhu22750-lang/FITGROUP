@@ -189,11 +189,16 @@ export default function App() {
                 <Statistics />
               </motion.div>
             )}
-            {activeTab === 'profile' && (
-              <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <Profile user={user} onLogout={async () => { await logout(); setUser(null); }} />
-              </motion.div>
-            )}
+              {activeTab === 'profile' && (
+                <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                  <Profile
+                    user={user}
+                    onLogout={async () => { await logout(); setUser(null); }}
+                    unreadCount={unreadCount}
+                    onOpenNotifications={() => setShowNotificationsModal(true)}
+                  />
+                </motion.div>
+              )}
           </AnimatePresence>
         </Suspense>
       </main>

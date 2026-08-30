@@ -602,14 +602,14 @@ export default function EditWorkoutModal({ log, onClose, onSuccess }: EditWorkou
                 onClick={() => addExercise('strength')}
                 className="flex-1 bg-white border-2 border-ink py-2 font-black uppercase text-xs flex items-center justify-center gap-1.5 hover:bg-neon transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
               >
-                <Plus size={14} /> + 力量动作
+                <Plus size={14} /> 力量动作
               </button>
               <button
                 type="button"
                 onClick={() => addExercise('cardio')}
                 className="flex-1 bg-white border-2 border-ink py-2 font-black uppercase text-xs flex items-center justify-center gap-1.5 hover:bg-neon transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
               >
-                <Plus size={14} /> + 有氧项目
+                <Plus size={14} /> 有氧项目
               </button>
             </div>
           </div>

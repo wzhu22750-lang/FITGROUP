@@ -1,6 +1,6 @@
 import type { User } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
-import type { WorkoutLog, WorkoutVisibility, Team, TeamMember, TeamDashboardData, AppNotification } from './types';
+import type { WorkoutLog, WorkoutVisibility, Team, TeamMember, TeamDashboardData, AppNotification, FeedbackType, UserFeedback } from './types';
 import { DEFAULT_MAX_TEAM_MEMBERS } from './constants/teamConfig';
 
 
@@ -1467,5 +1467,104 @@ export const deleteNotification = async (notificationId: string): Promise<void> 
   }
 };
 
+export const submitFeedbackFn = async (feedback: {
+  type: FeedbackType;
+  content: string;
+  contact?: string;
+}): Promise<UserFeedback> => {
+  const user = cachedUser || getCurrentUser();
+  const id = newId('fb');
+  const now = new Date().toISOString();
+
+  const item: UserFeedback = {
+    id,
+    userId: user?.id || user?.uid,
+    userName: user?.displayName || '健友',
+    userEmail: user?.email || '',
+    type: feedback.type,
+    content: feedback.content,
+    contact: feedback.contact || '',
+    status: 'pending',
+    createdAt: now,
+  };
+
+  try {
+    const { error } = await supabase.from('feedbacks').insert({
+      id: item.id,
+      user_id: item.userId || null,
+      user_name: item.userName,
+      user_email: item.userEmail,
+      type: item.type,
+      content: item.content,
+      contact: item.contact,
+      status: item.status,
+      created_at: item.createdAt,
+    });
+    if (error) {
+      console.warn('Supabase insert feedback warning:', error);
+    }
+  } catch (err) {
+    console.warn('submitFeedbackFn error, saving locally:', err);
+  }
+
+  // Also cache locally
+  try {
+    const raw = localStorage.getItem('fitgroup_feedbacks');
+    const local: UserFeedback[] = raw ? JSON.parse(raw) : [];
+    local.unshift(item);
+    localStorage.setItem('fitgroup_feedbacks', JSON.stringify(local.slice(0, 30)));
+  } catch (err) {
+    console.warn('localStorage save feedback error:', err);
+  }
+
+  return item;
+};
+
+export const fetchUserFeedbacksFn = async (userId?: string): Promise<UserFeedback[]> => {
+  let list: UserFeedback[] = [];
+
+  if (userId) {
+    try {
+      const { data, error } = await supabase
+        .from('feedbacks')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (!error && data && data.length > 0) {
+        list = data.map((r: any) => ({
+          id: r.id,
+          userId: r.user_id,
+          userName: r.user_name,
+          userEmail: r.user_email,
+          type: r.type,
+          content: r.content,
+          contact: r.contact,
+          status: r.status,
+          createdAt: r.created_at,
+        }));
+      }
+    } catch (err) {
+      console.warn('fetchUserFeedbacksFn network warning:', err);
+    }
+  }
+
+  if (list.length === 0) {
+    try {
+      const raw = localStorage.getItem('fitgroup_feedbacks');
+      if (raw) {
+        const local = JSON.parse(raw);
+        if (Array.isArray(local)) {
+          list = local;
+        }
+      }
+    } catch {}
+  }
+
+  return list;
+};
+
 export default supabase;
+
 

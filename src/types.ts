@@ -111,5 +111,17 @@ export interface AppNotification {
   createdAt: string;
 }
 
+export type FeedbackType = 'bug' | 'feature' | 'exercise' | 'other';
+export type FeedbackStatus = 'pending' | 'reviewed' | 'resolved';
 
-
+export interface UserFeedback {
+  id: string;
+  userId?: string;
+  userName: string;
+  userEmail?: string;
+  type: FeedbackType;
+  content: string;
+  contact?: string;
+  status: FeedbackStatus;
+  createdAt: string;
+}
