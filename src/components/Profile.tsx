@@ -19,7 +19,6 @@ import {
   Lock,
   Mail,
   Search,
-  Sparkles,
   CheckCircle2,
   Clock,
   FileQuestion,
@@ -686,8 +685,8 @@ function HelpFeedbackPage({ user, onBack }: { user: any; onBack: () => void }) {
         <div className="space-y-6">
           <div className="bg-white p-6 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
             <div className="flex items-center gap-4 border-b-4 border-ink pb-5 mb-5">
-              <div className="w-16 h-16 bg-neon border-4 border-ink flex items-center justify-center shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
-                <Sparkles size={32} className="text-ink" />
+              <div className="w-16 h-16 bg-neon border-4 border-ink flex items-center justify-center shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] shrink-0">
+                <Dumbbell size={32} className="text-ink" />
               </div>
               <div>
                 <h3 className="text-xl font-black text-ink uppercase tracking-tight italic">FitGroup // 健友同行</h3>
