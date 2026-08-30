@@ -497,10 +497,7 @@ function HelpFeedbackPage({ user, onBack }: { user: any; onBack: () => void }) {
         <div className="space-y-6">
           <form onSubmit={handleSubmitFeedback} className="bg-white p-6 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-5">
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-black text-ink uppercase tracking-tighter text-lg italic">Submit Feedback / 提交意见</h3>
-                <span className="text-[10px] font-black bg-neon px-2 py-0.5 border border-ink">直达开发者</span>
-              </div>
+              <h3 className="font-black text-ink uppercase tracking-tighter text-lg italic mb-2">Submit Feedback / 提交意见</h3>
               <p className="text-xs text-ink/70 font-bold">遇到 Bug、想要新功能或动作预设？随时告诉我们！</p>
             </div>
 
