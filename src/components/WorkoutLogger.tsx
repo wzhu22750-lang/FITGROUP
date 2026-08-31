@@ -340,16 +340,37 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       }
     }
 
-    const sanitizedExercises: Exercise[] = exercises.map((ex) => ({
-      ...ex,
-      name: ex.name.trim(),
-      weight: ex.type === 'strength' ? (parseFloat(String(ex.weight)) || 0) : undefined,
-      sets: ex.type === 'strength' ? (Number(ex.sets) || 0) : undefined,
-      reps: ex.type === 'strength' ? (Number(ex.reps) || 0) : undefined,
-      duration: ex.type === 'cardio' ? (Number(ex.duration) || 0) : undefined,
-      distance: ex.type === 'cardio' ? (Number(ex.distance) || 0) : undefined,
-      calories: ex.type === 'cardio' ? (Number(ex.calories) || 0) : undefined,
-    }));
+    const sanitizedExercises: Exercise[] = exercises.map((ex) => {
+      const isStrength = ex.type === 'strength';
+      const cleanId = String(ex.id || Math.random().toString(36).slice(2, 11)).slice(0, 64);
+      const cleanName = ex.name.trim().slice(0, 80) || (isStrength ? '力量训练' : '有氧运动');
+
+      if (isStrength) {
+        const weightVal = Math.max(0, Math.min(2000, Number.isFinite(Number(ex.weight)) ? Number(ex.weight) : 0));
+        const setsVal = Math.max(1, Math.min(100, Math.round(Number(ex.sets)) || 4));
+        const repsVal = Math.max(1, Math.min(1000, Math.round(Number(ex.reps)) || 10));
+        return {
+          id: cleanId,
+          name: cleanName,
+          type: 'strength',
+          weight: weightVal,
+          sets: setsVal,
+          reps: repsVal,
+        };
+      } else {
+        const durationVal = Math.max(0, Math.min(1440, Math.round(Number(ex.duration)) || 0));
+        const distanceVal = Math.max(0, Math.min(1000, Number.isFinite(Number(ex.distance)) ? Number(ex.distance) : 0));
+        const caloriesVal = Math.max(0, Math.min(20000, Math.round(Number(ex.calories)) || 0));
+        return {
+          id: cleanId,
+          name: cleanName,
+          type: 'cardio',
+          duration: durationVal,
+          distance: distanceVal,
+          calories: caloriesVal,
+        };
+      }
+    });
 
     const finalCategories = inferLogCategories('', selectedCategories, sanitizedExercises);
 

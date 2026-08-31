@@ -1,6 +1,6 @@
 import type { User } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
-import type { WorkoutLog, WorkoutVisibility, Team, TeamMember, TeamDashboardData, AppNotification, FeedbackType, UserFeedback } from './types';
+import type { WorkoutLog, WorkoutVisibility, Exercise, Team, TeamMember, TeamDashboardData, AppNotification, FeedbackType, UserFeedback } from './types';
 import { DEFAULT_MAX_TEAM_MEMBERS } from './constants/teamConfig';
 
 
@@ -359,12 +359,89 @@ export const syncUserStatsFromLogs = async (userId: string): Promise<AppUser> =>
   return getUserProfile(userId);
 };
 
+/**
+ * Strict sanitizer for workout exercises ensuring compatibility with PostgreSQL `is_valid_exercises` check constraint.
+ * Whitelists ONLY the 9 allowed keys ('id','name','type','weight','sets','reps','duration','distance','calories')
+ * and enforces strict numeric / range limits to prevent check constraint violations.
+ */
+export const sanitizeExercisesForDb = (rawList: unknown): Exercise[] => {
+  if (!Array.isArray(rawList)) {
+    return [{
+      id: newId('ex'),
+      name: '训练',
+      type: 'strength',
+      weight: 0,
+      sets: 4,
+      reps: 10,
+    }];
+  }
+
+  const list = rawList.slice(0, 10);
+  if (list.length === 0) {
+    return [{
+      id: newId('ex'),
+      name: '训练',
+      type: 'strength',
+      weight: 0,
+      sets: 4,
+      reps: 10,
+    }];
+  }
+
+  return list.map((item, index) => {
+    const raw = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {};
+    const type: 'strength' | 'cardio' = raw.type === 'cardio' ? 'cardio' : 'strength';
+    const id = (typeof raw.id === 'string' && raw.id.trim())
+      ? raw.id.trim().slice(0, 64)
+      : `ex-${index + 1}-${Math.random().toString(36).slice(2, 8)}`;
+    const name = (typeof raw.name === 'string' && raw.name.trim())
+      ? raw.name.trim().slice(0, 80)
+      : (type === 'strength' ? '力量训练' : '有氧运动');
+
+    if (type === 'strength') {
+      const weightNum = typeof raw.weight === 'number' ? raw.weight : parseFloat(String(raw.weight ?? 0));
+      const setsNum = typeof raw.sets === 'number' ? raw.sets : parseInt(String(raw.sets ?? 4), 10);
+      const repsNum = typeof raw.reps === 'number' ? raw.reps : parseInt(String(raw.reps ?? 10), 10);
+
+      const cleanWeight = Number.isFinite(weightNum) ? Math.max(0, Math.min(2000, Number(weightNum.toFixed(1)))) : 0;
+      const cleanSets = Number.isFinite(setsNum) ? Math.max(1, Math.min(100, setsNum)) : 4;
+      const cleanReps = Number.isFinite(repsNum) ? Math.max(1, Math.min(1000, repsNum)) : 10;
+
+      return {
+        id,
+        name,
+        type: 'strength',
+        weight: cleanWeight,
+        sets: cleanSets,
+        reps: cleanReps,
+      };
+    } else {
+      const durationNum = typeof raw.duration === 'number' ? raw.duration : parseInt(String(raw.duration ?? 30), 10);
+      const distanceNum = typeof raw.distance === 'number' ? raw.distance : parseFloat(String(raw.distance ?? 0));
+      const caloriesNum = typeof raw.calories === 'number' ? raw.calories : parseInt(String(raw.calories ?? 0), 10);
+
+      const cleanDuration = Number.isFinite(durationNum) ? Math.max(0, Math.min(1440, durationNum)) : 0;
+      const cleanDistance = Number.isFinite(distanceNum) ? Math.max(0, Math.min(1000, Number(distanceNum.toFixed(2)))) : 0;
+      const cleanCalories = Number.isFinite(caloriesNum) ? Math.max(0, Math.min(20000, caloriesNum)) : 0;
+
+      return {
+        id,
+        name,
+        type: 'cardio',
+        duration: cleanDuration,
+        distance: cleanDistance,
+        calories: cleanCalories,
+      };
+    }
+  });
+};
+
 export const createWorkoutLog = async (logData: Record<string, unknown>) => {
   const user = await currentAuthUser();
   if (!user) throw new Error('未登录');
 
   const logId = typeof logData.id === 'string' && logData.id ? logData.id : newId('log');
-  const exercises = Array.isArray(logData.exercises) ? logData.exercises : [];
+  const exercises = sanitizeExercisesForDb(logData.exercises);
   const profile = cachedUser || await ensureUserProfile(user);
 
   const categoriesList = Array.isArray(logData.categories) && logData.categories.length > 0
@@ -454,8 +531,8 @@ export const updateWorkoutLog = async (workoutLogId: string, updates: Record<str
 
   const payload: Record<string, unknown> = {};
 
-  if ('exercises' in updates && Array.isArray(updates.exercises)) {
-    payload.exercises = updates.exercises;
+  if ('exercises' in updates) {
+    payload.exercises = sanitizeExercisesForDb(updates.exercises);
   }
 
   if ('categories' in updates || 'category' in updates) {
