@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useRef, ReactNode, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, ReactNode, lazy, Suspense } from 'react';
 import { logout, onAuthStateChangedFn, waitForAuthReady, subscribeToNotifications } from './api';
 import { supabaseConfigError } from './lib/supabase';
 import { exitApp, hideSplash, listenAndroidBack } from './native';
@@ -25,6 +25,7 @@ const WorkoutLogger = lazy(() => import('./components/WorkoutLogger'));
 const Statistics = lazy(() => import('./components/Statistics'));
 const Profile = lazy(() => import('./components/Profile'));
 const NotificationModal = lazy(() => import('./components/NotificationModal'));
+const SplashAnimation = lazy(() => import('./components/SplashAnimation'));
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider } from './components/Toast';
 
@@ -34,8 +35,13 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'feed' | 'log' | 'stats' | 'profile'>('feed');
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [showSplash, setShowSplash] = useState(!supabaseConfigError);
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
+
+  const handleSplashComplete = useCallback(() => {
+    setShowSplash(false);
+  }, []);
 
 
   useEffect(() => {
@@ -102,17 +108,24 @@ export default function App() {
     );
   }
 
-  if (loading) {
+  if (showSplash || loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-paper">
-        <motion.div 
-          animate={{ rotate: [0, 90, 180, 270, 360] }}
-          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-          className="border-8 border-ink p-4"
-        >
-          <Dumbbell size={48} className="text-ink" />
-        </motion.div>
-      </div>
+      <>
+        <div className="flex items-center justify-center min-h-screen bg-paper">
+          <motion.div 
+            animate={{ rotate: [0, 90, 180, 270, 360] }}
+            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+            className="border-8 border-ink p-4"
+          >
+            <Dumbbell size={48} className="text-ink" />
+          </motion.div>
+        </div>
+        {showSplash && (
+          <Suspense fallback={null}>
+            <SplashAnimation onComplete={handleSplashComplete} />
+          </Suspense>
+        )}
+      </>
     );
   }
 
@@ -134,7 +147,7 @@ export default function App() {
         <div className="app-shell min-h-screen bg-paper max-w-lg mx-auto border-x-4 border-ink relative">
       <header className="app-header sticky top-0 z-30 bg-paper border-b-4 border-ink flex items-center justify-between px-6 pb-4">
         <div className="flex items-center gap-2">
-          <div className="bg-ink p-1">
+          <div className="bg-black border-2 border-black p-1 flex items-center justify-center shrink-0">
             <Dumbbell className="text-neon" size={24} />
           </div>
           <span className="text-3xl font-black tracking-tighter text-ink uppercase italic">FitGroup</span>
@@ -235,7 +248,11 @@ function NavButton({ active, onClick, icon, label }: { active: boolean, onClick:
   return (
     <button 
       onClick={onClick}
-      className={`flex flex-col items-center gap-1 transition-all cursor-pointer px-4 py-1 border-2 border-transparent ${active ? 'bg-neon border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]' : 'text-slate-400 hover:text-ink'}`}
+      className={`flex flex-col items-center gap-1 transition-all cursor-pointer px-4 py-1 border-2 border-transparent ${
+        active 
+          ? 'bg-neon text-black border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] font-black' 
+          : 'text-slate-400 hover:text-ink'
+      }`}
     >
       {icon}
       <span className="text-[10px] font-black uppercase tracking-tighter">{label}</span>

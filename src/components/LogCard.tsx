@@ -301,7 +301,7 @@ export default function LogCard({ log: initialLog, onLogUpdated }: LogCardProps)
           {(currentLog.exercises || []).map((ex) => (
             <div key={ex.id} className="bg-paper border-2 border-ink p-3 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0 flex-1">
-                <div className="bg-ink p-1 shrink-0">
+                <div className="bg-black border border-black dark:border-zinc-700 p-1 shrink-0 flex items-center justify-center">
                   <Dumbbell size={14} className="text-neon" />
                 </div>
                 <span className="font-black text-ink text-xs uppercase tracking-tighter truncate" title={ex.name}>
