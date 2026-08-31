@@ -166,7 +166,7 @@ export const EXERCISE_MUSCLE_COEFFICIENTS: ExerciseMuscleCoefficient[] = [
   },
   {
     name: '引体向上',
-    aliases: [],
+    aliases: ['正手引体向上', '反手引体向上', '辅助引体向上', '负重引体向上', '宽距引体向上', '窄距引体向上', 'pull up', 'chin up', 'pullup', 'chinup'],
     primaryCategory: WorkoutCategory.Back,
     subMuscles: { [SubMuscleGroup.Lats]: 0.75, [SubMuscleGroup.UpperBack]: 0.25 },
   },

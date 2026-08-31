@@ -439,15 +439,9 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
               log={log}
               onLogUpdated={(updated) => {
                 if (updated?.id) {
-                  setDashboardData((prev) => {
-                    if (!prev) return prev;
-                    return {
-                      ...prev,
-                      recentLogs: prev.recentLogs.map((l) =>
-                        l.id === updated.id ? { ...l, ...updated } : l
-                      ),
-                    };
-                  });
+                  setTeamLogs((prev) => prev.map((l) =>
+                    l.id === updated.id ? { ...l, ...updated } : l
+                  ));
                 }
                 onLogUpdated?.();
                 if (selectedTeamId) {

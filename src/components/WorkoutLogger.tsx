@@ -15,6 +15,7 @@ import {
   isCardioDistanceOptional,
   inferLogCategories,
 } from '../constants/workoutPresets';
+import { resolveEffectiveExerciseWeight } from '../utils/workoutAnalytics';
 import {
   Plus,
   Trash2,
@@ -346,7 +347,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       const cleanName = ex.name.trim().slice(0, 80) || (isStrength ? '力量训练' : '有氧运动');
 
       if (isStrength) {
-        const weightVal = Math.max(0, Math.min(2000, Number.isFinite(Number(ex.weight)) ? Number(ex.weight) : 0));
+        const weightVal = Math.max(-500, Math.min(2000, Number.isFinite(Number(ex.weight)) ? Number(ex.weight) : 0));
         const setsVal = Math.max(1, Math.min(100, Math.round(Number(ex.sets)) || 4));
         const repsVal = Math.max(1, Math.min(1000, Math.round(Number(ex.reps)) || 10));
         return {
@@ -396,12 +397,11 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         const currentPrs = userProfile.prs || {};
         let prBroken = false;
         sanitizedExercises.forEach((ex) => {
-          if (
-            ex.type === 'strength' &&
-            typeof ex.weight === 'number' &&
-            (currentPrs[ex.name] === undefined || ex.weight > currentPrs[ex.name])
-          ) {
-            prBroken = true;
+          if (ex.type === 'strength' && typeof ex.weight === 'number') {
+            const effectiveW = resolveEffectiveExerciseWeight(ex.name, ex.weight, userWeight);
+            if (currentPrs[ex.name] === undefined || effectiveW > currentPrs[ex.name]) {
+              prBroken = true;
+            }
           }
         });
 

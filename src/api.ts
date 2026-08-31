@@ -403,7 +403,7 @@ export const sanitizeExercisesForDb = (rawList: unknown): Exercise[] => {
       const setsNum = typeof raw.sets === 'number' ? raw.sets : parseInt(String(raw.sets ?? 4), 10);
       const repsNum = typeof raw.reps === 'number' ? raw.reps : parseInt(String(raw.reps ?? 10), 10);
 
-      const cleanWeight = Number.isFinite(weightNum) ? Math.max(0, Math.min(2000, Number(weightNum.toFixed(1)))) : 0;
+      const cleanWeight = Number.isFinite(weightNum) ? Math.max(-500, Math.min(2000, Number(weightNum.toFixed(1)))) : 0;
       const cleanSets = Number.isFinite(setsNum) ? Math.max(1, Math.min(100, setsNum)) : 4;
       const cleanReps = Number.isFinite(repsNum) ? Math.max(1, Math.min(1000, repsNum)) : 10;
 

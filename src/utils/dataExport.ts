@@ -1,5 +1,5 @@
 import { WorkoutCategory, WorkoutLog } from '../types';
-import { resolveExerciseMuscles, findExerciseStandard } from './workoutAnalytics';
+import { resolveExerciseMuscles, findExerciseStandard, resolveEffectiveExerciseWeight, isPullUpExercise } from './workoutAnalytics';
 import { parseCategories, estimateCardioCalories, CATEGORY_META } from '../constants/workoutPresets';
 
 export interface UserProfileExport {
@@ -197,8 +197,10 @@ export function generateExportData(user: any, logs: WorkoutLog[]): FitGroupExpor
       } else {
         const sets = Number(ex.sets) || 0;
         const reps = Number(ex.reps) || 0;
-        const weight = Number(ex.weight) || 0;
-        const vol = sets * reps * Math.max(0, weight);
+        const rawWeight = Number(ex.weight) || 0;
+        const userBw = bodyweightKg || 70;
+        const effectiveWeight = resolveEffectiveExerciseWeight(cleanName, rawWeight, userBw);
+        const vol = sets * reps * effectiveWeight;
 
         workoutVolume += vol;
         workoutSets += sets;
@@ -206,19 +208,22 @@ export function generateExportData(user: any, logs: WorkoutLog[]): FitGroupExpor
         dim.totalSets += sets;
 
         // Record PR
-        if (weight > 0) {
-          if (!dim.prs[cleanName] || weight > dim.prs[cleanName]) {
-            dim.prs[cleanName] = weight;
+        if (effectiveWeight > 0) {
+          if (!dim.prs[cleanName] || effectiveWeight > dim.prs[cleanName]) {
+            dim.prs[cleanName] = effectiveWeight;
           }
-          if (weight > dim.maxWeightKg) {
-            dim.maxWeightKg = weight;
+          if (effectiveWeight > dim.maxWeightKg) {
+            dim.maxWeightKg = effectiveWeight;
             dim.bestExerciseName = cleanName;
           }
         }
 
         const volText = vol > 0 ? ` (容量: ${vol}kg)` : '';
+        const weightText = isPullUpExercise(cleanName) && rawWeight !== 0
+          ? `${rawWeight > 0 ? `+${rawWeight}` : rawWeight}kg (总计${effectiveWeight}kg)`
+          : `${effectiveWeight}kg`;
         exerciseSummaries.push(
-          `${cleanName}: ${sets}组 × ${weight}kg × ${reps}次${volText}`
+          `${cleanName}: ${sets}组 × ${weightText} × ${reps}次${volText}`
         );
       }
     });

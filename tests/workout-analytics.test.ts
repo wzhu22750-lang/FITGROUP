@@ -9,6 +9,8 @@ import {
   estimateOneRepMax,
   bodyContextFromProfile,
   scaleThresholds,
+  calculateEffectiveLoad,
+  validateExercisePerformance,
 } from '../src/utils/workoutAnalytics';
 import { STRENGTH_TIERS, EXERCISE_STANDARDS } from '../src/constants/strengthStandards';
 import { CATEGORY_META } from '../src/constants/workoutPresets';
@@ -132,13 +134,13 @@ console.log('--- Testing Model F Personalized Strength Scaling (Sex & Bodyweight
   const m100BenchScore = calculateStandardizedScore('杠铃平板卧推', 100, WorkoutCategory.Chest, male100Ctx);
   assert(m100BenchScore >= 46 && m100BenchScore <= 48, `Male 100kg Bench 100kg score ≈ 47 pts (actual: ${m100BenchScore})`);
 
-  // F. Male 100kg: Pull-ups (Bodyweight reps reverse scaling)
+  // F. Pull-ups use effective-load 1RM standards; thresholds are not repetition counts.
   const pullUpStd = findExerciseStandard('引体向上')!;
+  assert(pullUpStd.unit === 'kg' && pullUpStd.strengthFamily === 'upper', 'Pull-up standards use effective-load kilograms');
   const m100PullUpThresholds = scaleThresholds(pullUpStd, male100Ctx);
-  // 70kg intermediate is 14 reps -> 100kg intermediate is ~12 reps
-  assert(m100PullUpThresholds[2] < 14, `Male 100kg Pull-up Intermediate threshold reduced for heavier lifter (actual: ${m100PullUpThresholds[2]})`);
-  const m100PullUpScore = calculateStandardizedScore('引体向上', 12, WorkoutCategory.Back, male100Ctx);
-  assert(m100PullUpScore >= 58 && m100PullUpScore <= 62, `Male 100kg Pull-up 12 reps score ≈ 60 pts (actual: ${m100PullUpScore})`);
+  assert(m100PullUpThresholds[2] > 0, `Male 100kg Pull-up threshold is valid (actual: ${m100PullUpThresholds[2]})`);
+  const m100PullUpScore = calculateStandardizedScore('引体向上', estimateOneRepMax(100, 10), WorkoutCategory.Back, male100Ctx);
+  assert(m100PullUpScore > 0 && m100PullUpScore <= 100, `Male 100kg Pull-up effective-load score is bounded (actual: ${m100PullUpScore})`);
 }
 
 console.log('--- Testing Bodyweight Clamp & Missing Profile Fallback ---');
@@ -176,6 +178,53 @@ console.log('--- Testing Milestone Next Goal Target with Context ---');
   assert(Boolean(nextF55), 'Next milestone calculated for Female 55kg Bench 25kg');
   assert(Math.round(nextF55!.targetWeight) === 30, `Female 55kg next milestone target is ~30kg (actual: ${nextF55?.targetWeight})`);
   assert(nextF55?.nextTier.zh === '入门', `Next tier is 入门 (actual: ${nextF55?.nextTier.zh})`);
+}
+
+console.log('--- Testing Unified Bodyweight + External Load Strength Semantics ---');
+
+{
+  const ctx74: StrengthBodyContext = { sex: 'male', bodyweightKg: 74 };
+  const cases = [
+    { externalLoad: -30, expectedLoad: 44 },
+    { externalLoad: -15, expectedLoad: 59 },
+    { externalLoad: 0, expectedLoad: 74 },
+    { externalLoad: 10, expectedLoad: 84 },
+  ];
+  const scores = cases.map(({ externalLoad, expectedLoad }) => {
+    assert(calculateEffectiveLoad('引体向上', externalLoad, 74) === expectedLoad, `Pull-up effective load ${externalLoad}kg -> ${expectedLoad}kg`);
+    const performance = validateExercisePerformance('引体向上', externalLoad, 10, 74);
+    assert(performance.valid && performance.effectiveLoad === expectedLoad, `Validated performance preserves ${expectedLoad}kg effective load`);
+    return calculateStandardizedScore('引体向上', performance.estimated1RM, WorkoutCategory.Back, ctx74);
+  });
+  assert(scores[0] < scores[1] && scores[1] < scores[2] && scores[2] < scores[3], `Pull-up scores are monotonic for assistance to added load (${scores.join(' < ')})`);
+
+  const muscleScores = cases.map(({ externalLoad }) => {
+    const log: WorkoutLog = {
+      id: `pull-${externalLoad}`, userId: 'u', userName: 'u', userPhoto: '', timestamp: new Date().toISOString(),
+      category: WorkoutCategory.Back, exercises: [{ id: 'e', name: '引体向上', type: 'strength', weight: externalLoad, sets: 3, reps: 10 }],
+      likesCount: 0, commentsCount: 0,
+    };
+    return calculateFullWorkoutAnalytics([log], {}, 28, ctx74).categoryDetails[WorkoutCategory.Back].strengthScore;
+  });
+  assert(muscleScores[0] < muscleScores[1] && muscleScores[1] < muscleScores[2] && muscleScores[2] < muscleScores[3], `Aggregated Back strength is monotonic and coverage-damped (${muscleScores.join(' < ')})`);
+  assert(muscleScores[2] < scores[2], 'A single movement does not pass its raw exercise score directly to Back strength');
+
+  const femalePullUp = validateExercisePerformance('引体向上', -10, 8, 55);
+  assert(femalePullUp.valid && Number.isFinite(calculateStandardizedScore('引体向上', femalePullUp.estimated1RM, WorkoutCategory.Back, { sex: 'female', bodyweightKg: 55 })), 'Female pull-up performance remains finite');
+
+  const bodyweightScores = [60, 74, 90].map((bodyweightKg) => {
+    const performance = validateExercisePerformance('引体向上', 0, 10, bodyweightKg);
+    assert(performance.valid && performance.effectiveLoad === bodyweightKg, `Bodyweight-only pull-up uses ${bodyweightKg}kg effective load`);
+    return calculateStandardizedScore('引体向上', performance.estimated1RM, WorkoutCategory.Back, { sex: 'male', bodyweightKg });
+  });
+  assert(bodyweightScores.every((score) => score >= 0 && score <= 100), `Bodyweight changes keep relative scores bounded (${bodyweightScores.join(', ')})`);
+  assert(calculateEffectiveLoad('杠铃平板卧推', 80, 74) === 80, 'Ordinary bench press keeps its external load');
+  assert(calculateEffectiveLoad('杠铃深蹲', 100, 74) === 100, 'Ordinary squat keeps its external load');
+  assert(calculateEffectiveLoad('传统硬拉', 120, 74) === 120, 'Ordinary deadlift keeps its external load');
+
+  const invalid = validateExercisePerformance('引体向上', -100, 10, 74);
+  assert(!invalid.valid && invalid.effectiveLoad === 0, 'Impossible assisted load is excluded instead of producing negative strength');
+  assert(calculateEffectiveLoad('杠铃平板卧推', -30, 74) === 0, 'Ordinary lifts do not receive bodyweight addition');
 }
 
 console.log('--- Testing 6-Dimension 28-Day Scoring Engine & Sub-Muscles ---');
@@ -230,7 +279,7 @@ console.log('--- Testing 6-Dimension 28-Day Scoring Engine & Sub-Muscles ---');
 
   const pullUpPr = analytics.categorizedPrs.find(p => p.name === '引体向上');
   assert(Boolean(pullUpPr), 'Assisted pull-up PR is preserved');
-  assert(pullUpPr?.weight === -15, 'Assisted pull-up PR weight is -15kg');
+  assert(pullUpPr?.weight === 40, 'Assisted pull-up PR displays 55kg bodyweight + (-15kg) = 40kg effective load');
 
   const shoulderDetail = analytics.categoryDetails[WorkoutCategory.Shoulders];
   assert(shoulderDetail.trainingScore > 0, `Shoulder training score > 0 (actual: ${shoulderDetail.trainingScore})`);

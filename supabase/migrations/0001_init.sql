@@ -50,7 +50,7 @@ begin
   end if;
 
   if ex_type = 'strength' then
-    if ex ? 'weight' and not (jsonb_typeof(ex->'weight') = 'number' and (ex->>'weight')::numeric between 0 and 2000) then
+    if ex ? 'weight' and not (jsonb_typeof(ex->'weight') = 'number' and (ex->>'weight')::numeric between -500 and 2000) then
       return false;
     end if;
     if ex ? 'sets' and not (jsonb_typeof(ex->'sets') = 'number' and (ex->>'sets')::numeric between 0 and 100) then

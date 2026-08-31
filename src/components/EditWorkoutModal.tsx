@@ -276,7 +276,7 @@ export default function EditWorkoutModal({ log, onClose, onSuccess }: EditWorkou
       const cleanName = ex.name.trim().slice(0, 80) || (isStrength ? '力量训练' : '有氧运动');
 
       if (isStrength) {
-        const weightVal = Math.max(0, Math.min(2000, Number.isFinite(Number(ex.weight)) ? Number(ex.weight) : 0));
+        const weightVal = Math.max(-500, Math.min(2000, Number.isFinite(Number(ex.weight)) ? Number(ex.weight) : 0));
         const setsVal = Math.max(1, Math.min(100, Math.round(Number(ex.sets)) || 4));
         const repsVal = Math.max(1, Math.min(1000, Math.round(Number(ex.reps)) || 10));
         return {
@@ -532,8 +532,9 @@ export default function EditWorkoutModal({ log, onClose, onSuccess }: EditWorkou
                           className={`text-[8px] font-black px-1 border border-ink ${
                             typeof ex.weight === 'number' && ex.weight < 0 ? 'bg-ink text-neon' : 'bg-paper text-ink/70'
                           }`}
+                          title="切换辅助负重 (如引体向上/双杠减重)"
                         >
-                          {typeof ex.weight === 'number' && ex.weight < 0 ? '减重' : '负重'}
+                          {typeof ex.weight === 'number' && ex.weight < 0 ? '辅助 (-)' : '负重 (+)'}
                         </button>
                       </div>
                       <input

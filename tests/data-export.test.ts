@@ -177,6 +177,40 @@ console.log('--- Testing Data Export Utility ---');
   assert(textReport.includes('最大单项重量: 100 kg'), 'Text report contains max weight');
   assert(textReport.includes('历史累计容量: 4,100 kg'), 'Text report contains formatted volume');
   assert(textReport.includes('杠铃平板卧推: 4组 × 100kg × 8次'), 'Text report contains log details');
+
+  // 5. Test Pull-up Effective Load in Data Export
+  const pullUpLogs: WorkoutLog[] = [
+    {
+      id: 'log-pull-1',
+      userId: 'u1',
+      userName: '铁友小王',
+      userPhoto: '',
+      timestamp: '2026-08-30T10:00:00.000Z',
+      category: 'Back',
+      categories: [WorkoutCategory.Back],
+      exercises: [
+        {
+          id: 'e-pull-1',
+          name: '引体向上',
+          type: 'strength',
+          sets: 3,
+          reps: 8,
+          weight: -15, // Assisted: 75 + (-15) = 60kg
+        },
+      ],
+      likesCount: 0,
+      commentsCount: 0,
+      visibility: 'public',
+    },
+  ];
+
+  const exportWithPullUps = generateExportData(mockUser, pullUpLogs);
+  const backPullUp = exportWithPullUps.dimensionSummaries[WorkoutCategory.Back];
+  assert(backPullUp.prs['引体向上'] === 60, 'Assisted pull-up PR in export is 60kg effective load');
+  // Volume: 3 * 8 * 60 = 1440kg
+  assert(backPullUp.totalVolumeKg === 1440, 'Assisted pull-up volume is 1440kg');
+  assert(exportWithPullUps.workoutLogs[0].exercises[0].includes('-15kg (总计60kg)'), 'Assisted pull-up text includes both assistance and total load');
 }
 
 console.log('\n🎉 ALL DATA EXPORT UNIT TESTS PASSED SUCCESSFULLY!\n');
+

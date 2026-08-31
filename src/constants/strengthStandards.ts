@@ -267,12 +267,14 @@ export const EXERCISE_STANDARDS: ExerciseStandard[] = [
   },
   {
     name: '引体向上',
-    aliases: ['正手引体向上', '反手引体向上', 'pull up', 'chin up'],
+    aliases: ['正手引体向上', '反手引体向上', '辅助引体向上', '负重引体向上', '宽距引体向上', '窄距引体向上', 'pull up', 'chin up', 'pullup', 'chinup', 'assisted pull up', 'weighted pull up'],
     primaryCategory: WorkoutCategory.Back,
     muscleWeights: { [WorkoutCategory.Back]: 0.85, [WorkoutCategory.Others]: 0.15 },
-    unit: 'reps',
-    thresholds: [1, 7, 14, 22, 31],
-    strengthFamily: 'bodyweight_reps',
+    unit: 'kg',
+    // Thresholds are effective-load 1RM anchors, not repetition counts.
+    // Bodyweight has already been included by calculateEffectiveLoad.
+    thresholds: [42, 56, 70, 88, 108],
+    strengthFamily: 'upper',
     type: 'strength',
   },
   {

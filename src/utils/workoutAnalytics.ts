@@ -133,11 +133,61 @@ function normalizeName(name: string): string {
  * 1RM = Weight * (1 + Reps / 30)
  * Only valid for reps in [1..10] range.
  */
-export function estimateOneRepMax(weight: number, reps: number): number {
-  if (weight <= 0) return 0;
-  if (reps <= 1) return weight;
-  const validReps = Math.min(10, Math.max(1, reps));
-  return Number((weight * (1 + validReps / 30)).toFixed(1));
+export interface ExercisePerformanceValidation {
+  valid: boolean;
+  reason?: string;
+  externalLoad: number;
+  bodyweight: number;
+  effectiveLoad: number;
+  estimated1RM: number;
+}
+
+/** Calculate Epley 1RM from an already-resolved effective load. */
+export function estimateOneRepMax(effectiveLoad: number, reps: number): number {
+  if (!Number.isFinite(effectiveLoad) || effectiveLoad <= 0 || !Number.isFinite(reps) || reps <= 0) return 0;
+  if (reps <= 1) return Number(effectiveLoad.toFixed(1));
+  const validReps = Math.min(10, Math.max(1, Math.round(reps)));
+  return Number((effectiveLoad * (1 + validReps / 30)).toFixed(1));
+}
+
+/**
+ * Pull-up records store the user's external load in Exercise.weight.
+ * Ordinary resistance exercises keep their logged load unchanged.
+ */
+export function isPullUpExercise(name: string): boolean {
+  if (!name) return false;
+  const clean = normalizeName(name);
+  return clean.includes('引体') || clean.includes('pullup') || clean.includes('chinup');
+}
+
+export function calculateEffectiveLoad(
+  exerciseName: string,
+  externalLoad: number,
+  bodyweightKg: number = REF_BW
+): number {
+  const load = Number.isFinite(externalLoad) ? externalLoad : 0;
+  if (!isPullUpExercise(exerciseName)) return Math.max(0, Number(load.toFixed(1)));
+  const bodyweight = Number.isFinite(bodyweightKg) && bodyweightKg > 0 ? bodyweightKg : REF_BW;
+  return Math.max(0, Number((bodyweight + load).toFixed(1)));
+}
+
+/** Backward-compatible name; the returned value is always effectiveLoad, not externalLoad. */
+export const resolveEffectiveExerciseWeight = calculateEffectiveLoad;
+
+export function validateExercisePerformance(
+  exerciseName: string,
+  externalLoad: number,
+  reps: number,
+  bodyweightKg: number = REF_BW
+): ExercisePerformanceValidation {
+  const bodyweight = Number.isFinite(bodyweightKg) && bodyweightKg > 0 ? bodyweightKg : REF_BW;
+  const effectiveLoad = calculateEffectiveLoad(exerciseName, externalLoad, bodyweight);
+  const estimated1RM = estimateOneRepMax(effectiveLoad, reps);
+  if (!Number.isFinite(externalLoad)) return { valid: false, reason: 'externalLoad is not finite', externalLoad: 0, bodyweight, effectiveLoad: 0, estimated1RM: 0 };
+  if (!Number.isFinite(reps) || reps <= 0 || !Number.isInteger(reps)) return { valid: false, reason: 'reps must be a positive integer', externalLoad, bodyweight, effectiveLoad, estimated1RM: 0 };
+  if (isPullUpExercise(exerciseName) && effectiveLoad <= 0) return { valid: false, reason: 'effectiveLoad must be positive', externalLoad, bodyweight, effectiveLoad, estimated1RM: 0 };
+  if (!Number.isFinite(estimated1RM) || estimated1RM <= 0 || estimated1RM > 5000) return { valid: false, reason: 'estimated1RM is outside the supported range', externalLoad, bodyweight, effectiveLoad, estimated1RM: 0 };
+  return { valid: true, externalLoad, bodyweight, effectiveLoad, estimated1RM };
 }
 
 /**
@@ -604,9 +654,10 @@ export function calculateFullWorkoutAnalytics(
     exercises.forEach((ex) => {
       const sets = Math.max(ex.sets || 1, 1);
       const reps = Math.max(ex.reps || 10, 1);
-      const weight = typeof ex.weight === 'number' ? ex.weight : 0;
-      // Assisted bodyweight (negative weight) doesn't produce negative volume tonnage
-      const tonnage = Math.max(0, weight) * sets * reps;
+      const rawWeight = typeof ex.weight === 'number' ? ex.weight : 0;
+      const userBw = ctx?.bodyweightKg || 70;
+      const effectiveWeight = calculateEffectiveLoad(ex.name, rawWeight, userBw);
+      const tonnage = effectiveWeight * sets * reps;
 
       if (ex.type === 'cardio' || cleanIsCardio(ex.name)) {
         if (isCurrent) {
@@ -731,93 +782,106 @@ export function calculateFullWorkoutAnalytics(
 
   // 3. Process Pure Strength (PR) scores from user profile PRs and workout logs
   const categorizedPrs: CategorizedPrItem[] = [];
-  const categoryStrengthScores: Record<
-    WorkoutCategory,
-    { maxScore: number; bestName?: string; bestValue?: number }
-  > = {
-    [WorkoutCategory.Chest]: { maxScore: 0 },
-    [WorkoutCategory.Back]: { maxScore: 0 },
-    [WorkoutCategory.Legs]: { maxScore: 0 },
-    [WorkoutCategory.Shoulders]: { maxScore: 0 },
-    [WorkoutCategory.Others]: { maxScore: 0 },
-    [WorkoutCategory.Cardio]: { maxScore: 0 },
+  type StrengthCandidate = { score: number; name: string; effectiveLoad: number };
+  const categoryStrengthScores: Record<WorkoutCategory, { maxScore: number; bestName?: string; bestValue?: number; candidates: StrengthCandidate[] }> = {
+    [WorkoutCategory.Chest]: { maxScore: 0, candidates: [] },
+    [WorkoutCategory.Back]: { maxScore: 0, candidates: [] },
+    [WorkoutCategory.Legs]: { maxScore: 0, candidates: [] },
+    [WorkoutCategory.Shoulders]: { maxScore: 0, candidates: [] },
+    [WorkoutCategory.Others]: { maxScore: 0, candidates: [] },
+    [WorkoutCategory.Cardio]: { maxScore: 0, candidates: [] },
   };
 
-  // Dynamically derive PRs directly from all provided workout logs
-  const computedPrsFromLogs: Record<string, number> = {};
+  const recordStrengthCandidate = (category: WorkoutCategory, score: number, name: string, effectiveLoad: number, share = 1) => {
+    if (!Number.isFinite(score) || score <= 0 || !Number.isFinite(effectiveLoad) || effectiveLoad <= 0) return;
+    const safeScore = Math.max(0, Math.min(100, Math.round(score * (0.8 + 0.2 * Math.min(1, Math.max(0, share))))));
+    if (safeScore > 0) categoryStrengthScores[category].candidates.push({ score: safeScore, name, effectiveLoad });
+  };
+
+  const userBw = ctx?.bodyweightKg || REF_BW;
+
+  // Workout logs are the primary source. Their weight is externalLoad for pull-ups,
+  // and calculateEffectiveLoad is the only place that adds bodyweight.
+  type PerformanceEntry = { name: string; effectiveLoad: number; estimated1RM: number };
+  const performanceByExercise = new Map<string, PerformanceEntry>();
   logs.forEach((log) => {
     (log.exercises || []).forEach((ex) => {
-      if (ex.type === 'strength' && typeof ex.weight === 'number' && ex.name) {
-        const cleanName = ex.name.trim();
-        if (cleanName) {
-          if (computedPrsFromLogs[cleanName] === undefined || ex.weight > computedPrsFromLogs[cleanName]) {
-            computedPrsFromLogs[cleanName] = ex.weight;
-          }
-        }
+      if (ex.type !== 'strength' || typeof ex.weight !== 'number' || !ex.name) return;
+      const name = ex.name.trim();
+      const performance = validateExercisePerformance(name, ex.weight, ex.reps || 1, userBw);
+      if (!performance.valid) return;
+      const standardName = findExerciseStandard(name)?.name || normalizeName(name);
+      const prior = performanceByExercise.get(standardName);
+      if (!prior || performance.estimated1RM > prior.estimated1RM) {
+        performanceByExercise.set(standardName, { name, effectiveLoad: performance.effectiveLoad, estimated1RM: performance.estimated1RM });
       }
     });
   });
 
-  // If logs are present, computedPrsFromLogs is the primary dynamic source of truth
-  const effectivePrs = Object.keys(computedPrsFromLogs).length > 0
-    ? { ...userPrs, ...computedPrsFromLogs }
-    : userPrs;
+  // Profile PRs are a compatibility fallback. For pull-ups, legacy profile values
+  // are externalLoad; log-derived entries replace them with validated effective-load 1RM.
+  const prEntries = new Map<string, PerformanceEntry>();
+  Object.entries(userPrs).forEach(([name, storedValue]) => {
+    if (!Number.isFinite(storedValue)) return;
+    const effectiveLoad = isPullUpExercise(name) ? calculateEffectiveLoad(name, storedValue, userBw) : Math.max(0, storedValue);
+    if (effectiveLoad > 0) {
+      prEntries.set(findExerciseStandard(name)?.name || normalizeName(name), { name, effectiveLoad, estimated1RM: effectiveLoad });
+    }
+  });
+  performanceByExercise.forEach((entry, key) => prEntries.set(key, entry));
 
-  // Evaluate user PRs
-  Object.entries(effectivePrs).forEach(([name, weight]) => {
-    if (typeof weight !== 'number') return;
+  prEntries.forEach(({ name, effectiveLoad, estimated1RM }) => {
     const muscles = resolveExerciseMuscles(name);
     const std = findExerciseStandard(name);
     const primary = std?.primaryCategory || (Object.keys(muscles)[0] as WorkoutCategory);
-
-    const assessment = resolveStrengthAssessment(name, Math.max(0, weight), primary, ctx);
-    const singleScore = weight < 0 ? Math.max(5, Math.round(20 + weight)) : assessment.score;
+    const assessment = resolveStrengthAssessment(name, estimated1RM, primary, ctx);
+    const singleScore = assessment.score;
+    if (effectiveLoad <= 0 || !Number.isFinite(singleScore)) return;
 
     categorizedPrs.push({
-      name,
-      category: primary,
-      weight,
-      unit: std?.unit || 'kg',
-      score: singleScore,
-      estimated1RM: weight,
-      tier: assessment.tier,
-      nextMilestone: assessment.nextMilestone,
+      name, category: primary, weight: effectiveLoad, unit: std?.unit || 'kg', score: singleScore,
+      estimated1RM, tier: assessment.tier, nextMilestone: getNextMilestone(name, estimated1RM, ctx),
     });
-
-    for (const [catStr, share] of Object.entries(muscles)) {
-      const cat = catStr as WorkoutCategory;
-      if (share >= 0.2) {
-        const weightedScore = Math.round(singleScore * (0.8 + 0.2 * share));
-        if (weightedScore > categoryStrengthScores[cat].maxScore) {
-          categoryStrengthScores[cat].maxScore = weightedScore;
-          categoryStrengthScores[cat].bestName = name;
-          categoryStrengthScores[cat].bestValue = weight;
-        }
-      }
-    }
+    Object.entries(muscles).forEach(([catStr, share]) => {
+      if ((share || 0) >= 0.2) recordStrengthCandidate(catStr as WorkoutCategory, singleScore, name, effectiveLoad, share);
+    });
   });
 
-
-  // Also check best single-set performances in recent logs for PRs
+  // A recent set contributes its Epley estimated 1RM. Invalid or non-positive
+  // effective loads never enter either PRs or muscle strength aggregation.
   recentLogs.forEach((log) => {
     (log.exercises || []).forEach((ex) => {
-      if (ex.type === 'strength' && ex.weight && ex.weight > 0) {
-        const est1RM = estimateOneRepMax(ex.weight, ex.reps || 1);
-        const muscles = resolveExerciseMuscles(ex.name);
-        const std = findExerciseStandard(ex.name);
-        const primary = std?.primaryCategory || (Object.keys(muscles)[0] as WorkoutCategory);
-        const score = calculateStandardizedScore(ex.name, est1RM, primary, ctx);
-
-        for (const [catStr, share] of Object.entries(muscles)) {
-          const cat = catStr as WorkoutCategory;
-          if (share >= 0.2 && score > categoryStrengthScores[cat].maxScore) {
-            categoryStrengthScores[cat].maxScore = score;
-            categoryStrengthScores[cat].bestName = ex.name;
-            categoryStrengthScores[cat].bestValue = ex.weight;
-          }
-        }
-      }
+      if (ex.type !== 'strength' || typeof ex.weight !== 'number') return;
+      const performance = validateExercisePerformance(ex.name, ex.weight, ex.reps || 1, userBw);
+      if (!performance.valid) return;
+      const muscles = resolveExerciseMuscles(ex.name);
+      const std = findExerciseStandard(ex.name);
+      const primary = std?.primaryCategory || (Object.keys(muscles)[0] as WorkoutCategory);
+      const score = calculateStandardizedScore(ex.name, performance.estimated1RM, primary, ctx);
+      Object.entries(muscles).forEach(([catStr, share]) => {
+        if ((share || 0) >= 0.2) recordStrengthCandidate(catStr as WorkoutCategory, score, ex.name, performance.effectiveLoad, share);
+      });
     });
+  });
+
+  // Do not let one outlier define an entire muscle group. Use the best three
+  // distinct movements, weighted toward the best result, then apply a modest
+  // coverage factor when fewer than three movements are represented.
+  Object.values(WorkoutCategory).forEach((cat) => {
+    const state = categoryStrengthScores[cat];
+    if (cat === WorkoutCategory.Cardio || state.candidates.length === 0) return;
+    const byName = new Map<string, StrengthCandidate>();
+    state.candidates.forEach((candidate) => {
+      const prior = byName.get(candidate.name);
+      if (!prior || candidate.score > prior.score) byName.set(candidate.name, candidate);
+    });
+    const top = [...byName.values()].sort((a, b) => b.score - a.score).slice(0, 3);
+    const rankWeights = [0.5, 0.3, 0.2];
+    const weighted = top.reduce((sum, candidate, index) => sum + candidate.score * (rankWeights[index] || 0), 0) / rankWeights.slice(0, top.length).reduce((a, b) => a + b, 0);
+    const coverage = 0.65 + 0.35 * Math.min(1, top.length / 3);
+    state.maxScore = Math.max(0, Math.min(100, Math.round(weighted * coverage)));
+    state.bestName = top[0]?.name;
+    state.bestValue = top[0]?.effectiveLoad;
   });
 
   // Evaluate cardio score for PR view
@@ -832,6 +896,7 @@ export function calculateFullWorkoutAnalytics(
       maxScore: cardioScore,
       bestName: maxCardioDuration.exerciseName,
       bestValue: maxCardioDuration.minutes,
+      candidates: [],
     };
   }
 
