@@ -10,7 +10,7 @@ import {
   CATEGORY_META,
   PRESET_EXERCISES_BY_CATEGORY,
   PresetExercise,
-  getCardioMET,
+  CARDIO_REFERENCE_BODYWEIGHT_KG,
   estimateCardioCalories,
   isCardioDistanceOptional,
   inferLogCategories,
@@ -59,7 +59,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState('');
-  const [userWeight, setUserWeight] = useState<number>(65);
+  const [userWeight, setUserWeight] = useState<number>(CARDIO_REFERENCE_BODYWEIGHT_KG);
   const mutationIdRef = useRef<string>(
     Math.random().toString(36).slice(2, 11) + Date.now().toString(36)
   );
@@ -136,7 +136,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         type,
         ...(type === 'strength'
           ? { weight: 0, sets: 0, reps: 0 }
-          : { duration: defaultDuration, distance: 0, calories: defaultCal }),
+          : { duration: defaultDuration, distance: 0, calories: defaultCal, caloriesSource: 'estimated' }),
       },
     ]);
   };
@@ -167,6 +167,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
             duration,
             distance: preset.defaultDistance ?? 0,
             calories: calculatedCalories || preset.defaultCalories || 0,
+            caloriesSource: 'estimated',
           }),
     };
 
@@ -196,6 +197,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         duration: dur,
         distance: 0,
         calories: estimateCardioCalories(target.name, dur, userWeight),
+        caloriesSource: 'estimated',
       });
     } else {
       updateExercise(id, {
@@ -212,7 +214,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
     if (!target) return;
     if (target.type === 'cardio' && target.duration && target.duration > 0) {
       const newCalories = estimateCardioCalories(name, target.duration, userWeight);
-      updateExercise(id, { name, calories: newCalories });
+      updateExercise(id, { name, calories: newCalories, caloriesSource: 'estimated' });
     } else {
       updateExercise(id, { name });
     }
@@ -229,7 +231,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
     const target = exercises.find((e) => e.id === id);
     if (!target) return;
     const newCalories = durationNum > 0 ? estimateCardioCalories(target.name, durationNum, userWeight) : 0;
-    updateExercise(id, { duration: durationNum, calories: newCalories });
+    updateExercise(id, { duration: durationNum, calories: newCalories, caloriesSource: 'estimated' });
   };
 
   const handleImportData = (force = false) => {
@@ -271,6 +273,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       duration: ex.duration ?? 0,
       distance: ex.distance ?? 0,
       calories: ex.calories ?? 0,
+      caloriesSource: ex.caloriesSource,
     }));
 
     setExercises(imported);
@@ -369,6 +372,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
           duration: durationVal,
           distance: distanceVal,
           calories: caloriesVal,
+          caloriesSource: ex.caloriesSource ?? (caloriesVal > 0 ? 'reported' : undefined),
         };
       }
     });
@@ -776,7 +780,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
                         min="0"
                         value={ex.calories || ''}
                         onChange={(e) =>
-                          updateExercise(ex.id, { calories: Number(e.target.value) || 0 })
+                          updateExercise(ex.id, { calories: Number(e.target.value) || 0, caloriesSource: 'reported' })
                         }
                         placeholder="0"
                         className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"

@@ -361,7 +361,7 @@ export const syncUserStatsFromLogs = async (userId: string): Promise<AppUser> =>
 
 /**
  * Strict sanitizer for workout exercises ensuring compatibility with PostgreSQL `is_valid_exercises` check constraint.
- * Whitelists ONLY the 9 allowed keys ('id','name','type','weight','sets','reps','duration','distance','calories')
+ * Whitelists the supported exercise keys and preserves caloriesSource for cardio provenance
  * and enforces strict numeric / range limits to prevent check constraint violations.
  */
 export const sanitizeExercisesForDb = (rawList: unknown): Exercise[] => {
@@ -423,6 +423,9 @@ export const sanitizeExercisesForDb = (rawList: unknown): Exercise[] => {
       const cleanDuration = Number.isFinite(durationNum) ? Math.max(0, Math.min(1440, durationNum)) : 0;
       const cleanDistance = Number.isFinite(distanceNum) ? Math.max(0, Math.min(1000, Number(distanceNum.toFixed(2)))) : 0;
       const cleanCalories = Number.isFinite(caloriesNum) ? Math.max(0, Math.min(20000, caloriesNum)) : 0;
+      const caloriesSource = raw.caloriesSource === 'estimated' || raw.caloriesSource === 'reported'
+        ? raw.caloriesSource
+        : undefined;
 
       return {
         id,
@@ -431,6 +434,7 @@ export const sanitizeExercisesForDb = (rawList: unknown): Exercise[] => {
         duration: cleanDuration,
         distance: cleanDistance,
         calories: cleanCalories,
+        ...(caloriesSource ? { caloriesSource } : {}),
       };
     }
   });

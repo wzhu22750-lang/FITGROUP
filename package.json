@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx tests/stats-recalculation.test.ts && tsx tests/presets-and-import.test.ts && tsx tests/workout-analytics.test.ts && tsx tests/squad-and-visibility.test.ts && tsx tests/notifications.test.ts && tsx tests/data-export.test.ts",
+    "test": "tsx tests/stats-recalculation.test.ts && tsx tests/presets-and-import.test.ts && tsx tests/workout-analytics.test.ts && tsx tests/cardio-analytics.test.ts && tsx tests/squad-and-visibility.test.ts && tsx tests/notifications.test.ts && tsx tests/data-export.test.ts",
 
     "db:apply": "tsx scripts/supabase-admin.ts --apply-all",
     "db:check": "tsx scripts/supabase-admin.ts --check",

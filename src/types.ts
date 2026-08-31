@@ -16,6 +16,8 @@ export interface Exercise {
   duration?: number; // minutes
   distance?: number; // km
   calories?: number;
+  /** Whether calories were user-entered or generated from MET; omitted means legacy data. */
+  caloriesSource?: 'reported' | 'estimated';
   type: 'strength' | 'cardio';
 }
 
@@ -77,6 +79,33 @@ export type Sex = 'male' | 'female';
 export interface StrengthBodyContext {
   sex: Sex;
   bodyweightKg: number;
+}
+
+export interface CardioMetrics {
+  validSessions: number;
+  activeDays: number;
+  activeWeeks: number;
+  effectiveMinutes: number;
+  weightedMinutes: number;
+  weeklyEffectiveMinutes: number;
+  weeklyWeightedMinutes: number;
+  weeklySessions: number;
+  averageMet: number;
+  reportedCalories: number;
+  estimatedCalories: number;
+  calories: number;
+  calorieTarget: number;
+  calorieCompletionRate: number;
+  bestActivityName?: string;
+}
+
+export interface CardioScoreBreakdown extends CardioMetrics {
+  score: number;
+  frequencyScore: number;
+  durationScore: number;
+  intensityScore: number;
+  volumeScore: number;
+  consistencyScore: number;
 }
 
 export interface UserProfile {

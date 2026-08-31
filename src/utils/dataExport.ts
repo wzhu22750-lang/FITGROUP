@@ -1,6 +1,6 @@
 import { WorkoutCategory, WorkoutLog } from '../types';
 import { resolveExerciseMuscles, findExerciseStandard, resolveEffectiveExerciseWeight, isPullUpExercise } from './workoutAnalytics';
-import { parseCategories, estimateCardioCalories, CATEGORY_META } from '../constants/workoutPresets';
+import { parseCategories, estimateCardioCalories, CATEGORY_META, CARDIO_REFERENCE_BODYWEIGHT_KG } from '../constants/workoutPresets';
 
 export interface UserProfileExport {
   displayName: string;
@@ -185,7 +185,7 @@ export function generateExportData(user: any, logs: WorkoutLog[]): FitGroupExpor
         const dist = Number(ex.distance) || 0;
         const cal =
           Number(ex.calories) ||
-          estimateCardioCalories(cleanName, dur, bodyweightKg || 70);
+          estimateCardioCalories(cleanName, dur, bodyweightKg || CARDIO_REFERENCE_BODYWEIGHT_KG);
 
         dim.cardioMinutes = (dim.cardioMinutes || 0) + dur;
         dim.cardioDistanceKm = Number(((dim.cardioDistanceKm || 0) + dist).toFixed(1));
@@ -198,7 +198,7 @@ export function generateExportData(user: any, logs: WorkoutLog[]): FitGroupExpor
         const sets = Number(ex.sets) || 0;
         const reps = Number(ex.reps) || 0;
         const rawWeight = Number(ex.weight) || 0;
-        const userBw = bodyweightKg || 70;
+        const userBw = bodyweightKg || CARDIO_REFERENCE_BODYWEIGHT_KG;
         const effectiveWeight = resolveEffectiveExerciseWeight(cleanName, rawWeight, userBw);
         const vol = sets * reps * effectiveWeight;
 

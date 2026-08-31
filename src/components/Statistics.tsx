@@ -42,6 +42,7 @@ import {
   resolveExerciseMuscles,
   findExerciseStandard,
   getStrengthTier,
+  getCardioTier,
   bodyContextFromProfile,
   scaleThresholds,
   CategoryScoreDetail,
@@ -466,8 +467,8 @@ export default function Statistics() {
                 {Object.values(WorkoutCategory).map((cat) => {
                   const detail = analytics.categoryDetails[cat];
                   const meta = CATEGORY_META[cat];
-                  const score = radarMode === 'composite' ? detail.compositeScore : detail.strengthScore;
-                  const tier = getStrengthTier(score);
+                  const score = cat === WorkoutCategory.Cardio ? (radarMode === 'strength' ? 0 : (detail.cardioScore ?? detail.compositeScore)) : (radarMode === 'composite' ? detail.compositeScore : detail.strengthScore);
+                  const tier = cat === WorkoutCategory.Cardio ? getCardioTier(score) : getStrengthTier(score);
                   const isZero = score === 0;
 
                   return (
@@ -518,8 +519,8 @@ export default function Statistics() {
               {Object.values(WorkoutCategory).map((cat) => {
                 const detail = analytics.categoryDetails[cat];
                 const meta = CATEGORY_META[cat];
-                const score = radarMode === 'composite' ? detail.compositeScore : detail.strengthScore;
-                const tier = getStrengthTier(score);
+                const score = cat === WorkoutCategory.Cardio ? (radarMode === 'strength' ? 0 : (detail.cardioScore ?? detail.compositeScore)) : (radarMode === 'composite' ? detail.compositeScore : detail.strengthScore);
+                const tier = cat === WorkoutCategory.Cardio ? getCardioTier(score) : getStrengthTier(score);
 
                 return (
                   <button
@@ -854,7 +855,9 @@ export default function Statistics() {
                       </span>
                     </h4>
                     <p className="text-[10px] sm:text-[11px] text-ink/60 font-bold">
-                      28天综合得分: <strong className="text-ink">{selectedCategoryDetail.trainingScore} 分</strong> · 极限PR: {selectedCategoryDetail.strengthScore} 分
+                      {selectedCategoryForModal === WorkoutCategory.Cardio
+                        ? <>28天有氧评分: <strong className="text-ink">{selectedCategoryDetail.cardioScore ?? selectedCategoryDetail.trainingScore} 分</strong></>
+                        : <>28天综合得分: <strong className="text-ink">{selectedCategoryDetail.trainingScore} 分</strong> · 极限PR: {selectedCategoryDetail.strengthScore} 分</>}
                     </p>
                   </div>
                 </div>
@@ -888,8 +891,17 @@ export default function Statistics() {
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-2 gap-2 text-[10px]">
+                    <div className="bg-white border border-ink p-2">频率 {selectedCategoryDetail.cardioMetrics?.frequencyScore || 0}</div>
+                    <div className="bg-white border border-ink p-2">时间 {selectedCategoryDetail.cardioMetrics?.durationScore || 0}</div>
+                    <div className="bg-white border border-ink p-2">强度 {selectedCategoryDetail.cardioMetrics?.intensityScore || 0}</div>
+                    <div className="bg-white border border-ink p-2">运动量 {selectedCategoryDetail.cardioMetrics?.volumeScore || 0}</div>
+                    <div className="bg-white border border-ink p-2">持续性 {selectedCategoryDetail.cardioMetrics?.consistencyScore || 0}</div>
+                    <div className="bg-white border border-ink p-2">有效时间 {selectedCategoryDetail.cardioMetrics?.effectiveMinutes || 0} min</div>
+                  </div>
+
                   <p className="text-ink/80 text-[11px] leading-relaxed">
-                    有氧维度基于 28 天内累计燃烧的卡路里总量计算，标准目标为 2000 kcal（约折合每周 2-3 次 30 分钟中高强度跑步或单车）。
+                    有氧评分由频率、有效时间、MET 强度、加权运动量和四周持续性共同构成；卡路里仅作为消耗统计与目标完成度，不直接决定有氧能力分。
                   </p>
                 </div>
               ) : (
@@ -1067,7 +1079,7 @@ export default function Statistics() {
                     <div className="bg-white p-2.5 border-2 border-ink space-y-0.5">
                       <span className="font-black text-ink">4. 有氧维度</span>
                       <p className="text-[11px] text-ink/70">
-                        以 28 天累计消耗 <strong>2,000 kcal</strong> 为满分标准，通过设备或打卡实时抓取计算。
+                        有氧评分由频率、时间、MET 强度、加权运动量和四周持续性共同组成；2,000 kcal 仅作为独立的消耗目标完成度。
                       </p>
                     </div>
                   </div>

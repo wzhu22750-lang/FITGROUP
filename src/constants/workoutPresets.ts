@@ -20,6 +20,35 @@ export interface CardioActivityMeta {
   hasDistance: boolean;
   defaultDuration: number;
   defaultDistance?: number;
+  /** Used only when a distance-only record has no duration or reported calories. */
+  fallbackSpeedKph?: number;
+}
+
+export interface CardioActivityResolution {
+  name: string;
+  met: number;
+  hasDistance: boolean;
+  matched: boolean;
+  meta?: CardioActivityMeta;
+}
+
+export const CARDIO_REFERENCE_BODYWEIGHT_KG = 70;
+export const CARDIO_MAX_DURATION_MINUTES = 24 * 60;
+export const CARDIO_MAX_DISTANCE_KM = 1000;
+export const CARDIO_MAX_CALORIES = 20000;
+
+const CARDIO_FALLBACK_MET = 6.0;
+const CARDIO_STRENGTH_GUARDS = ['杠铃', '哑铃', '绳索', 'barbell', 'dumbbell', 'cable', 'bench', 'squat', 'deadlift'];
+const CARDIO_KEYWORDS = [
+  '跑', 'run', 'jog', '骑', 'bike', 'cycl', '羽毛', 'badminton', '篮球', 'basket',
+  '足球', 'soccer', '网球', 'tennis', '乒乓', 'ping', '泳', 'swim', '跳绳', 'rope',
+  'hiit', '间歇', 'tabata', '拳', '搏击', 'boxing', 'kickboxing', '走', 'walk', '瑜伽', 'yoga',
+  '普拉提', 'pilates', '爬楼', 'stair', '椭圆', 'elliptical', '划船', 'rower', 'rowing', '有氧',
+  '尊巴', 'zumba', '健美操', 'aerobic', '舞蹈', 'dance',
+];
+
+function normalizeCardioName(name: string): string {
+  return (name || '').toLowerCase().replace(/[\s\-_（）()【】\[\]+、,/|]/g, '').trim();
 }
 
 /**
@@ -33,102 +62,113 @@ export const CARDIO_MET_TABLE: CardioActivityMeta[] = [
   { name: '游泳', aliases: ['自由泳', '蛙泳', 'swimming', 'swim'], met: 7.0, hasDistance: false, defaultDuration: 40, defaultDistance: 0 },
   { name: '网球', aliases: ['打网球', 'tennis'], met: 7.0, hasDistance: false, defaultDuration: 60, defaultDistance: 0 },
   { name: '乒乓球', aliases: ['打乒乓球', '桌球', 'table tennis', 'ping pong'], met: 4.0, hasDistance: false, defaultDuration: 45, defaultDistance: 0 },
-  { name: '跑步机跑步', aliases: ['跑步机', 'treadmill'], met: 8.5, hasDistance: true, defaultDuration: 30, defaultDistance: 4 },
-  { name: '户外跑步', aliases: ['跑步', '路跑', '晨跑', '夜跑', 'running', 'jogging'], met: 9.0, hasDistance: true, defaultDuration: 30, defaultDistance: 5 },
-  { name: '动感单车', aliases: ['室内单车', 'spin bike', 'spinning'], met: 7.5, hasDistance: true, defaultDuration: 40, defaultDistance: 12 },
-  { name: '户外骑行', aliases: ['骑行', '骑车', '自行车', '公路车', 'cycling', 'biking'], met: 6.8, hasDistance: true, defaultDuration: 45, defaultDistance: 12 },
+  { name: '跑步机跑步', aliases: ['跑步机', 'treadmill'], met: 8.5, hasDistance: true, defaultDuration: 30, defaultDistance: 4, fallbackSpeedKph: 8 },
+  { name: '户外跑步', aliases: ['跑步', '路跑', '晨跑', '夜跑', 'running', 'jogging'], met: 9.0, hasDistance: true, defaultDuration: 30, defaultDistance: 5, fallbackSpeedKph: 10 },
+  { name: '动感单车', aliases: ['室内单车', 'spin bike', 'spinning'], met: 7.5, hasDistance: true, defaultDuration: 40, defaultDistance: 12, fallbackSpeedKph: 18 },
+  { name: '户外骑行', aliases: ['骑行', '骑车', '自行车', '公路车', 'cycling', 'biking'], met: 6.8, hasDistance: true, defaultDuration: 45, defaultDistance: 12, fallbackSpeedKph: 18 },
   { name: '跳绳', aliases: ['摇绳', 'jump rope', 'skipping'], met: 9.0, hasDistance: false, defaultDuration: 20, defaultDistance: 0 },
   { name: 'HIIT间歇训练', aliases: ['hiit', '高强度间歇', 'tabata'], met: 8.5, hasDistance: false, defaultDuration: 20, defaultDistance: 0 },
   { name: '爬楼机', aliases: ['楼梯机', '爬楼', 'stair climber', 'stairmaster'], met: 8.0, hasDistance: false, defaultDuration: 20, defaultDistance: 0 },
   { name: '拳击 / 搏击操', aliases: ['拳击', '搏击', '散打', '泰拳', 'boxing', 'kickboxing'], met: 7.5, hasDistance: false, defaultDuration: 40, defaultDistance: 0 },
-  { name: '椭圆机', aliases: ['太空漫步机', 'elliptical'], met: 5.5, hasDistance: true, defaultDuration: 30, defaultDistance: 3 },
-  { name: '划船机', aliases: ['划船', 'rower', 'rowing'], met: 7.0, hasDistance: true, defaultDuration: 20, defaultDistance: 3 },
-  { name: '健走 / 散步', aliases: ['快走', '健走', '散步', 'walking', 'brisk walk'], met: 3.8, hasDistance: true, defaultDuration: 40, defaultDistance: 3 },
+  { name: '椭圆机', aliases: ['太空漫步机', 'elliptical'], met: 5.5, hasDistance: true, defaultDuration: 30, defaultDistance: 3, fallbackSpeedKph: 6 },
+  { name: '划船机', aliases: ['划船', 'rower', 'rowing'], met: 7.0, hasDistance: true, defaultDuration: 20, defaultDistance: 3, fallbackSpeedKph: 9 },
+  { name: '健走 / 散步', aliases: ['快走', '健走', '散步', 'walking', 'brisk walk'], met: 3.8, hasDistance: true, defaultDuration: 40, defaultDistance: 3, fallbackSpeedKph: 5 },
   { name: '有氧舞蹈 / 尊巴', aliases: ['尊巴', '健美操', 'zumba', 'aerobics', 'dance'], met: 6.0, hasDistance: false, defaultDuration: 45, defaultDistance: 0 },
   { name: '瑜伽 / 普拉提', aliases: ['瑜伽', '普拉提', 'yoga', 'pilates'], met: 3.2, hasDistance: false, defaultDuration: 45, defaultDistance: 0 },
 ];
 
-/**
- * Find the MET value for any given cardio / exercise name
- */
-export function getCardioMET(name: string): number {
-  if (!name) return 6.0;
-  const clean = name.toLowerCase().replace(/[\s\-_（）()【】\[\]+、,/|]/g, '').trim();
+/** Resolve one activity for MET, distance policy, and shared cardio recognition. */
+export function findCardioActivityMeta(name: string): CardioActivityMeta | undefined {
+  const clean = normalizeCardioName(name);
+  if (!clean) return undefined;
+
+  // Prefer exact canonical names and aliases. This prevents "跑步" from being
+  // captured by the longer "跑步机跑步" entry merely because it is a substring.
   for (const item of CARDIO_MET_TABLE) {
-    const itemClean = item.name.toLowerCase().replace(/[\s\-_（）()【】\[\]+、,/|]/g, '').trim();
-    if (clean === itemClean || itemClean.includes(clean) || clean.includes(itemClean)) {
-      return item.met;
-    }
-    if (item.aliases.some((a) => clean.includes(a.toLowerCase().replace(/[\s\-_（）()【】\[\]+、,/|]/g, '')))) {
-      return item.met;
-    }
+    if (normalizeCardioName(item.name) === clean) return item;
+    if (item.aliases.some((alias) => normalizeCardioName(alias) === clean)) return item;
   }
 
-  // Keyword-based general fallback
-  if (clean.includes('跑') || clean.includes('run')) return 8.5;
-  if (clean.includes('骑') || clean.includes('bike') || clean.includes('cycl')) return 7.0;
-  if (clean.includes('羽毛') || clean.includes('badminton')) return 6.5;
-  if (clean.includes('篮球') || clean.includes('basket')) return 7.0;
-  if (clean.includes('足球') || clean.includes('soccer')) return 7.5;
-  if (clean.includes('网球') || clean.includes('tennis')) return 7.0;
-  if (clean.includes('乒乓') || clean.includes('ping')) return 4.0;
-  if (clean.includes('泳') || clean.includes('swim')) return 7.0;
-  if (clean.includes('跳绳') || clean.includes('rope')) return 9.0;
-  if (clean.includes('hiit') || clean.includes('间歇') || clean.includes('tabata')) return 8.5;
-  if (clean.includes('拳') || clean.includes('搏击') || clean.includes('box')) return 7.5;
-  if (clean.includes('走') || clean.includes('walk')) return 3.8;
-  if (clean.includes('瑜伽') || clean.includes('yoga') || clean.includes('普拉提')) return 3.2;
-  if (clean.includes('爬楼') || clean.includes('stair')) return 8.0;
+  for (const item of CARDIO_MET_TABLE) {
+    const itemClean = normalizeCardioName(item.name);
+    if (clean.includes(itemClean) || itemClean.includes(clean)) return item;
+    if (item.aliases.some((alias) => {
+      const aliasClean = normalizeCardioName(alias);
+      // Short Chinese aliases such as "划船" are intentionally exact-only;
+      // otherwise "杠铃划船" would be mistaken for a rowing machine.
+      if (aliasClean.length < 3) return false;
+      return clean.includes(aliasClean) || aliasClean.includes(clean);
+    })) return item;
+  }
+  return undefined;
+}
 
-  return 6.0;
+/** Shared fallback recognition used by analytics and the logging helpers. */
+export function isCardioExercise(name: string): boolean {
+  const clean = normalizeCardioName(name);
+  const exactOrCanonicalMatch = findCardioActivityMeta(name);
+  if (exactOrCanonicalMatch) return true;
+  if (CARDIO_STRENGTH_GUARDS.some((keyword) => clean.includes(keyword))) return false;
+  return CARDIO_KEYWORDS.some((keyword) => clean.includes(keyword));
+}
+
+export function resolveCardioActivity(name: string): CardioActivityResolution {
+  const meta = findCardioActivityMeta(name);
+  if (meta) return { name: meta.name, met: meta.met, hasDistance: meta.hasDistance, matched: true, meta };
+  const clean = normalizeCardioName(name);
+  const matchedFallback = CARDIO_KEYWORDS.some((keyword) => clean.includes(keyword));
+  let met = CARDIO_FALLBACK_MET;
+  if (clean.includes('跑') || clean.includes('run') || clean.includes('jog')) met = 8.5;
+  else if (clean.includes('骑') || clean.includes('bike') || clean.includes('cycl')) met = 7.0;
+  else if (clean.includes('羽毛') || clean.includes('badminton')) met = 6.5;
+  else if (clean.includes('篮球') || clean.includes('basket')) met = 7.0;
+  else if (clean.includes('足球') || clean.includes('soccer')) met = 7.5;
+  else if (clean.includes('网球') || clean.includes('tennis')) met = 7.0;
+  else if (clean.includes('乒乓') || clean.includes('ping')) met = 4.0;
+  else if (clean.includes('泳') || clean.includes('swim')) met = 7.0;
+  else if (clean.includes('跳绳') || clean.includes('rope')) met = 9.0;
+  else if (clean.includes('hiit') || clean.includes('间歇') || clean.includes('tabata')) met = 8.5;
+  else if (clean.includes('拳') || clean.includes('搏击') || clean.includes('box')) met = 7.5;
+  else if (clean.includes('走') || clean.includes('walk')) met = 3.8;
+  else if (clean.includes('瑜伽') || clean.includes('yoga') || clean.includes('普拉提') || clean.includes('pilates')) met = 3.2;
+  else if (clean.includes('爬楼') || clean.includes('stair')) met = 8.0;
+  return {
+    name: name?.trim() || '有氧训练',
+    met,
+    hasDistance: true,
+    matched: matchedFallback,
+  };
+}
+
+/** Find the MET value for any given cardio / exercise name. */
+export function getCardioMET(name: string): number {
+  return resolveCardioActivity(name).met;
 }
 
 /**
- * Estimate calories burned given exercise name, duration in minutes, and user bodyweight in kg.
- * Defaults to 65kg reference bodyweight.
+ * Estimate calories from MET, bodyweight, and duration. The result is an
+ * estimate, never a claim that calories were measured by a device.
  */
 export function estimateCardioCalories(
   exerciseName: string,
   durationMinutes: number,
-  bodyweightKg = 65
+  bodyweightKg = CARDIO_REFERENCE_BODYWEIGHT_KG
 ): number {
-  if (!durationMinutes || durationMinutes <= 0) return 0;
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) return 0;
+  const duration = Math.min(CARDIO_MAX_DURATION_MINUTES, durationMinutes);
   const met = getCardioMET(exerciseName);
-  const bw = bodyweightKg > 0 ? bodyweightKg : 65;
-  const calories = Math.round(met * bw * (durationMinutes / 60));
+  const bodyweight = Number.isFinite(bodyweightKg) && bodyweightKg > 0
+    ? bodyweightKg
+    : CARDIO_REFERENCE_BODYWEIGHT_KG;
+  const calories = Math.round(met * bodyweight * (duration / 60));
   return Math.max(1, calories);
 }
 
-/**
- * Check whether distance is optional/irrelevant for a cardio activity (e.g. badminton, basketball, jump rope)
- */
+/** Check whether distance is optional/irrelevant for a cardio activity. */
 export function isCardioDistanceOptional(exerciseName: string): boolean {
-  if (!exerciseName) return true;
-  const clean = exerciseName.toLowerCase().replace(/[\s\-_（）()【】\[\]+、,/|]/g, '').trim();
-  for (const item of CARDIO_MET_TABLE) {
-    const itemClean = item.name.toLowerCase().replace(/[\s\-_（）()【】\[\]+、,/|]/g, '').trim();
-    if (clean === itemClean || itemClean.includes(clean) || clean.includes(itemClean)) {
-      return !item.hasDistance;
-    }
-  }
-  if (
-    clean.includes('羽毛球') ||
-    clean.includes('篮球') ||
-    clean.includes('足球') ||
-    clean.includes('乒乓') ||
-    clean.includes('网球') ||
-    clean.includes('跳绳') ||
-    clean.includes('拳击') ||
-    clean.includes('搏击') ||
-    clean.includes('hiit') ||
-    clean.includes('爬楼') ||
-    clean.includes('瑜伽') ||
-    clean.includes('操') ||
-    clean.includes('普拉提')
-  ) {
-    return true;
-  }
-  return false;
+  if (!exerciseName?.trim()) return true;
+  const resolution = resolveCardioActivity(exerciseName);
+  return resolution.matched ? !resolution.hasDistance : false;
 }
 
 export const CATEGORY_META: Record<WorkoutCategory, { en: string; zh: string; iconLabel: string; color: string; hex: string }> = {
@@ -184,24 +224,24 @@ export const PRESET_EXERCISES_BY_CATEGORY: Record<WorkoutCategory, PresetExercis
     { name: '杠铃耸肩', type: 'strength', defaultWeight: 60, defaultSets: 4, defaultReps: 12 },
   ],
   [WorkoutCategory.Cardio]: [
-    { name: '羽毛球', type: 'cardio', defaultDuration: 45, defaultDistance: 0, defaultCalories: 317, met: 6.5, hasDistance: false },
-    { name: '跑步机跑步', type: 'cardio', defaultDuration: 30, defaultDistance: 4, defaultCalories: 276, met: 8.5, hasDistance: true },
-    { name: '户外跑步', type: 'cardio', defaultDuration: 30, defaultDistance: 5, defaultCalories: 293, met: 9.0, hasDistance: true },
-    { name: '动感单车', type: 'cardio', defaultDuration: 40, defaultDistance: 12, defaultCalories: 325, met: 7.5, hasDistance: true },
-    { name: '户外骑行', type: 'cardio', defaultDuration: 45, defaultDistance: 12, defaultCalories: 332, met: 6.8, hasDistance: true },
-    { name: '游泳', type: 'cardio', defaultDuration: 40, defaultDistance: 0, defaultCalories: 303, met: 7.0, hasDistance: false },
-    { name: '篮球', type: 'cardio', defaultDuration: 45, defaultDistance: 0, defaultCalories: 341, met: 7.0, hasDistance: false },
-    { name: '跳绳', type: 'cardio', defaultDuration: 20, defaultDistance: 0, defaultCalories: 195, met: 9.0, hasDistance: false },
-    { name: 'HIIT间歇训练', type: 'cardio', defaultDuration: 20, defaultDistance: 0, defaultCalories: 184, met: 8.5, hasDistance: false },
-    { name: '足球', type: 'cardio', defaultDuration: 60, defaultDistance: 0, defaultCalories: 488, met: 7.5, hasDistance: false },
-    { name: '网球', type: 'cardio', defaultDuration: 60, defaultDistance: 0, defaultCalories: 455, met: 7.0, hasDistance: false },
-    { name: '乒乓球', type: 'cardio', defaultDuration: 45, defaultDistance: 0, defaultCalories: 195, met: 4.0, hasDistance: false },
-    { name: '爬楼机', type: 'cardio', defaultDuration: 20, defaultDistance: 0, defaultCalories: 173, met: 8.0, hasDistance: false },
-    { name: '拳击 / 搏击操', type: 'cardio', defaultDuration: 40, defaultDistance: 0, defaultCalories: 325, met: 7.5, hasDistance: false },
-    { name: '椭圆机', type: 'cardio', defaultDuration: 30, defaultDistance: 3, defaultCalories: 179, met: 5.5, hasDistance: true },
-    { name: '划船机', type: 'cardio', defaultDuration: 20, defaultDistance: 3, defaultCalories: 152, met: 7.0, hasDistance: true },
-    { name: '健走 / 散步', type: 'cardio', defaultDuration: 40, defaultDistance: 3, defaultCalories: 165, met: 3.8, hasDistance: true },
-    { name: '瑜伽 / 普拉提', type: 'cardio', defaultDuration: 45, defaultDistance: 0, defaultCalories: 156, met: 3.2, hasDistance: false },
+    { name: '羽毛球', type: 'cardio', defaultDuration: 45, defaultDistance: 0, defaultCalories: 341, met: 6.5, hasDistance: false },
+    { name: '跑步机跑步', type: 'cardio', defaultDuration: 30, defaultDistance: 4, defaultCalories: 298, met: 8.5, hasDistance: true },
+    { name: '户外跑步', type: 'cardio', defaultDuration: 30, defaultDistance: 5, defaultCalories: 315, met: 9.0, hasDistance: true },
+    { name: '动感单车', type: 'cardio', defaultDuration: 40, defaultDistance: 12, defaultCalories: 350, met: 7.5, hasDistance: true },
+    { name: '户外骑行', type: 'cardio', defaultDuration: 45, defaultDistance: 12, defaultCalories: 357, met: 6.8, hasDistance: true },
+    { name: '游泳', type: 'cardio', defaultDuration: 40, defaultDistance: 0, defaultCalories: 327, met: 7.0, hasDistance: false },
+    { name: '篮球', type: 'cardio', defaultDuration: 45, defaultDistance: 0, defaultCalories: 368, met: 7.0, hasDistance: false },
+    { name: '跳绳', type: 'cardio', defaultDuration: 20, defaultDistance: 0, defaultCalories: 210, met: 9.0, hasDistance: false },
+    { name: 'HIIT间歇训练', type: 'cardio', defaultDuration: 20, defaultDistance: 0, defaultCalories: 198, met: 8.5, hasDistance: false },
+    { name: '足球', type: 'cardio', defaultDuration: 60, defaultDistance: 0, defaultCalories: 525, met: 7.5, hasDistance: false },
+    { name: '网球', type: 'cardio', defaultDuration: 60, defaultDistance: 0, defaultCalories: 490, met: 7.0, hasDistance: false },
+    { name: '乒乓球', type: 'cardio', defaultDuration: 45, defaultDistance: 0, defaultCalories: 210, met: 4.0, hasDistance: false },
+    { name: '爬楼机', type: 'cardio', defaultDuration: 20, defaultDistance: 0, defaultCalories: 187, met: 8.0, hasDistance: false },
+    { name: '拳击 / 搏击操', type: 'cardio', defaultDuration: 40, defaultDistance: 0, defaultCalories: 350, met: 7.5, hasDistance: false },
+    { name: '椭圆机', type: 'cardio', defaultDuration: 30, defaultDistance: 3, defaultCalories: 193, met: 5.5, hasDistance: true },
+    { name: '划船机', type: 'cardio', defaultDuration: 20, defaultDistance: 3, defaultCalories: 163, met: 7.0, hasDistance: true },
+    { name: '健走 / 散步', type: 'cardio', defaultDuration: 40, defaultDistance: 3, defaultCalories: 177, met: 3.8, hasDistance: true },
+    { name: '瑜伽 / 普拉提', type: 'cardio', defaultDuration: 45, defaultDistance: 0, defaultCalories: 168, met: 3.2, hasDistance: false },
   ],
   [WorkoutCategory.Others]: [
     { name: '杠铃弯举 (二头)', type: 'strength', defaultWeight: 25, defaultSets: 4, defaultReps: 10 },
@@ -371,33 +411,7 @@ export function inferLogCategories(
         result.add(WorkoutCategory.Others);
       }
 
-      if (
-        ex.type === 'cardio' ||
-        clean.includes('跑') ||
-        clean.includes('骑') ||
-        clean.includes('单车') ||
-        clean.includes('跳绳') ||
-        clean.includes('爬楼') ||
-        clean.includes('椭圆') ||
-        clean.includes('有氧') ||
-        clean.includes('cardio') ||
-        clean.includes('run') ||
-        clean.includes('hiit') ||
-        clean.includes('羽毛球') ||
-        clean.includes('篮球') ||
-        clean.includes('足球') ||
-        clean.includes('乒乓') ||
-        clean.includes('网球') ||
-        clean.includes('游泳') ||
-        clean.includes('拳击') ||
-        clean.includes('搏击') ||
-        clean.includes('散步') ||
-        clean.includes('健走') ||
-        clean.includes('瑜伽') ||
-        clean.includes('普拉提') ||
-        clean.includes('尊巴') ||
-        clean.includes('swim')
-      ) {
+      if (ex.type === 'cardio' || isCardioExercise(ex.name)) {
         result.add(WorkoutCategory.Cardio);
       }
     });
