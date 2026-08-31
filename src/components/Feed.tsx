@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import {
   subscribeToPublicWorkoutLogs,
   subscribeToMyWorkoutLogs,
+  fetchPublicWorkoutLogs,
+  fetchMyWorkoutLogs,
   getCurrentUser,
 } from '../api';
 import { WorkoutLog } from '../types';
@@ -75,33 +77,35 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
     return () => unsub();
   }, [currentUser?.uid]);
 
+  const handleLogUpdated = (updated?: Partial<WorkoutLog> & { id: string }) => {
+    if (updated?.id) {
+      setPublicLogs((prev) =>
+        prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l))
+      );
+      setMyLogs((prev) =>
+        prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l))
+      );
+    }
+    void fetchPublicWorkoutLogs()
+      .then((data) => setPublicLogs(data))
+      .catch(() => undefined);
+    if (currentUser) {
+      void fetchMyWorkoutLogs(currentUser.uid)
+        .then((data) => setMyLogs(data))
+        .catch(() => undefined);
+    }
+  };
+
   const handlePullRefresh = () => {
     setRefreshing(true);
     if (activeDomain === 'public') {
-      const stop = subscribeToPublicWorkoutLogs(
-        (data) => {
-          setPublicLogs(data);
-          setRefreshing(false);
-          stop();
-        },
-        () => {
-          setRefreshing(false);
-          stop();
-        }
-      );
+      void fetchPublicWorkoutLogs()
+        .then((data) => setPublicLogs(data))
+        .finally(() => setRefreshing(false));
     } else if (activeDomain === 'my' && currentUser) {
-      const stop = subscribeToMyWorkoutLogs(
-        currentUser.uid,
-        (data) => {
-          setMyLogs(data);
-          setRefreshing(false);
-          stop();
-        },
-        () => {
-          setRefreshing(false);
-          stop();
-        }
-      );
+      void fetchMyWorkoutLogs(currentUser.uid)
+        .then((data) => setMyLogs(data))
+        .finally(() => setRefreshing(false));
     } else {
       setTimeout(() => setRefreshing(false), 500);
     }
@@ -206,7 +210,9 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
                 <p className="text-xs font-bold text-ink/40">发布全员公开打卡，即可在此被所有 FitGroup 健友看到！</p>
               </div>
             ) : (
-              publicLogs.map((log) => <LogCard key={log.id} log={log} />)
+              publicLogs.map((log) => (
+                <LogCard key={log.id} log={log} onLogUpdated={handleLogUpdated} />
+              ))
             )}
           </motion.div>
         )}
@@ -260,11 +266,7 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
                 <LogCard
                   key={log.id}
                   log={log}
-                  onLogUpdated={() => {
-                    if (currentUser) {
-                      subscribeToMyWorkoutLogs(currentUser.uid, (data) => setMyLogs(data))();
-                    }
-                  }}
+                  onLogUpdated={handleLogUpdated}
                 />
               ))
             )}

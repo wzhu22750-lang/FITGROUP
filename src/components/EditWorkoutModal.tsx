@@ -308,7 +308,7 @@ export default function EditWorkoutModal({ log, onClose, onSuccess }: EditWorkou
     setErrorMsg('');
 
     try {
-      await updateWorkoutLog(log.id, {
+      const updatedLog = await updateWorkoutLog(log.id, {
         category: finalCategories.join(', '),
         categories: finalCategories,
         exercises: sanitizedExercises,
@@ -316,7 +316,7 @@ export default function EditWorkoutModal({ log, onClose, onSuccess }: EditWorkou
         visibility,
       });
 
-      onSuccess({
+      onSuccess(updatedLog || {
         category: finalCategories.join(', '),
         categories: finalCategories,
         exercises: sanitizedExercises,

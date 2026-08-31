@@ -59,7 +59,7 @@ function formatCompactTime(timestamp?: string): string {
 
 interface LogCardProps {
   log: WorkoutLog;
-  onLogUpdated?: () => void;
+  onLogUpdated?: (updated?: Partial<WorkoutLog> & { id: string }) => void;
 }
 
 export default function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
@@ -189,7 +189,7 @@ export default function LogCard({ log: initialLog, onLogUpdated }: LogCardProps)
 
   const handleEditSuccess = (updated: Partial<WorkoutLog>) => {
     setCurrentLog((prev) => ({ ...prev, ...updated }));
-    onLogUpdated?.();
+    onLogUpdated?.({ id: currentLog.id, ...updated });
   };
 
   const vis: WorkoutVisibility = currentLog.visibility || 'public';

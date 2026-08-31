@@ -437,7 +437,18 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
             <LogCard
               key={log.id}
               log={log}
-              onLogUpdated={() => {
+              onLogUpdated={(updated) => {
+                if (updated?.id) {
+                  setDashboardData((prev) => {
+                    if (!prev) return prev;
+                    return {
+                      ...prev,
+                      recentLogs: prev.recentLogs.map((l) =>
+                        l.id === updated.id ? { ...l, ...updated } : l
+                      ),
+                    };
+                  });
+                }
                 onLogUpdated?.();
                 if (selectedTeamId) {
                   void getTeamDashboard(selectedTeamId).then(setDashboardData);

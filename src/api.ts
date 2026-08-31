@@ -557,10 +557,11 @@ export const updateWorkoutLog = async (workoutLogId: string, updates: Record<str
     }
   }
 
-  let { error } = await supabase
+  let { data: updatedRows, error } = await supabase
     .from('workout_logs')
     .update(payload)
-    .eq('id', workoutLogId);
+    .eq('id', workoutLogId)
+    .select();
 
   // Fallback retry if DB has strict check constraint on single category enum value
   if (error && error.code === '23514' && typeof payload.category === 'string' && payload.category.includes(',')) {
@@ -568,8 +569,10 @@ export const updateWorkoutLog = async (workoutLogId: string, updates: Record<str
     const retryRes = await supabase
       .from('workout_logs')
       .update({ ...payload, category: fallbackCategory })
-      .eq('id', workoutLogId);
+      .eq('id', workoutLogId)
+      .select();
     error = retryRes.error;
+    updatedRows = retryRes.data;
   }
 
   // Fallback if visibility column does not exist in legacy table
@@ -579,12 +582,17 @@ export const updateWorkoutLog = async (workoutLogId: string, updates: Record<str
     const retryRes = await supabase
       .from('workout_logs')
       .update(fallbackPayload)
-      .eq('id', workoutLogId);
+      .eq('id', workoutLogId)
+      .select();
     error = retryRes.error;
+    updatedRows = retryRes.data;
   }
 
   if (error) throw error;
-  return { id: workoutLogId };
+  if (updatedRows && updatedRows.length > 0) {
+    return normalizeLog(updatedRows[0] as WorkoutLogRow);
+  }
+  return { id: workoutLogId, ...payload } as unknown as WorkoutLog;
 };
 
 
