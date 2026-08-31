@@ -174,13 +174,6 @@ export default function Statistics() {
     return rawItems;
   }, [analytics.radarData, radarMode]);
 
-  const unactivatedCategories = useMemo(() => {
-    return Object.values(WorkoutCategory).filter((cat) => {
-      const detail = analytics.categoryDetails[cat];
-      const score = radarMode === 'composite' ? detail.compositeScore : detail.strengthScore;
-      return score === 0;
-    });
-  }, [analytics.categoryDetails, radarMode]);
 
   const filteredPrs = useMemo(() => {
     if (selectedPrCategory === 'ALL') {
@@ -517,16 +510,6 @@ export default function Statistics() {
                     </button>
                   );
                 })}
-              </div>
-            )}
-
-            {/* Unactivated Muscle Reminder */}
-            {unactivatedCategories.length > 0 && (
-              <div className="mt-2 bg-paper/80 border-2 border-dashed border-ink/40 p-2 text-[11px] font-bold text-ink/80 flex items-center gap-1.5">
-                <Sparkles size={13} className="text-ink shrink-0" />
-                <span className="truncate">
-                  待激活维度：<strong>{unactivatedCategories.map((c) => CATEGORY_META[c].zh).join('、')}</strong>（加入打卡即可点亮评分）
-                </span>
               </div>
             )}
 
