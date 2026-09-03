@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   getUserTeams,
   subscribeToUserTeams,
@@ -11,6 +11,13 @@ import {
 import { Team, TeamDashboardData, WorkoutLog } from '../types';
 import { CreateTeamModal, JoinTeamModal } from './TeamModals';
 import LogCard from './LogCard';
+import {
+  mergeLogsPreservingIdentity,
+  getMonotonicTime,
+  isOptimisticUpdateExpired,
+  stripUpdateMetadata,
+  OptimisticUpdateMetadata,
+} from '../utils/feedCache';
 import {
   Users,
   Plus,
@@ -44,14 +51,37 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
   const [dashboardError, setDashboardError] = useState('');
   const [teamLogsError, setTeamLogsError] = useState('');
   const [copied, setCopied] = useState(false);
-  const recentLogUpdates = useRef<Record<string, Partial<WorkoutLog> & { id: string }>>({});
+  const recentLogUpdates = useRef<Record<string, Partial<WorkoutLog> & OptimisticUpdateMetadata>>({});
+  const isMounted = useRef(true);
 
-  const reconcileRecentUpdates = (logs: WorkoutLog[]) => logs
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  const reconcileRecentUpdates = useCallback((logs: WorkoutLog[]) => logs
     .filter((log) => {
       const update = recentLogUpdates.current[log.id];
-      return !(update?.visibility && update.visibility === 'private');
+      if (!update) return true;
+      if (isOptimisticUpdateExpired(update)) {
+        delete recentLogUpdates.current[log.id];
+        return true;
+      }
+      if (update._deleted) return false;
+      return !(update.visibility && update.visibility === 'private');
     })
-    .map((log) => ({ ...log, ...(recentLogUpdates.current[log.id] || {}) }));
+    .map((log) => {
+      const update = recentLogUpdates.current[log.id];
+      if (!update) return log;
+      if (isOptimisticUpdateExpired(update)) {
+        delete recentLogUpdates.current[log.id];
+        return log;
+      }
+      const cleanUpdate = stripUpdateMetadata(update);
+      return { ...log, ...cleanUpdate };
+    }), []);
 
   // Modals
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -125,14 +155,61 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
     const unsub = subscribeToTeamWorkoutLogs(
       selectedTeamId,
       (logs) => {
-        setTeamLogs(reconcileRecentUpdates(logs));
+        if (!isMounted.current) return;
+        const reconciled = reconcileRecentUpdates(logs);
+        setTeamLogs((prev) => mergeLogsPreservingIdentity(prev, reconciled));
         setTeamLogsError('');
       },
-      (error) => setTeamLogsError(error.message || '小队动态加载失败'),
+      (error) => {
+        if (!isMounted.current) return;
+        setTeamLogsError(error.message || '小队动态加载失败');
+      },
     );
 
     return () => unsub();
   }, [selectedTeamId]);
+
+  const handleCardLogUpdated = useCallback(
+    (updated?: Partial<WorkoutLog> & { id: string; _deleted?: boolean }) => {
+      if (updated?.id) {
+        const nowMonotonic = getMonotonicTime();
+        const nowWallClock = Date.now();
+        const existing = recentLogUpdates.current[updated.id] || { id: updated.id };
+        const merged: Partial<WorkoutLog> & OptimisticUpdateMetadata = {
+          ...existing,
+          ...updated,
+          _monotonicAt: nowMonotonic,
+          _wallClockAt: nowWallClock,
+          _updatedAt: nowWallClock,
+        };
+        recentLogUpdates.current[updated.id] = merged;
+
+        window.setTimeout(() => {
+          if (recentLogUpdates.current[updated.id]?._monotonicAt === nowMonotonic) {
+            delete recentLogUpdates.current[updated.id];
+          }
+        }, 30_000);
+
+        const cleanMerged = stripUpdateMetadata(merged);
+
+        setTeamLogs((prev) => {
+          if (merged._deleted || (merged.visibility && merged.visibility === 'private')) {
+            return prev.filter((log) => log.id !== updated.id);
+          }
+          return prev.map((log) =>
+            log.id === updated.id ? { ...log, ...cleanMerged } : log
+          );
+        });
+      }
+      onLogUpdated?.();
+      if (selectedTeamId) {
+        void getTeamDashboard(selectedTeamId).then((data) => {
+          if (isMounted.current) setDashboardData(data);
+        });
+      }
+    },
+    [onLogUpdated, selectedTeamId]
+  );
 
   const handleCopyCode = async (code: string) => {
     try {
@@ -482,26 +559,7 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
             <LogCard
               key={log.id}
               log={log}
-              onLogUpdated={(updated) => {
-                if (updated?.id) {
-                  recentLogUpdates.current[updated.id] = updated;
-                  window.setTimeout(() => {
-                    delete recentLogUpdates.current[updated.id];
-                  }, 30_000);
-                  setTeamLogs((prev) => {
-                    if (updated.visibility === 'private') {
-                      return prev.filter((log) => log.id !== updated.id);
-                    }
-                    return prev.map((log) =>
-                      log.id === updated.id ? { ...log, ...updated } : log
-                    );
-                  });
-                }
-                onLogUpdated?.();
-                if (selectedTeamId) {
-                  void getTeamDashboard(selectedTeamId).then(setDashboardData);
-                }
-              }}
+              onLogUpdated={handleCardLogUpdated}
             />
           ))
         )}

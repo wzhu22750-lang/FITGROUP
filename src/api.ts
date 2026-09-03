@@ -80,7 +80,58 @@ type CommentRow = {
 };
 
 
-let cachedUser: AppUser | null = null;
+const CACHED_USER_STORAGE_KEY = 'fitgroup_cached_user_profile';
+
+function getSafeLocalStorage(): Storage | null {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage;
+    }
+  } catch {
+    // Window localStorage blocked or sandbox restricted
+  }
+  try {
+    if (typeof globalThis !== 'undefined' && (globalThis as any)?.localStorage) {
+      return (globalThis as any).localStorage;
+    }
+  } catch {
+    // globalThis localStorage blocked
+  }
+  return null;
+}
+
+function loadCachedUserFromStorage(): AppUser | null {
+  try {
+    const storage = getSafeLocalStorage();
+    if (!storage) return null;
+    const raw = storage.getItem(CACHED_USER_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && (parsed.id || parsed.uid)) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load cached user from storage:', e);
+  }
+  return null;
+}
+
+function persistCachedUser(user: AppUser | null): void {
+  try {
+    const storage = getSafeLocalStorage();
+    if (!storage) return;
+    if (user) {
+      storage.setItem(CACHED_USER_STORAGE_KEY, JSON.stringify(user));
+    } else {
+      storage.removeItem(CACHED_USER_STORAGE_KEY);
+    }
+  } catch (e) {
+    console.warn('Failed to persist cached user to storage:', e);
+  }
+}
+
+let cachedUser: AppUser | null = loadCachedUserFromStorage();
 
 function toIso(value: unknown): string | undefined {
   if (!value) return undefined;
@@ -142,6 +193,10 @@ function authOnlyUser(user: User): AppUser {
 }
 
 async function currentAuthUser(): Promise<User | null> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (sessionData?.session?.user) {
+    return sessionData.session.user;
+  }
   const { data } = await supabase.auth.getUser();
   return data.user ?? null;
 }
@@ -151,27 +206,31 @@ function createRefreshScheduler<T>(
   onData: (value: T) => void,
   onError: ((error: Error) => void) | undefined,
   fallbackMessage: string,
-  delayMs = 120,
+  debounceMs = 120,
 ) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let version = 0;
   let disposed = false;
 
-  const pull = () => {
+  const execute = () => {
     const requestedVersion = ++version;
+    void fetcher()
+      .then((value) => {
+        if (!disposed && requestedVersion === version) onData(value);
+      })
+      .catch((error) => {
+        if (!disposed && requestedVersion === version) {
+          onError?.(error instanceof Error ? error : new Error(fallbackMessage));
+        }
+      });
+  };
+
+  const pull = () => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
-      void fetcher()
-        .then((value) => {
-          if (!disposed && requestedVersion === version) onData(value);
-        })
-        .catch((error) => {
-          if (!disposed && requestedVersion === version) {
-            onError?.(error instanceof Error ? error : new Error(fallbackMessage));
-          }
-        });
-    }, delayMs);
+      execute();
+    }, debounceMs);
   };
 
   const dispose = () => {
@@ -180,7 +239,7 @@ function createRefreshScheduler<T>(
     if (timer) clearTimeout(timer);
   };
 
-  pull();
+  execute();
   return { pull, dispose };
 }
 
@@ -195,6 +254,7 @@ export async function ensureUserProfile(user: User, extras: Partial<AppUser> = {
   if (existing) {
     const profile = profileFromRow(existing, user);
     cachedUser = profile;
+    persistCachedUser(profile);
     return profile;
   }
 
@@ -216,6 +276,7 @@ export async function ensureUserProfile(user: User, extras: Partial<AppUser> = {
 
   const profile = profileFromRow(created, user);
   cachedUser = profile;
+  persistCachedUser(profile);
   return profile;
 }
 
@@ -283,6 +344,7 @@ export const loginWithEmail = async (email: string, password: string) => {
 
 export const logout = async () => {
   cachedUser = null;
+  persistCachedUser(null);
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
   return null;
@@ -295,6 +357,7 @@ export const onAuthStateChangedFn = (callback: (user: AppUser | null) => void) =
     const user = session?.user;
     if (!user) {
       cachedUser = null;
+      persistCachedUser(null);
       callback(null);
       return;
     }
@@ -303,6 +366,7 @@ export const onAuthStateChangedFn = (callback: (user: AppUser | null) => void) =
       .catch((e) => {
         console.error('Load profile failed:', e);
         cachedUser = authOnlyUser(user);
+        persistCachedUser(cachedUser);
         callback(cachedUser);
       });
   });
@@ -394,6 +458,7 @@ export const updateUserProfileFn = async (userId: string, updates: Record<string
       heightCm: 'height_cm' in payload ? (payload.height_cm as number | null) : cachedUser.heightCm,
       bodyMetricsUpdatedAt: 'body_metrics_updated_at' in payload ? (payload.body_metrics_updated_at as string) : cachedUser.bodyMetricsUpdatedAt,
     };
+    persistCachedUser(cachedUser);
   }
 };
 
@@ -503,13 +568,13 @@ function normalizeLog(row: WorkoutLogRow): WorkoutLog {
 
 async function attachCurrentUserLikeState(logs: WorkoutLog[]): Promise<WorkoutLog[]> {
   if (logs.length === 0) return logs;
-  const user = await currentAuthUser();
-  if (!user) return logs;
+  const userId = cachedUser?.uid || cachedUser?.id || (await currentAuthUser())?.id;
+  if (!userId) return logs;
 
   const { data, error } = await supabase
     .from('workout_likes')
     .select('log_id')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .in('log_id', logs.map((log) => log.id));
   if (error) {
     // Like state is auxiliary; keep the feed usable and let LogCard perform a
@@ -790,6 +855,7 @@ export const subscribeToUserProfile = (userId: string, callback: (profile: AppUs
       .then((profile) => {
         if (cachedUser && cachedUser.uid === userId) {
           cachedUser = { ...cachedUser, ...profile };
+          persistCachedUser(cachedUser);
         }
         callback(profile);
       })
@@ -1183,9 +1249,20 @@ export const waitForAuthReady = (timeoutMs = 3000) => new Promise<AppUser | null
         settled = true;
         clearTimeout(timer);
         cachedUser = null;
+        persistCachedUser(null);
         resolve(null);
         return;
       }
+
+      // Fast path: if cachedUser matches current session user, resolve immediately without blocking startup
+      if (cachedUser && (cachedUser.id === user.id || cachedUser.uid === user.id)) {
+        settled = true;
+        clearTimeout(timer);
+        resolve(cachedUser);
+        void ensureUserProfile(user).catch(() => undefined);
+        return;
+      }
+
       ensureUserProfile(user)
         .then((p) => {
           if (settled) return;
@@ -1198,6 +1275,7 @@ export const waitForAuthReady = (timeoutMs = 3000) => new Promise<AppUser | null
           settled = true;
           clearTimeout(timer);
           cachedUser = authOnlyUser(user);
+          persistCachedUser(cachedUser);
           resolve(cachedUser);
         });
     })
@@ -1206,7 +1284,7 @@ export const waitForAuthReady = (timeoutMs = 3000) => new Promise<AppUser | null
       if (!settled) {
         settled = true;
         clearTimeout(timer);
-        resolve(null);
+        resolve(cachedUser);
       }
     });
 });

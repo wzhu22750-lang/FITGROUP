@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import {
   subscribeToPublicWorkoutLogs,
   subscribeToMyWorkoutLogs,
@@ -8,9 +8,26 @@ import {
 } from '../api';
 import { WorkoutLog } from '../types';
 import LogCard from './LogCard';
-import TeamDashboard from './TeamDashboard';
-import { Globe, Users, User as UserIcon, Dumbbell, Activity, Plus } from 'lucide-react';
+import {
+  getCachedPublicLogs,
+  setCachedPublicLogs,
+  getCachedMyLogs,
+  setCachedMyLogs,
+  mergeLogsPreservingIdentity,
+  shouldTriggerPullRefresh,
+  getMonotonicTime,
+  isOptimisticUpdateExpired,
+  stripUpdateMetadata,
+  OptimisticUpdateMetadata,
+} from '../utils/feedCache';
+import { listenAppResume } from '../native';
+import { Globe, Users, User as UserIcon, Dumbbell, Activity, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+
+const TeamDashboard = lazy(() => import('./TeamDashboard'));
+const preloadTeamDashboard = () => {
+  void import('./TeamDashboard');
+};
 
 type FeedTab = 'public' | 'team' | 'my';
 
@@ -22,129 +39,423 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
   const [activeDomain, setActiveDomain] = useState<FeedTab>('public');
   const currentUser = getCurrentUser();
 
-  // Public Feed State
-  const [publicLogs, setPublicLogs] = useState<WorkoutLog[]>([]);
-  const [publicLoading, setPublicLoading] = useState(true);
+  // Public Feed State with SWR local cache
+  const [publicLogs, setPublicLogs] = useState<WorkoutLog[]>(() => getCachedPublicLogs());
+  const [publicLoading, setPublicLoading] = useState(() => getCachedPublicLogs().length === 0);
   const [publicError, setPublicError] = useState('');
 
+  // Inactive tab activation tracking (defer queries until user switches)
+  const [hasActivatedMy, setHasActivatedMy] = useState(false);
+  const [hasActivatedTeam, setHasActivatedTeam] = useState(false);
+
   // My Logs State
-  const [myLogs, setMyLogs] = useState<WorkoutLog[]>([]);
-  const [myLoading, setMyLoading] = useState(true);
+  const [myLogs, setMyLogs] = useState<WorkoutLog[]>(() => {
+    return currentUser ? getCachedMyLogs(currentUser.uid) : [];
+  });
+  const [myLoading, setMyLoading] = useState(false);
   const [myError, setMyError] = useState('');
 
-  const touchY = useRef(0);
-  const recentLogUpdates = useRef<Record<string, Partial<WorkoutLog> & { id: string }>>({});
-  const [refreshing, setRefreshing] = useState(false);
+  // Network offline state detection
+  const [isOffline, setIsOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
 
-  const reconcileRecentUpdates = (logs: WorkoutLog[], domain: 'public' | 'my') => {
+  // Pull-to-refresh touch coordinates and request version tracking
+  const touchY = useRef(0);
+  const touchX = useRef(0);
+  const touchStartScrollY = useRef(0);
+  const publicFetchVersion = useRef(0);
+  const myFetchVersion = useRef(0);
+  const recentLogUpdates = useRef<Record<string, Partial<WorkoutLog> & OptimisticUpdateMetadata>>({});
+  const [refreshing, setRefreshing] = useState(false);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  const reconcileRecentUpdates = useCallback((logs: WorkoutLog[], domain: 'public' | 'my') => {
     return logs
       .filter((log) => {
         const update = recentLogUpdates.current[log.id];
-        return !(domain === 'public' && update?.visibility && update.visibility !== 'public');
+        if (!update) return true;
+        if (isOptimisticUpdateExpired(update)) {
+          delete recentLogUpdates.current[log.id];
+          return true;
+        }
+        if (update._deleted) return false;
+        return !(domain === 'public' && update.visibility && update.visibility !== 'public');
       })
-      .map((log) => ({ ...log, ...(recentLogUpdates.current[log.id] || {}) }));
-  };
+      .map((log) => {
+        const update = recentLogUpdates.current[log.id];
+        if (!update) return log;
+        if (isOptimisticUpdateExpired(update)) {
+          delete recentLogUpdates.current[log.id];
+          return log;
+        }
+        const cleanUpdate = stripUpdateMetadata(update);
+        return { ...log, ...cleanUpdate };
+      });
+  }, []);
 
-  // 1. Subscribe to Public Feed
+  // Silent background revalidation (used by app resume & online reconnect)
+  const revalidateSilently = useCallback(() => {
+    if (activeDomain === 'public') {
+      const pVersion = ++publicFetchVersion.current;
+      void fetchPublicWorkoutLogs()
+        .then((data) => {
+          if (!isMounted.current) return;
+          if (pVersion === publicFetchVersion.current) {
+            const reconciled = reconcileRecentUpdates(data, 'public');
+            setPublicLogs((prev) => {
+              const merged = mergeLogsPreservingIdentity(prev, reconciled);
+              setCachedPublicLogs(merged);
+              return merged;
+            });
+            setPublicError('');
+          }
+        })
+        .catch(() => undefined);
+    } else if (activeDomain === 'my' && currentUser && hasActivatedMy) {
+      const mVersion = ++myFetchVersion.current;
+      void fetchMyWorkoutLogs(currentUser.uid)
+        .then((data) => {
+          if (!isMounted.current) return;
+          if (mVersion === myFetchVersion.current) {
+            const reconciled = reconcileRecentUpdates(data, 'my');
+            setMyLogs((prev) => {
+              const merged = mergeLogsPreservingIdentity(prev, reconciled);
+              setCachedMyLogs(currentUser.uid, merged);
+              return merged;
+            });
+            setMyError('');
+          }
+        })
+        .catch(() => undefined);
+    }
+  }, [activeDomain, currentUser?.uid, hasActivatedMy, reconcileRecentUpdates]);
+
+  // Handle app lifecycle resume (Android Capacitor suspend/resume and window focus)
   useEffect(() => {
-    setPublicLoading(true);
+    return listenAppResume(() => {
+      revalidateSilently();
+    });
+  }, [revalidateSilently]);
+
+  // Handle network reconnection (online/offline transitions)
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOffline(false);
+      revalidateSilently();
+    };
+    const handleOffline = () => {
+      setIsOffline(true);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [revalidateSilently]);
+
+  // 1. Subscribe to Public Feed (background SWR revalidation)
+  useEffect(() => {
+    if (publicLogs.length === 0) {
+      setPublicLoading(true);
+    }
     const unsub = subscribeToPublicWorkoutLogs(
       (data) => {
-        setPublicLogs(reconcileRecentUpdates(data, 'public'));
+        if (!isMounted.current) return;
+        // Bump version so stale in-flight manual fetches don't overwrite realtime data
+        publicFetchVersion.current++;
+        const reconciled = reconcileRecentUpdates(data, 'public');
+        setPublicLogs((prev) => {
+          const merged = mergeLogsPreservingIdentity(prev, reconciled);
+          setCachedPublicLogs(merged);
+          return merged;
+        });
         setPublicLoading(false);
         setPublicError('');
       },
       (err) => {
-        setPublicError(err.message || '广场动态加载失败');
+        if (!isMounted.current) return;
+        setPublicError(err.message || '全员广场动态加载失败');
         setPublicLoading(false);
       }
     );
 
     return () => unsub();
-  }, []);
+  }, [reconcileRecentUpdates]);
 
-  // 2. Subscribe to My Logs Feed
+  // 2. Track activation of 'my' and 'team' domains
   useEffect(() => {
-    if (!currentUser) {
-      setMyLoading(false);
+    if (activeDomain === 'my' && !hasActivatedMy) {
+      setHasActivatedMy(true);
+    }
+    if (activeDomain === 'team' && !hasActivatedTeam) {
+      setHasActivatedTeam(true);
+    }
+  }, [activeDomain, hasActivatedMy, hasActivatedTeam]);
+
+  // 3. Subscribe to My Logs Feed ONLY after activation
+  useEffect(() => {
+    if (!hasActivatedMy || !currentUser) {
       return;
     }
 
-    setMyLoading(true);
+    if (myLogs.length === 0) {
+      const cached = getCachedMyLogs(currentUser.uid);
+      if (cached.length > 0) {
+        setMyLogs(cached);
+      } else {
+        setMyLoading(true);
+      }
+    }
     const unsub = subscribeToMyWorkoutLogs(
       currentUser.uid,
       (data) => {
-        setMyLogs(reconcileRecentUpdates(data, 'my'));
+        if (!isMounted.current) return;
+        myFetchVersion.current++;
+        const reconciled = reconcileRecentUpdates(data, 'my');
+        setMyLogs((prev) => {
+          const merged = mergeLogsPreservingIdentity(prev, reconciled);
+          setCachedMyLogs(currentUser.uid, merged);
+          return merged;
+        });
         setMyLoading(false);
         setMyError('');
       },
       (err) => {
+        if (!isMounted.current) return;
         setMyError(err.message || '个人打卡记录加载失败');
         setMyLoading(false);
       }
     );
 
     return () => unsub();
-  }, [currentUser?.uid]);
+  }, [hasActivatedMy, currentUser?.uid, reconcileRecentUpdates]);
 
-  const handleLogUpdated = (updated?: Partial<WorkoutLog> & { id: string }) => {
+  const handleLogUpdated = useCallback((updated?: Partial<WorkoutLog> & { id: string; _deleted?: boolean }) => {
     if (!updated?.id) {
-      void fetchPublicWorkoutLogs().then((data) => setPublicLogs(data)).catch(() => undefined);
-      if (currentUser) {
-        void fetchMyWorkoutLogs(currentUser.uid).then((data) => setMyLogs(data)).catch(() => undefined);
+      const pVersion = ++publicFetchVersion.current;
+      void fetchPublicWorkoutLogs()
+        .then((data) => {
+          if (!isMounted.current) return;
+          if (pVersion === publicFetchVersion.current) {
+            const reconciled = reconcileRecentUpdates(data, 'public');
+            setPublicLogs((prev) => {
+              const merged = mergeLogsPreservingIdentity(prev, reconciled);
+              setCachedPublicLogs(merged);
+              return merged;
+            });
+          }
+        })
+        .catch(() => undefined);
+      if (currentUser && hasActivatedMy) {
+        const mVersion = ++myFetchVersion.current;
+        void fetchMyWorkoutLogs(currentUser.uid)
+          .then((data) => {
+            if (!isMounted.current) return;
+            if (mVersion === myFetchVersion.current) {
+              const reconciled = reconcileRecentUpdates(data, 'my');
+              setMyLogs((prev) => {
+                const merged = mergeLogsPreservingIdentity(prev, reconciled);
+                setCachedMyLogs(currentUser.uid, merged);
+                return merged;
+              });
+            }
+          })
+          .catch(() => undefined);
       }
       return;
     }
 
-    recentLogUpdates.current[updated.id] = updated;
+    const nowMonotonic = getMonotonicTime();
+    const nowWallClock = Date.now();
+    const existing = recentLogUpdates.current[updated.id] || { id: updated.id };
+    const merged: Partial<WorkoutLog> & OptimisticUpdateMetadata = {
+      ...existing,
+      ...updated,
+      _monotonicAt: nowMonotonic,
+      _wallClockAt: nowWallClock,
+      _updatedAt: nowWallClock,
+    };
+    recentLogUpdates.current[updated.id] = merged;
+
     window.setTimeout(() => {
-      delete recentLogUpdates.current[updated.id];
+      if (recentLogUpdates.current[updated.id]?._monotonicAt === nowMonotonic) {
+        delete recentLogUpdates.current[updated.id];
+      }
     }, 30_000);
 
-    setPublicLogs((prev) => {
-      if (updated.visibility && updated.visibility !== 'public') {
-        return prev.filter((log) => log.id !== updated.id);
-      }
-      return prev.map((log) => (log.id === updated.id ? { ...log, ...updated } : log));
-    });
-    setMyLogs((prev) =>
-      prev.map((log) => (log.id === updated.id ? { ...log, ...updated } : log))
-    );
+    const cleanMerged = stripUpdateMetadata(merged);
 
-    // Reconcile the response with the just-confirmed row so a briefly stale
-    // read replica cannot overwrite the successful edit with old values.
+    // Optimistic deletion
+    if (updated._deleted) {
+      setPublicLogs((prev) => {
+        const next = prev.filter((log) => log.id !== updated.id);
+        setCachedPublicLogs(next);
+        return next;
+      });
+      setMyLogs((prev) => {
+        const next = prev.filter((log) => log.id !== updated.id);
+        if (currentUser) {
+          setCachedMyLogs(currentUser.uid, next);
+        }
+        return next;
+      });
+      return;
+    }
+
+    setPublicLogs((prev) => {
+      let next: WorkoutLog[];
+      if (merged.visibility && merged.visibility !== 'public') {
+        next = prev.filter((log) => log.id !== updated.id);
+      } else {
+        next = prev.map((log) => (log.id === updated.id ? { ...log, ...cleanMerged } : log));
+      }
+      setCachedPublicLogs(next);
+      return next;
+    });
+
+    setMyLogs((prev) => {
+      const next = prev.map((log) => (log.id === updated.id ? { ...log, ...cleanMerged } : log));
+      if (currentUser) {
+        setCachedMyLogs(currentUser.uid, next);
+      }
+      return next;
+    });
+
+    // Reconcile in the background with version check to prevent out-of-order overwrite
+    const pVersion = ++publicFetchVersion.current;
     void fetchPublicWorkoutLogs()
-      .then((data) => setPublicLogs(reconcileRecentUpdates(data, 'public')))
+      .then((data) => {
+        if (!isMounted.current) return;
+        if (pVersion === publicFetchVersion.current) {
+          const reconciled = reconcileRecentUpdates(data, 'public');
+          setPublicLogs((prev) => {
+            const preserved = mergeLogsPreservingIdentity(prev, reconciled);
+            setCachedPublicLogs(preserved);
+            return preserved;
+          });
+        }
+      })
       .catch(() => undefined);
-    if (currentUser) {
+    if (currentUser && hasActivatedMy) {
+      const mVersion = ++myFetchVersion.current;
       void fetchMyWorkoutLogs(currentUser.uid)
-        .then((data) => setMyLogs(reconcileRecentUpdates(data, 'my')))
+        .then((data) => {
+          if (!isMounted.current) return;
+          if (mVersion === myFetchVersion.current) {
+            const reconciled = reconcileRecentUpdates(data, 'my');
+            setMyLogs((prev) => {
+              const preserved = mergeLogsPreservingIdentity(prev, reconciled);
+              setCachedMyLogs(currentUser.uid, preserved);
+              return preserved;
+            });
+          }
+        })
         .catch(() => undefined);
     }
-  };
+  }, [currentUser?.uid, hasActivatedMy, reconcileRecentUpdates]);
 
   const handlePullRefresh = () => {
+    if (refreshing) return;
     setRefreshing(true);
+
+    // Safety fallback: ensure refreshing spinner is guaranteed to dismiss
+    const safetyTimer = window.setTimeout(() => {
+      if (isMounted.current) setRefreshing(false);
+    }, 8000);
+    const finishRefresh = () => {
+      window.clearTimeout(safetyTimer);
+      if (isMounted.current) {
+        setRefreshing(false);
+      }
+    };
+
     if (activeDomain === 'public') {
+      const pVersion = ++publicFetchVersion.current;
       void fetchPublicWorkoutLogs()
-        .then((data) => setPublicLogs(data))
-        .finally(() => setRefreshing(false));
+        .then((data) => {
+          if (!isMounted.current) return;
+          if (pVersion === publicFetchVersion.current) {
+            const reconciled = reconcileRecentUpdates(data, 'public');
+            setPublicLogs((prev) => {
+              const merged = mergeLogsPreservingIdentity(prev, reconciled);
+              setCachedPublicLogs(merged);
+              return merged;
+            });
+            setPublicError('');
+          }
+        })
+        .catch((err) => {
+          console.warn('Public pull refresh error:', err);
+        })
+        .finally(finishRefresh);
     } else if (activeDomain === 'my' && currentUser) {
+      const mVersion = ++myFetchVersion.current;
       void fetchMyWorkoutLogs(currentUser.uid)
-        .then((data) => setMyLogs(data))
-        .finally(() => setRefreshing(false));
+        .then((data) => {
+          if (!isMounted.current) return;
+          if (mVersion === myFetchVersion.current) {
+            const reconciled = reconcileRecentUpdates(data, 'my');
+            setMyLogs((prev) => {
+              const merged = mergeLogsPreservingIdentity(prev, reconciled);
+              setCachedMyLogs(currentUser.uid, merged);
+              return merged;
+            });
+            setMyError('');
+          }
+        })
+        .catch((err) => {
+          console.warn('My logs pull refresh error:', err);
+        })
+        .finally(finishRefresh);
     } else {
-      setTimeout(() => setRefreshing(false), 500);
+      setTimeout(finishRefresh, 400);
     }
   };
 
   return (
     <div
       className="space-y-5"
-      onTouchStart={(e) => { touchY.current = e.touches[0].clientY; }}
+      onTouchStart={(e) => {
+        if (e.touches.length === 1) {
+          touchY.current = e.touches[0].clientY;
+          touchX.current = e.touches[0].clientX;
+          touchStartScrollY.current = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+        }
+      }}
+      onTouchCancel={() => {
+        touchY.current = 0;
+        touchX.current = 0;
+        touchStartScrollY.current = 0;
+      }}
       onTouchEnd={(e) => {
-        if (e.changedTouches[0].clientY - touchY.current > 80 && window.scrollY < 10) {
-          handlePullRefresh();
+        if (touchY.current > 0 && e.changedTouches.length > 0) {
+          const scrollY = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+          const shouldRefresh = shouldTriggerPullRefresh({
+            touchStartY: touchY.current,
+            touchStartX: touchX.current,
+            touchEndY: e.changedTouches[0].clientY,
+            touchEndX: e.changedTouches[0].clientX,
+            touchStartScrollY: touchStartScrollY.current,
+            scrollY,
+            refreshing,
+            viewportHeight: window.innerHeight,
+          });
+          touchY.current = 0;
+          touchX.current = 0;
+          touchStartScrollY.current = 0;
+
+          if (shouldRefresh) {
+            handlePullRefresh();
+          }
         }
       }}
     >
@@ -166,6 +477,8 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
         <button
           type="button"
           onClick={() => setActiveDomain('team')}
+          onMouseEnter={preloadTeamDashboard}
+          onTouchStart={preloadTeamDashboard}
           className={`py-2.5 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
             activeDomain === 'team'
               ? 'bg-neon text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
@@ -189,6 +502,19 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
           <span>我的打卡</span>
         </button>
       </div>
+
+      {/* Offline Status Banner */}
+      {isOffline && (
+        <div className="bg-amber-100 border-2 border-amber-600 text-amber-900 px-3 py-2 text-xs font-bold flex items-center justify-between shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+          <div className="flex items-center gap-2">
+            <WifiOff size={16} className="text-amber-700 shrink-0" />
+            <span>离线模式：正在显示本地缓存动态</span>
+          </div>
+          <span className="text-[10px] uppercase font-black tracking-wider bg-amber-200 px-1.5 py-0.5 rounded border border-amber-400">
+            本地缓存
+          </span>
+        </div>
+      )}
 
       {refreshing && (
         <div className="text-center py-2">
@@ -244,18 +570,6 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
           </motion.div>
         )}
 
-        {/* Domain 2: 👥 好友小队 */}
-        {activeDomain === 'team' && (
-          <motion.div
-            key="team-domain"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-          >
-            <TeamDashboard />
-          </motion.div>
-        )}
-
         {/* Domain 3: 👤 我的打卡 (个人训练历史管理主要入口) */}
         {activeDomain === 'my' && (
           <motion.div
@@ -300,6 +614,20 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Domain 2: 👥 好友小队 (Deferred until activated; retained mounted to prevent tearing down subscriptions) */}
+      {hasActivatedTeam && (
+        <div className={activeDomain === 'team' ? 'block' : 'hidden'}>
+          <Suspense fallback={
+            <div className="py-16 text-center space-y-3">
+              <Activity size={32} className="text-ink animate-spin inline-block" />
+              <p className="font-black text-xs uppercase tracking-widest text-ink/60">加载小队数据中...</p>
+            </div>
+          }>
+            <TeamDashboard onLogUpdated={handleLogUpdated} />
+          </Suspense>
+        </div>
+      )}
     </div>
   );
 }

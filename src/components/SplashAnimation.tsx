@@ -29,23 +29,23 @@ export default function SplashAnimation({ onComplete }: SplashAnimationProps) {
   // Click to dismiss immediately
   const handleDismiss = useCallback(() => {
     setStage(3);
-    setTimeout(finish, 180);
+    setTimeout(finish, 120);
   }, [finish]);
 
   useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
 
-    // Stage 1: Icon pops in (150ms)
-    timers.push(setTimeout(() => setStage(1), 120));
+    // Stage 1: Icon pops in (100ms)
+    timers.push(setTimeout(() => setStage(1), 100));
 
-    // Stage 2: FuzzyText & Tagline reveal (400ms)
-    timers.push(setTimeout(() => setStage(2), 400));
+    // Stage 2: FuzzyText & Tagline reveal (300ms)
+    timers.push(setTimeout(() => setStage(2), 300));
 
-    // Stage 3: Smooth exit transition (1350ms)
-    timers.push(setTimeout(() => setStage(3), 1350));
+    // Stage 3: Smooth exit transition (950ms)
+    timers.push(setTimeout(() => setStage(3), 950));
 
-    // Complete callback (1550ms)
-    timers.push(setTimeout(finish, 1550));
+    // Complete callback (1150ms)
+    timers.push(setTimeout(finish, 1150));
 
     return () => timers.forEach(clearTimeout);
   }, [finish]);
@@ -54,11 +54,13 @@ export default function SplashAnimation({ onComplete }: SplashAnimationProps) {
     <AnimatePresence>
       {stage < 3 && (
         <motion.div
-          className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black text-white select-none cursor-pointer"
+          className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black text-white select-none cursor-pointer ${
+            stage >= 3 ? 'pointer-events-none' : ''
+          }`}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0, scale: 0.98 }}
-          transition={{ duration: 0.22, ease: 'easeOut' }}
+          exit={{ opacity: 0, scale: 0.98, pointerEvents: 'none' }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
           onClick={handleDismiss}
         >
           <div className="flex flex-col items-center gap-5">

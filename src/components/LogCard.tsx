@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import {
   getCurrentUser,
   toggleLike,
@@ -59,17 +59,17 @@ function formatCompactTime(timestamp?: string): string {
 
 interface LogCardProps {
   log: WorkoutLog;
-  onLogUpdated?: (updated?: Partial<WorkoutLog> & { id: string }) => void;
+  onLogUpdated?: (updated?: Partial<WorkoutLog> & { id: string; _deleted?: boolean }) => void;
 }
 
-export default function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
+function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
   const [currentLog, setCurrentLog] = useState<WorkoutLog>(initialLog);
-  const [hasLiked, setHasLiked] = useState(false);
+  const [hasLiked, setHasLiked] = useState(() => Boolean(initialLog.isLiked));
   const [liking, setLiking] = useState(false);
-  const [likesCount, setLikesCount] = useState(Number(initialLog.likesCount) || 0);
+  const [likesCount, setLikesCount] = useState(() => Number(initialLog.likesCount) || 0);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<any[]>([]);
-  const [commentsCount, setCommentsCount] = useState(Number(initialLog.commentsCount) || 0);
+  const [commentsCount, setCommentsCount] = useState(() => Number(initialLog.commentsCount) || 0);
   const [commentText, setCommentText] = useState('');
   const [sending, setSending] = useState(false);
   const [commentError, setCommentError] = useState('');
@@ -128,7 +128,7 @@ export default function LogCard({ log: initialLog, onLogUpdated }: LogCardProps)
     setDeleting(true);
     try {
       await deleteWorkoutLog(currentLog.id);
-      onLogUpdated?.();
+      onLogUpdated?.({ id: currentLog.id, _deleted: true });
     } catch (e) {
       console.error('Delete failed:', e);
       setDeleting(false);
@@ -142,16 +142,22 @@ export default function LogCard({ log: initialLog, onLogUpdated }: LogCardProps)
     setLiking(true);
     const prevLiked = hasLiked;
     const nextLiked = !prevLiked;
+    const nextLikesCount = Math.max(0, likesCount + (nextLiked ? 1 : -1));
 
     setHasLiked(nextLiked);
-    setLikesCount((prev) => Math.max(0, prev + (nextLiked ? 1 : -1)));
+    setLikesCount(nextLikesCount);
+    setCurrentLog((prev) => ({ ...prev, isLiked: nextLiked, likesCount: nextLikesCount }));
+    onLogUpdated?.({ id: currentLog.id, isLiked: nextLiked, likesCount: nextLikesCount });
 
     try {
       await toggleLike(currentLog.id, user.uid, prevLiked);
     } catch (err) {
       console.error('Like failed:', err);
+      const rollbackCount = Math.max(0, nextLikesCount + (prevLiked ? 1 : -1));
       setHasLiked(prevLiked);
-      setLikesCount((prev) => Math.max(0, prev + (prevLiked ? 1 : -1)));
+      setLikesCount(rollbackCount);
+      setCurrentLog((prev) => ({ ...prev, isLiked: prevLiked, likesCount: rollbackCount }));
+      onLogUpdated?.({ id: currentLog.id, isLiked: prevLiked, likesCount: rollbackCount });
     } finally {
       setLiking(false);
     }
@@ -172,7 +178,10 @@ export default function LogCard({ log: initialLog, onLogUpdated }: LogCardProps)
         textToSend
       );
       setCommentText('');
-      setCommentsCount((prev) => prev + 1);
+      const nextCommentsCount = commentsCount + 1;
+      setCommentsCount(nextCommentsCount);
+      setCurrentLog((prev) => ({ ...prev, commentsCount: nextCommentsCount }));
+      onLogUpdated?.({ id: currentLog.id, commentsCount: nextCommentsCount });
     } catch (e) {
       console.error('Comment failed:', e);
       setCommentError('评论发送失败，请重试');
@@ -205,10 +214,8 @@ export default function LogCard({ log: initialLog, onLogUpdated }: LogCardProps)
   const vis: WorkoutVisibility = currentLog.visibility || 'public';
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] mb-6 overflow-hidden"
+    <div
+      className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] mb-6 overflow-hidden transform-gpu"
     >
       <div className="p-4 sm:p-5">
         {/* Author Header */}
@@ -465,6 +472,30 @@ export default function LogCard({ log: initialLog, onLogUpdated }: LogCardProps)
           />
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }
+
+function areLogCardPropsEqual(prev: LogCardProps, next: LogCardProps): boolean {
+  if (prev.onLogUpdated !== next.onLogUpdated) return false;
+  const p = prev.log;
+  const n = next.log;
+  if (p === n) return true;
+  return (
+    p.id === n.id &&
+    p.likesCount === n.likesCount &&
+    p.commentsCount === n.commentsCount &&
+    p.isLiked === n.isLiked &&
+    p.visibility === n.visibility &&
+    p.category === n.category &&
+    (p.categories === n.categories || JSON.stringify(p.categories) === JSON.stringify(n.categories)) &&
+    p.timestamp === n.timestamp &&
+    p.userName === n.userName &&
+    p.userPhoto === n.userPhoto &&
+    p.photoUrl === n.photoUrl &&
+    p.note === n.note &&
+    (p.exercises === n.exercises || JSON.stringify(p.exercises) === JSON.stringify(n.exercises))
+  );
+}
+
+export default memo(LogCard, areLogCardPropsEqual);

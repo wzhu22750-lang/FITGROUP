@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback, ReactNode, lazy, Suspense } from 'react';
-import { logout, onAuthStateChangedFn, waitForAuthReady, subscribeToNotifications } from './api';
+import { logout, onAuthStateChangedFn, waitForAuthReady, subscribeToNotifications, getCurrentUser } from './api';
 import { supabaseConfigError } from './lib/supabase';
 import { exitApp, hideSplash, listenAndroidBack } from './native';
 import {
@@ -18,9 +18,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { AppNotification } from './types';
+import Feed from './components/Feed';
 
 const AuthScreen = lazy(() => import('./components/AuthScreen'));
-const Feed = lazy(() => import('./components/Feed'));
 const WorkoutLogger = lazy(() => import('./components/WorkoutLogger'));
 const Statistics = lazy(() => import('./components/Statistics'));
 const Profile = lazy(() => import('./components/Profile'));
@@ -30,17 +30,34 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider } from './components/Toast';
 
 export default function App() {
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(!supabaseConfigError);
+  const [user, setUser] = useState<any>(() => getCurrentUser());
+  const [loading, setLoading] = useState(() => !supabaseConfigError && !getCurrentUser());
   const [activeTab, setActiveTab] = useState<'feed' | 'log' | 'stats' | 'profile'>('feed');
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
-  const [showSplash, setShowSplash] = useState(!supabaseConfigError);
+  const [showSplash, setShowSplash] = useState(() => {
+    if (supabaseConfigError) return false;
+    try {
+      if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('fitgroup_splash_shown')) {
+        return false;
+      }
+    } catch {
+      // Storage access restricted in sandbox/privacy mode
+    }
+    return true;
+  });
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
 
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false);
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('fitgroup_splash_shown', '1');
+      }
+    } catch {
+      // ignore
+    }
   }, []);
 
 
@@ -52,7 +69,11 @@ export default function App() {
 
     waitForAuthReady()
       .then((next) => {
-        setUser(next);
+        if (next) {
+          setUser(next);
+        } else if (!getCurrentUser()) {
+          setUser(null);
+        }
       })
       .catch((err) => {
         console.error('waitForAuthReady error:', err);
@@ -82,6 +103,18 @@ export default function App() {
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
+  const preloadLog = useCallback(() => { void import('./components/WorkoutLogger'); }, []);
+  const preloadStats = useCallback(() => { void import('./components/Statistics'); }, []);
+  const preloadProfile = useCallback(() => { void import('./components/Profile'); }, []);
+
+  useEffect(() => {
+    // Idle preloading: warm up WorkoutLogger chunk after initial feed render
+    const timer = setTimeout(() => {
+      preloadLog();
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [preloadLog]);
+
   useEffect(() => {
     return listenAndroidBack(() => {
       if (!user) {
@@ -108,7 +141,7 @@ export default function App() {
     );
   }
 
-  if (showSplash || loading) {
+  if (loading && !user) {
     return (
       <>
         <div className="flex items-center justify-center min-h-screen bg-paper">
@@ -131,19 +164,31 @@ export default function App() {
 
   if (!user) {
     return (
-      <Suspense fallback={
-        <div className="flex items-center justify-center min-h-screen bg-paper">
-          <Activity size={32} className="text-ink animate-spin" />
-        </div>
-      }>
-        <AuthScreen />
-      </Suspense>
+      <>
+        {showSplash && (
+          <Suspense fallback={null}>
+            <SplashAnimation onComplete={handleSplashComplete} />
+          </Suspense>
+        )}
+        <Suspense fallback={
+          <div className="flex items-center justify-center min-h-screen bg-paper">
+            <Activity size={32} className="text-ink animate-spin" />
+          </div>
+        }>
+          <AuthScreen />
+        </Suspense>
+      </>
     );
   }
 
   return (
     <ErrorBoundary>
       <ToastProvider>
+        {showSplash && (
+          <Suspense fallback={null}>
+            <SplashAnimation onComplete={handleSplashComplete} />
+          </Suspense>
+        )}
         <div className="app-shell min-h-screen bg-paper max-w-lg mx-auto border-x-4 border-ink relative">
       <header className="app-header sticky top-0 z-30 bg-paper border-b-4 border-ink flex items-center justify-between px-6 pb-4">
         <div className="flex items-center gap-2">
@@ -234,9 +279,9 @@ export default function App() {
       <nav className="app-tabbar fixed bottom-0 left-0 right-0 bg-white border-t-4 border-ink px-2 pt-3 flex items-center justify-around max-w-[calc(32rem-8px)] mx-auto z-40">
 
         <NavButton active={activeTab === 'feed'} onClick={() => setActiveTab('feed')} icon={<Layout size={24} />} label="发现" />
-        <NavButton active={activeTab === 'log'} onClick={() => setActiveTab('log')} icon={<Dumbbell size={24} />} label="打卡" />
-        <NavButton active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} icon={<BarChart3 size={24} />} label="统计" />
-        <NavButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} icon={<UserIcon size={24} />} label="我的" />
+        <NavButton active={activeTab === 'log'} onClick={() => setActiveTab('log')} onPreload={preloadLog} icon={<Dumbbell size={24} />} label="打卡" />
+        <NavButton active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} onPreload={preloadStats} icon={<BarChart3 size={24} />} label="统计" />
+        <NavButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} onPreload={preloadProfile} icon={<UserIcon size={24} />} label="我的" />
       </nav>
     </div>
     </ToastProvider>
@@ -244,10 +289,24 @@ export default function App() {
   );
 }
 
-function NavButton({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: ReactNode, label: string }) {
+function NavButton({
+  active,
+  onClick,
+  onPreload,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  onPreload?: () => void;
+  icon: ReactNode;
+  label: string;
+}) {
   return (
     <button 
       onClick={onClick}
+      onMouseEnter={onPreload}
+      onTouchStart={onPreload}
       className={`flex flex-col items-center gap-1 transition-all cursor-pointer px-4 py-1 border-2 border-transparent ${
         active 
           ? 'bg-neon text-black border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] font-black' 

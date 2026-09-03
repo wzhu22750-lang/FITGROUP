@@ -64,6 +64,53 @@ export function listenAndroidBack(onUnhandled: () => void) {
   };
 }
 
+export function listenAppResume(onResume: () => void): () => void {
+  const cleanups: (() => void)[] = [];
+
+  if (isNative()) {
+    const handle = App.addListener('appStateChange', (state) => {
+      if (state.isActive) {
+        onResume();
+      }
+    });
+    cleanups.push(() => {
+      void handle.then((listener) => listener.remove());
+    });
+  }
+
+  const handleVisibility = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      onResume();
+    }
+  };
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleVisibility);
+    document.addEventListener('resume', onResume);
+    cleanups.push(() => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      document.removeEventListener('resume', onResume);
+    });
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('focus', onResume);
+    cleanups.push(() => {
+      window.removeEventListener('focus', onResume);
+    });
+  }
+
+  return () => {
+    cleanups.forEach((fn) => {
+      try {
+        fn();
+      } catch {
+        // ignore
+      }
+    });
+  };
+}
+
 export async function hideSplash() {
   if (!isNative()) return;
   try {
