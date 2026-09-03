@@ -16,6 +16,7 @@ import {
   inferLogCategories,
 } from '../constants/workoutPresets';
 import { resolveEffectiveExerciseWeight } from '../utils/workoutAnalytics';
+import { formatWorkoutLogError } from '../utils/workoutLogUpdate';
 import {
   Plus,
   Trash2,
@@ -344,40 +345,8 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       }
     }
 
-    const sanitizedExercises: Exercise[] = exercises.map((ex) => {
-      const isStrength = ex.type === 'strength';
-      const cleanId = String(ex.id || Math.random().toString(36).slice(2, 11)).slice(0, 64);
-      const cleanName = ex.name.trim().slice(0, 80) || (isStrength ? '力量训练' : '有氧运动');
 
-      if (isStrength) {
-        const weightVal = Math.max(-500, Math.min(2000, Number.isFinite(Number(ex.weight)) ? Number(ex.weight) : 0));
-        const setsVal = Math.max(1, Math.min(100, Math.round(Number(ex.sets)) || 4));
-        const repsVal = Math.max(1, Math.min(1000, Math.round(Number(ex.reps)) || 10));
-        return {
-          id: cleanId,
-          name: cleanName,
-          type: 'strength',
-          weight: weightVal,
-          sets: setsVal,
-          reps: repsVal,
-        };
-      } else {
-        const durationVal = Math.max(0, Math.min(1440, Math.round(Number(ex.duration)) || 0));
-        const distanceVal = Math.max(0, Math.min(1000, Number.isFinite(Number(ex.distance)) ? Number(ex.distance) : 0));
-        const caloriesVal = Math.max(0, Math.min(20000, Math.round(Number(ex.calories)) || 0));
-        return {
-          id: cleanId,
-          name: cleanName,
-          type: 'cardio',
-          duration: durationVal,
-          distance: distanceVal,
-          calories: caloriesVal,
-          caloriesSource: ex.caloriesSource ?? (caloriesVal > 0 ? 'reported' : undefined),
-        };
-      }
-    });
-
-    const finalCategories = inferLogCategories('', selectedCategories, sanitizedExercises);
+    const finalCategories = inferLogCategories('', selectedCategories, exercises);
 
     setIsSubmitting(true);
     try {
@@ -388,7 +357,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
         userPhoto: user.photoURL || '',
         category: finalCategories.join(', '),
         categories: finalCategories,
-        exercises: sanitizedExercises,
+        exercises,
         note,
         visibility,
         likesCount: 0,
@@ -400,7 +369,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       if (userProfile) {
         const currentPrs = userProfile.prs || {};
         let prBroken = false;
-        sanitizedExercises.forEach((ex) => {
+        exercises.forEach((ex) => {
           if (ex.type === 'strength' && typeof ex.weight === 'number') {
             const effectiveW = resolveEffectiveExerciseWeight(ex.name, ex.weight, userWeight);
             if (currentPrs[ex.name] === undefined || effectiveW > currentPrs[ex.name]) {
@@ -423,7 +392,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       onSuccess();
     } catch (error) {
       console.error('保存失败:', error);
-      showToast((error as Error)?.message || '保存失败，请重试');
+      showToast(formatWorkoutLogError(error));
     } finally {
       setIsSubmitting(false);
     }

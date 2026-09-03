@@ -36,6 +36,8 @@ export interface WorkoutLog {
   note?: string;
   likesCount: number;
   commentsCount: number;
+  /** Current user's like state when loaded in a feed; omitted when not requested. */
+  isLiked?: boolean;
   visibility?: WorkoutVisibility;
 }
 

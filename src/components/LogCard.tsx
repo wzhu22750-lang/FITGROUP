@@ -65,6 +65,7 @@ interface LogCardProps {
 export default function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
   const [currentLog, setCurrentLog] = useState<WorkoutLog>(initialLog);
   const [hasLiked, setHasLiked] = useState(false);
+  const [liking, setLiking] = useState(false);
   const [likesCount, setLikesCount] = useState(Number(initialLog.likesCount) || 0);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<any[]>([]);
@@ -84,22 +85,28 @@ export default function LogCard({ log: initialLog, onLogUpdated }: LogCardProps)
   // Sync prop changes
   useEffect(() => {
     setCurrentLog(initialLog);
+    setHasLiked(initialLog.isLiked ?? false);
     setLikesCount(Number(initialLog.likesCount) || 0);
     setCommentsCount(Number(initialLog.commentsCount) || 0);
   }, [initialLog]);
 
   useEffect(() => {
+    if (currentLog.isLiked !== undefined) return;
     const user = getCurrentUser();
     if (!user || !currentLog.id) return;
     checkUserLike(currentLog.id, user.uid).then(setHasLiked).catch(() => undefined);
-  }, [currentLog.id]);
+  }, [currentLog.id, currentLog.isLiked]);
 
   useEffect(() => {
     if (!showComments || !currentLog.id) return;
-    const unsub = subscribeToComments(currentLog.id, (data) => {
-      setComments(data as any[]);
-      setCommentsCount(Array.isArray(data) ? data.length : 0);
-    });
+    const unsub = subscribeToComments(
+      currentLog.id,
+      (data) => {
+        setComments(data as any[]);
+        setCommentsCount(Array.isArray(data) ? data.length : 0);
+      },
+      (error) => setCommentError(error.message || '评论加载失败，请重试'),
+    );
     return () => unsub();
   }, [showComments, currentLog.id]);
 
@@ -131,7 +138,8 @@ export default function LogCard({ log: initialLog, onLogUpdated }: LogCardProps)
 
   const handleToggleLike = async () => {
     const user = getCurrentUser();
-    if (!user || !currentLog.id) return;
+    if (!user || !currentLog.id || liking) return;
+    setLiking(true);
     const prevLiked = hasLiked;
     const nextLiked = !prevLiked;
 
@@ -144,12 +152,14 @@ export default function LogCard({ log: initialLog, onLogUpdated }: LogCardProps)
       console.error('Like failed:', err);
       setHasLiked(prevLiked);
       setLikesCount((prev) => Math.max(0, prev + (prevLiked ? 1 : -1)));
+    } finally {
+      setLiking(false);
     }
   };
 
   const handleSendComment = async () => {
     const user = getCurrentUser();
-    if (!user || !currentLog.id || !commentText.trim()) return;
+    if (!user || !currentLog.id || !commentText.trim() || sending) return;
     setSending(true);
     setCommentError('');
     const textToSend = commentText.trim();
@@ -344,6 +354,7 @@ export default function LogCard({ log: initialLog, onLogUpdated }: LogCardProps)
           <div className="flex items-center gap-2">
             <button
               onClick={handleToggleLike}
+              disabled={liking}
               className={`flex items-center gap-2 text-xs font-black px-3 py-1 border-2 border-ink transition-all cursor-pointer ${
                 hasLiked
                   ? 'bg-ink text-neon'

@@ -26,6 +26,69 @@ function getProjectRef(): string {
 const PROJECT_REF = getProjectRef();
 const ACCESS_TOKEN = (process.env.SUPABASE_ACCESS_TOKEN || '').trim();
 
+const WORKOUT_LOG_SCHEMA_CHECK_SQL = `
+select
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'workout_logs' and column_name = 'visibility'
+  ) as has_visibility_column,
+  coalesce(
+    pg_get_functiondef(to_regprocedure('public.is_valid_exercise(jsonb)')) like '%caloriesSource%',
+    false
+  ) as supports_calories_source,
+  coalesce(
+    pg_get_functiondef(to_regprocedure('public.is_valid_exercise(jsonb)')) like '%between -500 and 2000%',
+    false
+  ) as supports_negative_weight,
+  exists (
+    select 1 from pg_constraint c
+    join pg_class t on t.oid = c.conrelid
+    join pg_namespace n on n.oid = t.relnamespace
+    where n.nspname = 'public'
+      and t.relname = 'workout_logs'
+      and c.conname = 'workout_logs_exercises_check'
+      and pg_get_constraintdef(c.oid) like '%is_valid_exercises%'
+  ) as has_exercises_check,
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'workout_logs'
+      and policyname = 'workout_logs_update'
+      and cmd = 'UPDATE'
+      and qual like '%user_id = auth.uid()%'
+      and with_check like '%user_id = auth.uid()%'
+  ) as has_owner_update_policy,
+  has_column_privilege('authenticated', 'public.workout_logs', 'exercises', 'UPDATE') as exercises_update_grant,
+  has_column_privilege('authenticated', 'public.workout_logs', 'visibility', 'UPDATE') as visibility_update_grant,
+  to_regclass('supabase_migrations.schema_migrations') is not null as has_migration_history,
+  to_regclass('public.public_profiles') is not null as has_public_profiles_view,
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'profiles'
+      and policyname = 'profiles_select'
+      and qual like '%id = auth.uid()%'
+  ) as profiles_owner_only,
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'workout_likes'
+      and policyname = 'workout_likes_select'
+      and qual like '%can_view_workout_log%'
+  ) as likes_follow_visibility,
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'workout_comments'
+      and policyname = 'workout_comments_select'
+      and qual like '%can_view_workout_log%'
+  ) as comments_follow_visibility,
+  not has_table_privilege('anon', 'public.feedbacks', 'INSERT') as anon_feedback_insert_revoked,
+  not has_table_privilege('authenticated', 'public.teams', 'INSERT') as direct_team_insert_revoked,
+  not has_table_privilege('authenticated', 'public.team_members', 'INSERT') as direct_member_insert_revoked,
+  not has_function_privilege('anon', 'public.join_team_by_code(text)', 'EXECUTE') as anon_team_rpc_revoked;
+`;
+
 async function executeSqlViaManagementApi(sql: string): Promise<any> {
   if (!ACCESS_TOKEN) {
     throw new Error(
@@ -35,22 +98,35 @@ async function executeSqlViaManagementApi(sql: string): Promise<any> {
   }
 
   const url = `https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${ACCESS_TOKEN}`,
-    },
-    body: JSON.stringify({ query: sql }),
-  });
+  let lastError: unknown;
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Supabase Management API 错误 (${response.status}): ${text}`);
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${ACCESS_TOKEN}`,
+        },
+        body: JSON.stringify({ query: sql }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Supabase Management API 错误 (${response.status}): ${text}`);
+      }
+
+      const result = await response.json().catch(() => null);
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+      }
+    }
   }
 
-  const result = await response.json().catch(() => null);
-  return result;
+  throw lastError instanceof Error ? lastError : new Error('Supabase Management API 请求失败');
 }
 
 async function main() {
@@ -80,8 +156,35 @@ Supabase Admin CLI - 数据库自动化执行工具
         const res = await executeSqlViaManagementApi('SELECT version();');
         console.log('✅ Supabase 数据库连接与权限验证成功！');
         console.log('数据库版本:', res);
+        const schemaResult = await executeSqlViaManagementApi(WORKOUT_LOG_SCHEMA_CHECK_SQL);
+        const schema = schemaResult?.[0] || {};
+        const requiredChecks = [
+          'has_visibility_column',
+          'supports_calories_source',
+          'supports_negative_weight',
+          'has_exercises_check',
+          'has_owner_update_policy',
+          'exercises_update_grant',
+          'visibility_update_grant',
+          'has_public_profiles_view',
+          'profiles_owner_only',
+          'likes_follow_visibility',
+          'comments_follow_visibility',
+          'anon_feedback_insert_revoked',
+          'direct_team_insert_revoked',
+          'direct_member_insert_revoked',
+          'anon_team_rpc_revoked',
+        ];
+        const schemaOk = requiredChecks.every((key) => schema[key] === true);
+        console.log(`Workout log schema: ${schemaOk ? '✅ 已满足当前 main 合约' : '❌ 与当前 main 合约不一致'}`);
+        console.log('Workout log schema details:', schema);
+        if (schema.has_migration_history !== true) {
+          console.warn('⚠️ 未发现 Supabase CLI migration history；不要使用无历史记录的 --apply-all 作为生产同步方案，请用 supabase db push / migration list 核对后再执行。');
+        }
+        if (!schemaOk) process.exitCode = 2;
       } catch (err: any) {
-        console.error('❌ 连接失败:', err.message);
+        console.error('❌ 连接或 schema 校验失败:', err.message);
+        process.exitCode = 1;
       }
     }
     return;

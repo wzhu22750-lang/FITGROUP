@@ -33,14 +33,24 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
   const [myError, setMyError] = useState('');
 
   const touchY = useRef(0);
+  const recentLogUpdates = useRef<Record<string, Partial<WorkoutLog> & { id: string }>>({});
   const [refreshing, setRefreshing] = useState(false);
+
+  const reconcileRecentUpdates = (logs: WorkoutLog[], domain: 'public' | 'my') => {
+    return logs
+      .filter((log) => {
+        const update = recentLogUpdates.current[log.id];
+        return !(domain === 'public' && update?.visibility && update.visibility !== 'public');
+      })
+      .map((log) => ({ ...log, ...(recentLogUpdates.current[log.id] || {}) }));
+  };
 
   // 1. Subscribe to Public Feed
   useEffect(() => {
     setPublicLoading(true);
     const unsub = subscribeToPublicWorkoutLogs(
       (data) => {
-        setPublicLogs(data);
+        setPublicLogs(reconcileRecentUpdates(data, 'public'));
         setPublicLoading(false);
         setPublicError('');
       },
@@ -64,7 +74,7 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
     const unsub = subscribeToMyWorkoutLogs(
       currentUser.uid,
       (data) => {
-        setMyLogs(data);
+        setMyLogs(reconcileRecentUpdates(data, 'my'));
         setMyLoading(false);
         setMyError('');
       },
@@ -78,20 +88,37 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
   }, [currentUser?.uid]);
 
   const handleLogUpdated = (updated?: Partial<WorkoutLog> & { id: string }) => {
-    if (updated?.id) {
-      setPublicLogs((prev) =>
-        prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l))
-      );
-      setMyLogs((prev) =>
-        prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l))
-      );
+    if (!updated?.id) {
+      void fetchPublicWorkoutLogs().then((data) => setPublicLogs(data)).catch(() => undefined);
+      if (currentUser) {
+        void fetchMyWorkoutLogs(currentUser.uid).then((data) => setMyLogs(data)).catch(() => undefined);
+      }
+      return;
     }
+
+    recentLogUpdates.current[updated.id] = updated;
+    window.setTimeout(() => {
+      delete recentLogUpdates.current[updated.id];
+    }, 30_000);
+
+    setPublicLogs((prev) => {
+      if (updated.visibility && updated.visibility !== 'public') {
+        return prev.filter((log) => log.id !== updated.id);
+      }
+      return prev.map((log) => (log.id === updated.id ? { ...log, ...updated } : log));
+    });
+    setMyLogs((prev) =>
+      prev.map((log) => (log.id === updated.id ? { ...log, ...updated } : log))
+    );
+
+    // Reconcile the response with the just-confirmed row so a briefly stale
+    // read replica cannot overwrite the successful edit with old values.
     void fetchPublicWorkoutLogs()
-      .then((data) => setPublicLogs(data))
+      .then((data) => setPublicLogs(reconcileRecentUpdates(data, 'public')))
       .catch(() => undefined);
     if (currentUser) {
       void fetchMyWorkoutLogs(currentUser.uid)
-        .then((data) => setMyLogs(data))
+        .then((data) => setMyLogs(reconcileRecentUpdates(data, 'my')))
         .catch(() => undefined);
     }
   };

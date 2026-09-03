@@ -56,6 +56,7 @@ export default function NotificationModal({ onClose, onSelectLog }: Notification
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [loading, setLoading] = useState(true);
+  const [notificationError, setNotificationError] = useState('');
 
   useEffect(() => {
     return pushBackHandler(() => {
@@ -70,10 +71,19 @@ export default function NotificationModal({ onClose, onSelectLog }: Notification
       return;
     }
 
-    const unsub = subscribeToNotifications(currentUser.uid, (list) => {
-      setNotifications(list);
-      setLoading(false);
-    });
+    const unsub = subscribeToNotifications(
+      currentUser.uid,
+      (list) => {
+        setNotifications(list);
+        setNotificationError('');
+        setLoading(false);
+      },
+      50,
+      (error) => {
+        setNotificationError(error.message || '通知加载失败');
+        setLoading(false);
+      },
+    );
 
     return () => unsub();
   }, [currentUser?.uid]);
@@ -153,6 +163,12 @@ export default function NotificationModal({ onClose, onSelectLog }: Notification
             </button>
           </div>
         </div>
+
+        {notificationError && (
+          <div className="bg-amber-100 border-b-2 border-ink px-3 py-2 text-[11px] font-bold text-ink">
+            通知暂时无法刷新，当前仍显示上次成功加载的数据。{notificationError}
+          </div>
+        )}
 
         {/* Filter Tabs */}
         <div className="p-2.5 bg-white border-b-2 border-ink flex items-center justify-between shrink-0">

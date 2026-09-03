@@ -1,5 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { updateWorkoutLog, getCurrentUser, getUserProfile } from '../api';
+import { formatWorkoutLogError } from '../utils/workoutLogUpdate';
 import { WorkoutCategory, Exercise, WorkoutLog, WorkoutVisibility } from '../types';
 import {
   CATEGORY_META,
@@ -274,40 +275,8 @@ export default function EditWorkoutModal({ log, onClose, onSuccess }: EditWorkou
       }
     }
 
-    const sanitizedExercises: Exercise[] = exercises.map((ex) => {
-      const isStrength = ex.type === 'strength';
-      const cleanId = String(ex.id || Math.random().toString(36).slice(2, 11)).slice(0, 64);
-      const cleanName = ex.name.trim().slice(0, 80) || (isStrength ? '力量训练' : '有氧运动');
 
-      if (isStrength) {
-        const weightVal = Math.max(-500, Math.min(2000, Number.isFinite(Number(ex.weight)) ? Number(ex.weight) : 0));
-        const setsVal = Math.max(1, Math.min(100, Math.round(Number(ex.sets)) || 4));
-        const repsVal = Math.max(1, Math.min(1000, Math.round(Number(ex.reps)) || 10));
-        return {
-          id: cleanId,
-          name: cleanName,
-          type: 'strength',
-          weight: weightVal,
-          sets: setsVal,
-          reps: repsVal,
-        };
-      } else {
-        const durationVal = Math.max(0, Math.min(1440, Math.round(Number(ex.duration)) || 0));
-        const distanceVal = Math.max(0, Math.min(1000, Number.isFinite(Number(ex.distance)) ? Number(ex.distance) : 0));
-        const caloriesVal = Math.max(0, Math.min(20000, Math.round(Number(ex.calories)) || 0));
-        return {
-          id: cleanId,
-          name: cleanName,
-          type: 'cardio',
-          duration: durationVal,
-          distance: distanceVal,
-          calories: caloriesVal,
-          caloriesSource: ex.caloriesSource ?? (caloriesVal > 0 ? 'reported' : undefined),
-        };
-      }
-    });
-
-    const finalCategories = inferLogCategories('', selectedCategories, sanitizedExercises);
+    const finalCategories = inferLogCategories('', selectedCategories, exercises);
 
     setIsSubmitting(true);
     setErrorMsg('');
@@ -316,22 +285,16 @@ export default function EditWorkoutModal({ log, onClose, onSuccess }: EditWorkou
       const updatedLog = await updateWorkoutLog(log.id, {
         category: finalCategories.join(', '),
         categories: finalCategories,
-        exercises: sanitizedExercises,
+        exercises,
         note,
         visibility,
       });
 
-      onSuccess(updatedLog || {
-        category: finalCategories.join(', '),
-        categories: finalCategories,
-        exercises: sanitizedExercises,
-        note,
-        visibility,
-      });
+      onSuccess(updatedLog);
       onClose();
     } catch (err) {
       console.error('Update workout log failed:', err);
-      setErrorMsg((err as Error)?.message || '保存修改失败，请重试');
+      setErrorMsg(formatWorkoutLogError(err));
     } finally {
       setIsSubmitting(false);
     }

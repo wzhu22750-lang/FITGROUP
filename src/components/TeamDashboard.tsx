@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   getUserTeams,
   subscribeToUserTeams,
@@ -40,7 +40,18 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
   const [teamLogs, setTeamLogs] = useState<WorkoutLog[]>([]);
   const [loadingTeams, setLoadingTeams] = useState(true);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
+  const [teamsError, setTeamsError] = useState('');
+  const [dashboardError, setDashboardError] = useState('');
+  const [teamLogsError, setTeamLogsError] = useState('');
   const [copied, setCopied] = useState(false);
+  const recentLogUpdates = useRef<Record<string, Partial<WorkoutLog> & { id: string }>>({});
+
+  const reconcileRecentUpdates = (logs: WorkoutLog[]) => logs
+    .filter((log) => {
+      const update = recentLogUpdates.current[log.id];
+      return !(update?.visibility && update.visibility === 'private');
+    })
+    .map((log) => ({ ...log, ...(recentLogUpdates.current[log.id] || {}) }));
 
   // Modals
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -55,19 +66,27 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
       return;
     }
 
-    const unsub = subscribeToUserTeams(currentUser.uid, (userTeams) => {
-      setTeams(userTeams);
-      setLoadingTeams(false);
+    const unsub = subscribeToUserTeams(
+      currentUser.uid,
+      (userTeams) => {
+        setTeams(userTeams);
+        setTeamsError('');
+        setLoadingTeams(false);
 
-      if (userTeams.length > 0) {
-        setSelectedTeamId((prev) => {
-          if (prev && userTeams.some((t) => t.id === prev)) return prev;
-          return userTeams[0].id;
-        });
-      } else {
-        setSelectedTeamId('');
-      }
-    });
+        if (userTeams.length > 0) {
+          setSelectedTeamId((prev) => {
+            if (prev && userTeams.some((t) => t.id === prev)) return prev;
+            return userTeams[0].id;
+          });
+        } else {
+          setSelectedTeamId('');
+        }
+      },
+      (error) => {
+        setTeamsError(error.message || '小队列表加载失败');
+        setLoadingTeams(false);
+      },
+    );
 
     return () => unsub();
   }, [currentUser?.uid]);
@@ -84,9 +103,13 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
       selectedTeamId,
       (data) => {
         setDashboardData(data);
+        setDashboardError('');
         setLoadingDashboard(false);
       },
-      () => setLoadingDashboard(false)
+      (error) => {
+        setDashboardError(error.message || '小队数据加载失败');
+        setLoadingDashboard(false);
+      }
     );
 
     return () => unsub();
@@ -99,9 +122,14 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
       return;
     }
 
-    const unsub = subscribeToTeamWorkoutLogs(selectedTeamId, (logs) => {
-      setTeamLogs(logs);
-    });
+    const unsub = subscribeToTeamWorkoutLogs(
+      selectedTeamId,
+      (logs) => {
+        setTeamLogs(reconcileRecentUpdates(logs));
+        setTeamLogsError('');
+      },
+      (error) => setTeamLogsError(error.message || '小队动态加载失败'),
+    );
 
     return () => unsub();
   }, [selectedTeamId]);
@@ -152,6 +180,11 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
   if (teams.length === 0) {
     return (
       <div className="space-y-6">
+        {teamsError && (
+          <div className="bg-amber-100 border-2 border-ink px-3 py-2 text-xs font-bold text-ink">
+            小队列表暂时无法刷新，请稍后重试。{teamsError}
+          </div>
+        )}
         <div className="bg-white border-4 border-ink p-8 text-center shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] space-y-5">
           <div className="w-16 h-16 bg-neon border-4 border-ink mx-auto flex items-center justify-center shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
             <Users size={32} className="text-ink" />
@@ -216,6 +249,12 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
 
   return (
     <div className="space-y-6">
+      {dashboardError && (
+        <div className="bg-amber-100 border-2 border-ink px-3 py-2 text-xs font-bold text-ink">
+          小队数据暂时无法刷新，当前仍显示上次成功加载的数据。{dashboardError}
+        </div>
+      )}
+
       {/* 1. Squad Header & Team Switcher */}
       <div className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-4 sm:p-5 relative">
         <div className="flex items-center justify-between gap-2 mb-3">
@@ -422,7 +461,13 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
           </span>
         </div>
 
-        {teamLogs.length === 0 ? (
+        {teamLogsError && teamLogs.length === 0 ? (
+          <div className="bg-amber-100 border-4 border-ink p-10 text-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-3">
+            <Activity size={32} className="text-ink/50 mx-auto" />
+            <p className="font-black text-ink/70 text-sm uppercase">小队动态加载失败</p>
+            <p className="text-xs font-bold text-ink/50">{teamLogsError}</p>
+          </div>
+        ) : teamLogs.length === 0 ? (
           <div className="bg-white border-4 border-ink p-10 text-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-3">
             <Users size={32} className="text-ink/30 mx-auto" />
             <p className="font-black text-ink/60 text-sm uppercase">
@@ -439,9 +484,18 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
               log={log}
               onLogUpdated={(updated) => {
                 if (updated?.id) {
-                  setTeamLogs((prev) => prev.map((l) =>
-                    l.id === updated.id ? { ...l, ...updated } : l
-                  ));
+                  recentLogUpdates.current[updated.id] = updated;
+                  window.setTimeout(() => {
+                    delete recentLogUpdates.current[updated.id];
+                  }, 30_000);
+                  setTeamLogs((prev) => {
+                    if (updated.visibility === 'private') {
+                      return prev.filter((log) => log.id !== updated.id);
+                    }
+                    return prev.map((log) =>
+                      log.id === updated.id ? { ...log, ...updated } : log
+                    );
+                  });
                 }
                 onLogUpdated?.();
                 if (selectedTeamId) {

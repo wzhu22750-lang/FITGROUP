@@ -66,6 +66,7 @@ export default function Statistics() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(cached as any);
   const [workoutLogs, setWorkoutLogs] = useState<WorkoutLog[]>([]);
   const [groupStats, setGroupStats] = useState<any[]>([]);
+  const [workoutLogsError, setWorkoutLogsError] = useState('');
   const [loading, setLoading] = useState(!cached);
 
   // Toggle radar view: Training Capacity Index (28-day volume+freq+weight) vs Pure Strength PR
@@ -102,10 +103,18 @@ export default function Statistics() {
     });
 
     // 2. Real-time listener for user's own workout logs
-    const unsubLogs = subscribeToUserWorkoutLogs(user.uid, (logs) => {
-      setWorkoutLogs(logs as WorkoutLog[]);
-      setLoading(false);
-    });
+    const unsubLogs = subscribeToUserWorkoutLogs(
+      user.uid,
+      (logs) => {
+        setWorkoutLogs(logs);
+        setWorkoutLogsError('');
+        setLoading(false);
+      },
+      (error) => {
+        setWorkoutLogsError(error.message || '个人训练记录加载失败');
+        setLoading(false);
+      },
+    );
 
     // 3. Real-time listener for group leaderboard
     const unsubLeaderboard = subscribeToLeaderboard((leaderboard) => {
@@ -219,6 +228,11 @@ export default function Statistics() {
 
   return (
     <div className="space-y-6 pb-8">
+      {workoutLogsError && (
+        <div className="bg-amber-100 border-2 border-ink px-3 py-2 text-xs font-bold text-ink">
+          训练记录暂时无法刷新，当前仍显示上次成功加载的数据。{workoutLogsError}
+        </div>
+      )}
       {/* 0. Top Stat Cards (4 Tiles Overview) */}
       <div className="grid grid-cols-2 gap-3">
         {/* Streak */}

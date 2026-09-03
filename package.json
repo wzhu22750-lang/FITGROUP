@@ -1,5 +1,5 @@
 {
-  "name": "react-example",
+  "name": "fitgroup",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,14 +9,12 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx tests/stats-recalculation.test.ts && tsx tests/presets-and-import.test.ts && tsx tests/workout-analytics.test.ts && tsx tests/cardio-analytics.test.ts && tsx tests/squad-and-visibility.test.ts && tsx tests/notifications.test.ts && tsx tests/data-export.test.ts",
-
+    "test": "tsx tests/stats-recalculation.test.ts && tsx tests/presets-and-import.test.ts && tsx tests/workout-analytics.test.ts && tsx tests/cardio-analytics.test.ts && tsx tests/squad-and-visibility.test.ts && tsx tests/notifications.test.ts && tsx tests/data-export.test.ts && tsx tests/workout-log-update.test.ts && tsx tests/security-hardening-contract.test.ts",
     "db:apply": "tsx scripts/supabase-admin.ts --apply-all",
     "db:check": "tsx scripts/supabase-admin.ts --check",
     "db:sql": "tsx scripts/supabase-admin.ts --sql",
     "cap:sync": "npm run build && npx cap sync android",
     "android:debug": "npm run cap:sync && cd android && ./gradlew assembleDebug"
-
   },
   "dependencies": {
     "@capacitor/android": "^8.3.4",
@@ -28,16 +26,13 @@
     "@capacitor/share": "^8.0.1",
     "@capacitor/splash-screen": "^8.0.2",
     "@capacitor/status-bar": "^8.0.3",
-    "@google/genai": "^1.29.0",
     "@supabase/supabase-js": "^2.112.4",
     "@tailwindcss/vite": "^4.1.14",
     "@types/canvas-confetti": "^1.9.0",
     "@vitejs/plugin-react": "^5.0.4",
     "canvas-confetti": "^1.9.4",
-    "d3": "^7.9.0",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
-    "express": "^4.21.2",
     "html-to-image": "^1.11.13",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
@@ -47,7 +42,6 @@
     "vite": "^6.2.3"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",

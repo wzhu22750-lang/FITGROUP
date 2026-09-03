@@ -110,7 +110,6 @@ src/
     ├── Profile.tsx          # 个人中心 + 设置
     ├── SharePoster.tsx      # 战绩海报组件
     ├── SharePosterModal.tsx # 海报预览弹窗
-    ├── PhotoSourceSheet.tsx # 拍照/相册选择底栏
     ├── Toast.tsx            # 通知组件
     └── ErrorBoundary.tsx    # 错误边界
 ```
@@ -119,12 +118,12 @@ src/
 
 ## 📝 路线图与特性
 
-- [x] Storage bucket 已预留头像/打卡图权限（客户端上传可后补）
+- [ ] Storage bucket 已配置头像/打卡图权限；客户端上传功能尚未接入
 - [x] 动态实时流与删除级联清理（Likes, Comments）
 - [x] 训练记录为单一事实源：连续天数 / PR / 总次数由数据库触发器重算
 - [x] 提交幂等性防重复记录
 - [x] 生产包代码分割与懒加载优化
-- [x] Android 沉浸式安全区域适配与全自动热更新模式
+- [x] Android 沉浸式安全区域适配与远程 Web 热更新模式
 
 ---
 
