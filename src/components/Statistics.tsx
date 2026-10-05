@@ -133,6 +133,73 @@ export default function Statistics() {
     };
   }, []);
 
+  // Synchronize stats userProfile, logs, and leaderboard when nickname or avatar is updated
+  useEffect(() => {
+    const handleProfileUpdate = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (!detail || !detail.userId) return;
+
+      const nextName = detail.displayName;
+      const nextPhoto = detail.photoURL;
+
+      setUserProfile((prev: any) => {
+        if (!prev) return prev;
+        const uid = prev.uid || prev.id;
+        if (uid !== detail.userId) return prev;
+        return {
+          ...prev,
+          displayName: nextName !== undefined ? nextName : prev.displayName,
+          photoURL: nextPhoto !== undefined ? nextPhoto : prev.photoURL,
+        };
+      });
+
+      setWorkoutLogs((prev) => {
+        let changed = false;
+        const next = prev.map((log) => {
+          if (log.userId === detail.userId) {
+            const updated = {
+              ...log,
+              userName: nextName !== undefined ? nextName : log.userName,
+              userPhoto: nextPhoto !== undefined ? nextPhoto : log.userPhoto,
+            };
+            if (updated.userName !== log.userName || updated.userPhoto !== log.userPhoto) {
+              changed = true;
+              return updated;
+            }
+          }
+          return log;
+        });
+        return changed ? next : prev;
+      });
+
+      setGroupStats((prev) => {
+        let changed = false;
+        const next = prev.map((u) => {
+          const uid = u.id || u.uid;
+          if (uid === detail.userId) {
+            const updated = {
+              ...u,
+              displayName: nextName !== undefined ? nextName : u.displayName,
+              photoURL: nextPhoto !== undefined ? nextPhoto : u.photoURL,
+            };
+            if (updated.displayName !== u.displayName || updated.photoURL !== u.photoURL) {
+              changed = true;
+              return updated;
+            }
+          }
+          return u;
+        });
+        return changed ? next : prev;
+      });
+    };
+
+    window.addEventListener('fitgroup:user-profile-updated', handleProfileUpdate);
+    return () => {
+      window.removeEventListener('fitgroup:user-profile-updated', handleProfileUpdate);
+    };
+  }, []);
+
+
   // Extract body context for strength scoring
   const bodyContext = useMemo(() => {
     return bodyContextFromProfile(userProfile);
@@ -337,8 +404,8 @@ export default function Statistics() {
                   </span>
                 </div>
                 <div className="flex items-center gap-1 bg-ink text-white px-2.5 py-1 italic font-black text-[11px] sm:text-xs shrink-0 whitespace-nowrap">
-                  <Flame size={12} className="text-neon fill-current shrink-0" />
-                  <span>{u.streak} 天</span>
+                  <Zap size={12} className="text-neon fill-current shrink-0" />
+                  <span>{u.totalWorkouts || 0} 次</span>
                 </div>
               </div>
             ))

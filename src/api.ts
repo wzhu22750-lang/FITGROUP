@@ -4,6 +4,7 @@ import type { WorkoutLog, WorkoutVisibility, Team, TeamMember, TeamDashboardData
 import { executeWorkoutLogUpdate, sanitizeExercisesForDb } from './utils/workoutLogUpdate';
 export { sanitizeExercisesForDb } from './utils/workoutLogUpdate';
 import { DEFAULT_MAX_TEAM_MEMBERS } from './constants/teamConfig';
+import { updateCachedLogsProfile } from './utils/feedCache';
 
 
 export type AppUser = {
@@ -460,6 +461,55 @@ export const updateUserProfileFn = async (userId: string, updates: Record<string
     };
     persistCachedUser(cachedUser);
   }
+
+  // Synchronize updated display name and avatar to historical workout_logs & workout_comments
+  if (typeof payload.display_name === 'string' || typeof payload.photo_url === 'string') {
+    const logsPayload: Record<string, unknown> = {};
+    if (typeof payload.display_name === 'string') logsPayload.user_name = payload.display_name;
+    if (typeof payload.photo_url === 'string') logsPayload.user_photo = payload.photo_url;
+
+    try {
+      const { error: logsError } = await supabase
+        .from('workout_logs')
+        .update(logsPayload)
+        .eq('user_id', userId);
+      if (logsError) {
+        console.warn('Syncing user_name to workout_logs returned error:', logsError);
+      }
+    } catch (e) {
+      console.warn('Syncing user_name to workout_logs failed:', e);
+    }
+
+    try {
+      await supabase
+        .from('workout_comments')
+        .update(logsPayload)
+        .eq('user_id', userId);
+    } catch (e) {
+      console.warn('Syncing user_name to workout_comments failed:', e);
+    }
+
+    // Synchronize local SWR cache across public & personal feeds
+    updateCachedLogsProfile(userId, {
+      userName: typeof payload.display_name === 'string' ? payload.display_name : undefined,
+      userPhoto: typeof payload.photo_url === 'string' ? payload.photo_url : undefined,
+    });
+
+    // Broadcast in-memory event to immediately update Feed, Team, and Statistics components
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('fitgroup:user-profile-updated', {
+          detail: {
+            userId,
+            displayName: payload.display_name,
+            photoURL: payload.photo_url,
+          },
+        })
+      );
+    }
+  }
+
+  return getUserProfile(userId);
 };
 
 export const syncUserStatsFromLogs = async (userId: string): Promise<AppUser> => {
@@ -843,6 +893,7 @@ export const getLeaderboard = async (maxCount = 10) => {
   const { data, error } = await supabase
     .from('public_profiles')
     .select('id, display_name, photo_url, streak, total_workouts, last_workout_date')
+    .order('total_workouts', { ascending: false })
     .order('streak', { ascending: false })
     .limit(maxCount);
   if (error) throw error;

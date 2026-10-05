@@ -81,6 +81,8 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
 
   const currentUser = getCurrentUser();
   const isOwner = Boolean(currentUser && currentLog.userId === currentUser.uid);
+  const authorName = (isOwner && currentUser?.displayName) ? currentUser.displayName : currentLog.userName;
+  const authorPhoto = (isOwner && currentUser?.photoURL) ? currentUser.photoURL : currentLog.userPhoto;
 
   // Sync prop changes
   useEffect(() => {
@@ -222,8 +224,8 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
         <div className="flex items-start justify-between mb-3.5 gap-2">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <div className="border-2 border-ink p-0.5 bg-paper shrink-0">
-              {currentLog.userPhoto ? (
-                <img src={currentLog.userPhoto} className="w-9 h-9 sm:w-10 sm:h-10 object-cover" />
+              {authorPhoto ? (
+                <img src={authorPhoto} className="w-9 h-9 sm:w-10 sm:h-10 object-cover" />
               ) : (
                 <div className="w-9 h-9 sm:w-10 sm:h-10 bg-paper flex items-center justify-center">
                   <UserIcon size={18} className="text-ink/30" />
@@ -234,9 +236,9 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
               <div className="flex items-center gap-1.5 flex-wrap">
                 <h3
                   className="font-black text-ink leading-tight uppercase tracking-tighter truncate text-sm sm:text-base"
-                  title={currentLog.userName}
+                  title={authorName}
                 >
-                  {currentLog.userName}
+                  {authorName}
                 </h3>
 
                 {/* Visibility Badge */}
@@ -405,11 +407,15 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
                 {comments.length === 0 ? (
                   <p className="text-[10px] font-black text-ink/30 uppercase italic text-center py-4">还没有评论</p>
                 ) : (
-                  comments.map((c) => (
+                  comments.map((c) => {
+                    const isMyComment = Boolean(currentUser && c.userId === currentUser.uid);
+                    const cName = (isMyComment && currentUser?.displayName) ? currentUser.displayName : c.userName;
+                    const cPhoto = (isMyComment && currentUser?.photoURL) ? currentUser.photoURL : c.userPhoto;
+                    return (
                     <div key={c.id} className="flex gap-2 items-start">
                       <div className="border border-ink w-6 h-6 flex-shrink-0">
-                        {c.userPhoto ? (
-                          <img src={c.userPhoto} className="w-full h-full object-cover" />
+                        {cPhoto ? (
+                          <img src={cPhoto} className="w-full h-full object-cover" />
                         ) : (
                           <div className="w-full h-full bg-paper flex items-center justify-center">
                             <UserIcon size={10} className="text-ink/30" />
@@ -417,13 +423,13 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className="text-[10px] font-black text-ink uppercase truncate block" title={c.userName}>
-                          {c.userName}
+                        <span className="text-[10px] font-black text-ink uppercase truncate block" title={cName}>
+                          {cName}
                         </span>
                         <p className="text-xs text-ink/70 break-words whitespace-pre-wrap leading-tight">{c.content}</p>
                       </div>
                     </div>
-                  ))
+                  );})
                 )}
               </div>
               {commentError && (

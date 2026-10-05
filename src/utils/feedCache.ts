@@ -299,3 +299,62 @@ export function stripUpdateMetadata<T extends Record<string, any>>(update: T): P
   return clean as Partial<WorkoutLog>;
 }
 
+/**
+ * Update user display name and photo in cached workout logs
+ * across both public feed and personal feed local caches.
+ */
+export function updateCachedLogsProfile(
+  userId: string,
+  updates: { userName?: string; userPhoto?: string },
+): void {
+  if (!userId) return;
+  const { userName, userPhoto } = updates;
+  if (userName === undefined && userPhoto === undefined) return;
+
+  const storage = getStorage();
+  if (!storage) return;
+
+  // 1. Update public feed cache
+  try {
+    const publicLogs = getCachedPublicLogs();
+    let publicChanged = false;
+    const updatedPublicLogs = publicLogs.map((log) => {
+      if (log.userId === userId) {
+        const nextName = userName !== undefined ? userName : log.userName;
+        const nextPhoto = userPhoto !== undefined ? userPhoto : log.userPhoto;
+        if (nextName !== log.userName || nextPhoto !== log.userPhoto) {
+          publicChanged = true;
+          return { ...log, userName: nextName, userPhoto: nextPhoto };
+        }
+      }
+      return log;
+    });
+    if (publicChanged) {
+      setCachedPublicLogs(updatedPublicLogs);
+    }
+  } catch (e) {
+    console.warn('Failed to update public feed cache for user profile:', e);
+  }
+
+  // 2. Update personal feed cache
+  try {
+    const myLogs = getCachedMyLogs(userId);
+    let myChanged = false;
+    const updatedMyLogs = myLogs.map((log) => {
+      const nextName = userName !== undefined ? userName : log.userName;
+      const nextPhoto = userPhoto !== undefined ? userPhoto : log.userPhoto;
+      if (nextName !== log.userName || nextPhoto !== log.userPhoto) {
+        myChanged = true;
+        return { ...log, userName: nextName, userPhoto: nextPhoto };
+      }
+      return log;
+    });
+    if (myChanged) {
+      setCachedMyLogs(userId, updatedMyLogs);
+    }
+  } catch (e) {
+    console.warn('Failed to update my feed cache for user profile:', e);
+  }
+}
+
+

@@ -169,6 +169,60 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
     return () => unsub();
   }, [selectedTeamId]);
 
+  // Synchronize team logs & member cards when user updates nickname or avatar
+  useEffect(() => {
+    const handleProfileUpdate = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (!detail || !detail.userId) return;
+
+      const nextName = detail.displayName;
+      const nextPhoto = detail.photoURL;
+
+      setTeamLogs((prev) => {
+        let changed = false;
+        const next = prev.map((log) => {
+          if (log.userId === detail.userId) {
+            const updated = {
+              ...log,
+              userName: nextName !== undefined ? nextName : log.userName,
+              userPhoto: nextPhoto !== undefined ? nextPhoto : log.userPhoto,
+            };
+            if (updated.userName !== log.userName || updated.userPhoto !== log.userPhoto) {
+              changed = true;
+              return updated;
+            }
+          }
+          return log;
+        });
+        return changed ? next : prev;
+      });
+
+      setDashboardData((prev) => {
+        if (!prev || !prev.members) return prev;
+        const nextMembers = prev.members.map((m) => {
+          if (m.userId === detail.userId && m.profile) {
+            return {
+              ...m,
+              profile: {
+                ...m.profile,
+                displayName: nextName !== undefined ? nextName : m.profile.displayName,
+                photoURL: nextPhoto !== undefined ? nextPhoto : m.profile.photoURL,
+              },
+            };
+          }
+          return m;
+        });
+        return { ...prev, members: nextMembers };
+      });
+    };
+
+    window.addEventListener('fitgroup:user-profile-updated', handleProfileUpdate);
+    return () => {
+      window.removeEventListener('fitgroup:user-profile-updated', handleProfileUpdate);
+    };
+  }, []);
+
+
   const handleCardLogUpdated = useCallback(
     (updated?: Partial<WorkoutLog> & { id: string; _deleted?: boolean }) => {
       if (updated?.id) {

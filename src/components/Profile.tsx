@@ -30,6 +30,7 @@ import {
   Activity,
   Dumbbell,
   Layers,
+  Edit3,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { pushBackHandler } from '../backStack';
@@ -43,10 +44,16 @@ interface ProfileProps {
   onLogout: () => void;
   unreadCount?: number;
   onOpenNotifications?: () => void;
+  onUserUpdate?: (updatedUser: any) => void;
 }
 
-export default function Profile({ user, onLogout, unreadCount = 0, onOpenNotifications }: ProfileProps) {
+export default function Profile({ user, onLogout, unreadCount = 0, onOpenNotifications, onUserUpdate }: ProfileProps) {
   const [page, setPage] = useState<'main' | 'settings' | 'help' | 'security' | 'export'>('main');
+  const [currentUserProfile, setCurrentUserProfile] = useState(user);
+
+  useEffect(() => {
+    setCurrentUserProfile(user);
+  }, [user]);
 
   useEffect(() => {
     if (page === 'main') return;
@@ -56,25 +63,43 @@ export default function Profile({ user, onLogout, unreadCount = 0, onOpenNotific
     });
   }, [page]);
 
+  const activeUser = currentUserProfile || user;
+
+  const handleUserUpdate = (updated: any) => {
+    setCurrentUserProfile(updated);
+    onUserUpdate?.(updated);
+  };
+
   return (
     <AnimatePresence mode="wait">
       {page === 'main' && (
         <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
           <div className="bg-neon p-8 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col items-center">
             <div className="border-4 border-ink p-1 bg-white mb-4">
-              {user?.photoURL ? (
-                <img src={user.photoURL} className="w-24 h-24 object-cover" alt="Avatar" />
+              {activeUser?.photoURL ? (
+                <img src={activeUser.photoURL} className="w-24 h-24 object-cover" alt="Avatar" />
               ) : (
                 <div className="w-24 h-24 bg-paper flex items-center justify-center">
                   <UserIcon size={40} className="text-ink/30" />
                 </div>
               )}
             </div>
-            <h2 className="text-2xl sm:text-3xl font-black text-ink tracking-tighter uppercase italic leading-tight text-center break-words max-w-full px-2" title={user?.displayName || 'User'}>
-              {user?.displayName || 'User'}
-            </h2>
-            <p className="text-ink text-[10px] font-black uppercase tracking-widest mt-2 bg-white px-2 border-2 border-ink truncate max-w-full" title={user?.email}>
-              {user?.email || 'FitGroup User'}
+            <div className="flex items-center justify-center gap-2 max-w-full px-2">
+              <h2 className="text-2xl sm:text-3xl font-black text-ink tracking-tighter uppercase italic leading-tight text-center break-words truncate" title={activeUser?.displayName || 'User'}>
+                {activeUser?.displayName || 'User'}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setPage('settings')}
+                className="p-1.5 bg-white border-2 border-ink hover:bg-black hover:text-white transition-colors text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none cursor-pointer shrink-0"
+                title="修改昵称与个人档案"
+                aria-label="修改昵称与个人档案"
+              >
+                <Edit3 size={16} />
+              </button>
+            </div>
+            <p className="text-ink text-[10px] font-black uppercase tracking-widest mt-2 bg-white px-2 border-2 border-ink truncate max-w-full" title={activeUser?.email}>
+              {activeUser?.email || 'FitGroup User'}
             </p>
           </div>
 
@@ -122,25 +147,33 @@ export default function Profile({ user, onLogout, unreadCount = 0, onOpenNotific
       )}
 
       {page === 'settings' && (
-        <SettingsPage user={user} onBack={() => setPage('main')} />
+        <SettingsPage user={activeUser} onBack={() => setPage('main')} onUserUpdate={handleUserUpdate} />
       )}
 
       {page === 'export' && (
-        <ExportDataPage user={user} onBack={() => setPage('main')} />
+        <ExportDataPage user={activeUser} onBack={() => setPage('main')} />
       )}
 
       {page === 'help' && (
-        <HelpFeedbackPage user={user} onBack={() => setPage('main')} />
+        <HelpFeedbackPage user={activeUser} onBack={() => setPage('main')} />
       )}
 
       {page === 'security' && (
-        <SecurityPage user={user} onBack={() => setPage('main')} />
+        <SecurityPage user={activeUser} onBack={() => setPage('main')} />
       )}
     </AnimatePresence>
   );
 }
 
-function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
+function SettingsPage({
+  user,
+  onBack,
+  onUserUpdate,
+}: {
+  user: any;
+  onBack: () => void;
+  onUserUpdate?: (updatedUser: any) => void;
+}) {
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [sex, setSex] = useState<'male' | 'female' | null>(user?.sex || null);
   const [bodyweightKg, setBodyweightKg] = useState<string>(
@@ -181,16 +214,20 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
         throw new Error('身高请填写 120 ~ 220 cm 之间的有效整数');
       }
 
-      await updateUserProfileFn(currentUser.uid, {
+      const updatedProfile = await updateUserProfileFn(currentUser.uid, {
         displayName: displayName.trim(),
         sex: sex,
         bodyweightKg: parsedWeight,
         heightCm: parsedHeight,
       });
 
+      if (onUserUpdate && updatedProfile) {
+        onUserUpdate(updatedProfile);
+      }
+
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-      showToast('个人档案已更新', 'success');
+      showToast('个人档案及历史打卡记录已同步更新', 'success');
     } catch (e) {
       console.error('Save settings failed:', e);
       showToast((e as Error)?.message || '保存失败，请重试', 'error');
@@ -218,6 +255,9 @@ function SettingsPage({ user, onBack }: { user: any; onBack: () => void }) {
               onChange={(e) => setDisplayName(e.target.value)}
               className="w-full bg-paper border-4 border-ink p-3.5 font-black text-ink uppercase outline-none focus:bg-white"
             />
+            <span className="text-[10px] text-ink/60 font-bold block mt-1.5">
+              💡 修改昵称后，历史打卡、评论及统计排行将同步更新
+            </span>
           </div>
 
           {/* 生理性别 */}

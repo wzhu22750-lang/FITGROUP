@@ -162,6 +162,61 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
     };
   }, [revalidateSilently]);
 
+  // Synchronize in-memory feeds immediately when user updates nickname or avatar
+  useEffect(() => {
+    const handleProfileUpdate = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (!detail || !detail.userId) return;
+
+      const nextName = detail.displayName;
+      const nextPhoto = detail.photoURL;
+
+      setPublicLogs((prev) => {
+        let changed = false;
+        const next = prev.map((log) => {
+          if (log.userId === detail.userId) {
+            const updatedLog = {
+              ...log,
+              userName: nextName !== undefined ? nextName : log.userName,
+              userPhoto: nextPhoto !== undefined ? nextPhoto : log.userPhoto,
+            };
+            if (updatedLog.userName !== log.userName || updatedLog.userPhoto !== log.userPhoto) {
+              changed = true;
+              return updatedLog;
+            }
+          }
+          return log;
+        });
+        return changed ? next : prev;
+      });
+
+      setMyLogs((prev) => {
+        let changed = false;
+        const next = prev.map((log) => {
+          if (log.userId === detail.userId) {
+            const updatedLog = {
+              ...log,
+              userName: nextName !== undefined ? nextName : log.userName,
+              userPhoto: nextPhoto !== undefined ? nextPhoto : log.userPhoto,
+            };
+            if (updatedLog.userName !== log.userName || updatedLog.userPhoto !== log.userPhoto) {
+              changed = true;
+              return updatedLog;
+            }
+          }
+          return log;
+        });
+        return changed ? next : prev;
+      });
+    };
+
+    window.addEventListener('fitgroup:user-profile-updated', handleProfileUpdate);
+    return () => {
+      window.removeEventListener('fitgroup:user-profile-updated', handleProfileUpdate);
+    };
+  }, []);
+
+
   // 1. Subscribe to Public Feed (background SWR revalidation)
   useEffect(() => {
     if (publicLogs.length === 0) {

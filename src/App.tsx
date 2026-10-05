@@ -89,6 +89,31 @@ export default function App() {
     return () => unsub?.();
   }, []);
 
+  // Listen for user profile updates to instantly sync App-level user state
+  useEffect(() => {
+    const handleProfileUpdate = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (!detail || !detail.userId) return;
+
+      setUser((prev: any) => {
+        if (!prev) return prev;
+        const uid = prev.uid || prev.id;
+        if (uid !== detail.userId) return prev;
+        return {
+          ...prev,
+          displayName: detail.displayName !== undefined ? detail.displayName : prev.displayName,
+          photoURL: detail.photoURL !== undefined ? detail.photoURL : prev.photoURL,
+        };
+      });
+    };
+
+    window.addEventListener('fitgroup:user-profile-updated', handleProfileUpdate);
+    return () => {
+      window.removeEventListener('fitgroup:user-profile-updated', handleProfileUpdate);
+    };
+  }, []);
+
+
   useEffect(() => {
     if (!user?.id && !user?.uid) {
       setNotifications([]);
@@ -215,10 +240,10 @@ export default function App() {
           {activeTab === 'feed' && (
             <button 
               onClick={() => setActiveTab('log')}
-              className="bg-neon text-ink border-2 border-ink p-2 font-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none active:translate-x-0.5 active:translate-y-0.5 transition-all cursor-pointer"
+              className="bg-neon text-ink border-2 border-ink p-2 font-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none active:translate-x-0.5 active:translate-y-0.5 transition-all cursor-pointer flex items-center justify-center"
               title="快速打卡"
             >
-              <Plus size={20} />
+              <Plus size={24} className="stroke-[2.5]" />
             </button>
           )}
         </div>
@@ -254,9 +279,11 @@ export default function App() {
                     onLogout={async () => { await logout(); setUser(null); }}
                     unreadCount={unreadCount}
                     onOpenNotifications={() => setShowNotificationsModal(true)}
+                    onUserUpdate={(updated) => setUser(updated)}
                   />
                 </motion.div>
               )}
+
           </AnimatePresence>
         </Suspense>
       </main>
