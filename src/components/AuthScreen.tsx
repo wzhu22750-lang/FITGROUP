@@ -43,37 +43,45 @@ export default function AuthScreen() {
   };
 
   return (
-    <div className="auth-shell min-h-screen bg-paper flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-white border-4 border-ink shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] p-6">
-        <div className="flex items-center gap-2 mb-6">
-          <div className="bg-ink p-1">
-            <Dumbbell className="text-neon" size={24} />
+    <div className="auth-shell min-h-dvh bg-paper flex items-center justify-center p-4">
+      <div className="auth-panel w-full max-w-md bg-white">
+        <div className="auth-brand-panel">
+          <div className="flex items-center gap-2.5">
+            <div className="bg-neon text-ink p-2"><Dumbbell size={24} /></div>
+            <span className="text-2xl font-black tracking-tighter uppercase italic">FitGroup</span>
           </div>
-          <span className="text-3xl font-black tracking-tighter text-ink uppercase italic">FitGroup</span>
+          <div className="mt-7 md:my-12">
+            <p className="text-3xl md:text-4xl font-black leading-tight tracking-tight">每一次训练，<br /><span className="text-neon">都算数。</span></p>
+            <p className="mt-3 text-sm leading-relaxed text-white/70">记录进步，和健友一起坚持。</p>
+          </div>
+          <p className="hidden md:block text-xs font-bold text-white/60">训练记录 / 成长统计 / 好友小队</p>
         </div>
-        <h1 className="font-black uppercase italic text-2xl mb-1">
+        <div className="auth-form-panel">
+        <h1 className="font-black text-2xl mb-2">
           {mode === 'login' ? '登录打卡' : '创建账号'}
         </h1>
-        <p className="text-[10px] font-black uppercase tracking-widest text-ink/40 mb-6">
-          Email / Password · Supabase Auth
+        <p className="text-sm leading-relaxed text-ink/60 mb-6">
+          {mode === 'login' ? '欢迎回来，继续积累你的进步。' : '从今天开始，留下你的训练足迹。'}
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {mode === 'register' && (
             <div>
-              <label className="block text-[10px] font-black uppercase mb-2">昵称</label>
+              <label htmlFor="auth-name" className="block text-xs font-bold mb-2">昵称</label>
               <input
+                id="auth-name"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                className="brutalist-input uppercase"
+                className="input-field"
                 placeholder="你的名字"
                 autoComplete="nickname"
               />
             </div>
           )}
           <div>
-            <label className="block text-[10px] font-black uppercase mb-2">邮箱</label>
+            <label htmlFor="auth-email" className="block text-xs font-bold mb-2">邮箱</label>
             <input
+              id="auth-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -84,8 +92,9 @@ export default function AuthScreen() {
             />
           </div>
           <div>
-            <label className="block text-[10px] font-black uppercase mb-2">密码</label>
+            <label htmlFor="auth-password" className="block text-xs font-bold mb-2">密码</label>
             <input
+              id="auth-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -97,8 +106,9 @@ export default function AuthScreen() {
           </div>
           {mode === 'register' && (
             <div>
-              <label className="block text-[10px] font-black uppercase mb-2">确认密码</label>
+              <label htmlFor="auth-confirm" className="block text-xs font-bold mb-2">确认密码</label>
               <input
+                id="auth-confirm"
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
@@ -111,13 +121,14 @@ export default function AuthScreen() {
           )}
 
           {error && (
-            <p className="bg-ink text-neon text-xs font-black p-3 border-2 border-ink">{error}</p>
+            <p role="alert" className="bg-red-50 text-red-800 text-sm font-medium p-3 border border-red-200">{error}</p>
           )}
 
           <button
             type="submit"
             disabled={busy}
-            className="brutalist-button w-full disabled:opacity-50"
+            className="btn-neon-lg w-full disabled:opacity-50"
+            aria-busy={busy}
           >
             {busy ? '请稍候...' : mode === 'login' ? '登录' : '注册'}
           </button>
@@ -126,10 +137,11 @@ export default function AuthScreen() {
         <button
           type="button"
           onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}
-          className="mt-4 w-full text-center text-xs font-black uppercase tracking-widest text-ink/60 hover:text-ink cursor-pointer"
+          className="mt-4 min-h-11 w-full text-center text-sm font-bold text-ink/60 hover:text-ink cursor-pointer"
         >
           {mode === 'login' ? '没有账号？去注册' : '已有账号？去登录'}
         </button>
+        </div>
       </div>
     </div>
   );

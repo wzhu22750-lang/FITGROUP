@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
+import TrainingOverview from './TrainingOverview';
+import CommunityLeaderboard from './CommunityLeaderboard';
 import {
   getCurrentUser,
   syncUserStatsFromLogs,
@@ -8,12 +10,9 @@ import {
 } from '../api';
 import { UserProfile, WorkoutCategory, WorkoutLog } from '../types';
 import {
-  Trophy,
-  Flame,
   Target,
   TrendingUp,
   Award,
-  User as UserIcon,
   Activity,
   Zap,
   HelpCircle,
@@ -25,7 +24,6 @@ import {
   ChevronUp,
   Info,
   Calendar,
-  Layers,
   X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -67,6 +65,7 @@ export default function Statistics() {
   const [workoutLogs, setWorkoutLogs] = useState<WorkoutLog[]>([]);
   const [groupStats, setGroupStats] = useState<any[]>([]);
   const [workoutLogsError, setWorkoutLogsError] = useState('');
+  const [logsReady, setLogsReady] = useState(false);
   const [loading, setLoading] = useState(!cached);
 
   // Toggle radar view: Training Capacity Index (28-day volume+freq+weight) vs Pure Strength PR
@@ -107,6 +106,7 @@ export default function Statistics() {
       user.uid,
       (logs) => {
         setWorkoutLogs(logs);
+        setLogsReady(true);
         setWorkoutLogsError('');
         setLoading(false);
       },
@@ -264,6 +264,14 @@ export default function Statistics() {
     workoutLogs.length > 0 ||
     Object.keys(userProfile?.prs || {}).length > 0;
 
+  // Keep hooks before all conditional returns, including the initial loading state.
+  const selectedCategoryExercises = useMemo(() => {
+    if (!selectedCategoryForModal) return [];
+    return EXERCISE_MUSCLE_COEFFICIENTS.filter(
+      (entry) => entry.primaryCategory === selectedCategoryForModal
+    );
+  }, [selectedCategoryForModal]);
+
   if (loading) {
     return (
       <div className="p-12 text-center">
@@ -275,7 +283,7 @@ export default function Statistics() {
           <Activity size={36} className="text-ink" />
         </motion.div>
         <p className="mt-4 font-black uppercase text-xs tracking-widest text-ink/60">
-          Loading Analytics...
+          加载统计数据…
         </p>
       </div>
     );
@@ -285,139 +293,29 @@ export default function Statistics() {
     ? analytics.categoryDetails[selectedCategoryForModal]
     : null;
 
-  // Find exercises related to selected category for drill-down modal
-  const selectedCategoryExercises = useMemo(() => {
-    if (!selectedCategoryForModal) return [];
-    return EXERCISE_MUSCLE_COEFFICIENTS.filter(
-      (entry) => entry.primaryCategory === selectedCategoryForModal
-    );
-  }, [selectedCategoryForModal]);
-
   return (
-    <div className="space-y-6 pb-8">
+    <div className="statistics-page space-y-5 pb-8">
+      <div className="feed-intro">
+        <h1 className="text-2xl font-black tracking-tight">看见每一步进步</h1>
+        <p className="mt-2 text-sm text-ink/60 leading-relaxed">不只看今天的数字，更看坚持的轨迹。</p>
+      </div>
       {workoutLogsError && (
         <div className="bg-amber-100 border-2 border-ink px-3 py-2 text-xs font-bold text-ink">
-          训练记录暂时无法刷新，当前仍显示上次成功加载的数据。{workoutLogsError}
+          {logsReady ? '训练记录暂时无法刷新，当前仍显示上次成功加载的数据。' : '训练记录暂时无法加载，请稍后重试。'}{workoutLogsError}
         </div>
       )}
-      {/* 0. Top Stat Cards (4 Tiles Overview) */}
-      <div className="grid grid-cols-2 gap-3">
-        {/* Streak */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-neon p-3.5 sm:p-4 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-ink"
-        >
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] font-black uppercase tracking-wider">Active Streak</span>
-            <Flame size={16} className="fill-current text-ink" />
-          </div>
-          <div className="text-2xl sm:text-3xl font-black italic">{userProfile?.streak || 0} <span className="text-xs uppercase font-bold not-italic">DAYS</span></div>
-        </motion.div>
-
-        {/* Total Workouts */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-          className="bg-ink p-3.5 sm:p-4 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(223,255,0,1)] text-white"
-        >
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] font-black uppercase tracking-wider opacity-80">Total Workouts</span>
-            <Award size={16} className="text-neon" />
-          </div>
-          <div className="text-2xl sm:text-3xl font-black italic text-neon">
-            {userProfile?.totalWorkouts || 0} <span className="text-xs uppercase font-bold text-white not-italic">TIMES</span>
-          </div>
-        </motion.div>
-
-        {/* Monthly Sets Volume */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="bg-white p-3.5 sm:p-4 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-ink"
-        >
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] font-black uppercase tracking-wider text-ink/70">28D Sets / 组数</span>
-            <Layers size={16} className="text-ink" />
-          </div>
-          <div className="text-2xl sm:text-3xl font-black italic">
-            {overviewAnalytics.recentSetsCount} <span className="text-xs uppercase font-bold text-ink/60 not-italic">SETS</span>
-          </div>
-        </motion.div>
-
-        {/* Balance Rating */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-          className="bg-paper p-3.5 sm:p-4 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-ink"
-        >
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] font-black uppercase tracking-wider text-ink/70">Balance / 均衡度</span>
-            <Scale size={16} className="text-ink" />
-          </div>
-          <div className="text-lg sm:text-xl font-black truncate mt-1">
-            <span className="bg-ink text-neon px-2 py-0.5 text-xs font-black tracking-tight inline-block">
-              {overviewAnalytics.insights.balanceLevel}
-            </span>
-          </div>
-        </motion.div>
-      </div>
-
-      {/* 1. LEADERBOARD / 群组榜单 */}
-      <div className="bg-white p-4 sm:p-5 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-        <h3 className="font-black text-ink uppercase tracking-tight flex items-center gap-2 mb-3.5 italic text-sm sm:text-base">
-          <Trophy size={18} className="text-ink fill-current shrink-0" />
-          <span>群组榜单 <span className="text-xs text-ink/50 font-normal not-italic ml-0.5">/ LEADERBOARD</span></span>
-        </h3>
-        <div className="space-y-2.5">
-          {groupStats.length > 0 ? (
-            groupStats.map((u, i) => (
-              <div
-                key={u.uid}
-                className="flex items-center justify-between border-b-2 border-paper pb-2 last:border-0 last:pb-0 gap-2"
-              >
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <div
-                    className={`w-6 h-6 border-2 border-ink flex items-center justify-center font-black text-xs shrink-0 ${
-                      i === 0 ? 'bg-neon text-ink' : i === 1 ? 'bg-slate-200' : i === 2 ? 'bg-amber-100' : 'bg-paper text-ink'
-                    }`}
-                  >
-                    {i + 1}
-                  </div>
-                  <div className="border-2 border-ink p-0.5 shrink-0">
-                    {u.photoURL ? (
-                      <img src={u.photoURL} className="w-7 h-7 sm:w-8 sm:h-8 object-cover" />
-                    ) : (
-                      <div className="w-7 h-7 sm:w-8 sm:h-8 bg-paper flex items-center justify-center">
-                        <UserIcon size={14} className="text-ink/30" />
-                      </div>
-                    )}
-                  </div>
-                  <span
-                    className="font-black text-ink uppercase tracking-tight truncate text-xs sm:text-sm"
-                    title={u.displayName}
-                  >
-                    {u.displayName}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 bg-ink text-white px-2.5 py-1 italic font-black text-[11px] sm:text-xs shrink-0 whitespace-nowrap">
-                  <Zap size={12} className="text-neon fill-current shrink-0" />
-                  <span>{u.totalWorkouts || 0} 次</span>
-                </div>
-              </div>
-            ))
-          ) : (
-            <p className="text-center py-4 text-ink/30 font-black italic text-sm uppercase">暂无数据</p>
-          )}
-        </div>
-      </div>
+      <TrainingOverview
+        logs={workoutLogs}
+        ready={logsReady}
+        streak={userProfile?.streak || 0}
+        totalWorkouts={userProfile?.totalWorkouts || 0}
+        recentSets={overviewAnalytics.recentSetsCount}
+        balance={overviewAnalytics.insights.balanceLevel}
+      />
 
       {/* 1.5 Incomplete Profile Banner */}
       {(!userProfile?.sex || !userProfile?.bodyweightKg) && (
-        <div className="bg-neon/20 border-4 border-ink p-3 sm:p-3.5 flex items-start sm:items-center justify-between gap-2.5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+        <div className="bg-white border-l-2 border-ink/40 p-3 sm:p-3.5 flex flex-wrap items-start justify-between gap-2.5">
           <div className="flex items-start sm:items-center gap-2 min-w-0">
             <Info size={18} className="text-ink shrink-0 mt-0.5 sm:mt-0" />
             <p className="text-xs font-black text-ink leading-tight sm:leading-normal">
@@ -430,22 +328,21 @@ export default function Statistics() {
         </div>
       )}
 
-      {/* 2. Ability Radar / 六维能力图谱 (Mobile responsive) */}
-      <div className="bg-white p-4 sm:p-5 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+      {/* 2. Ability Radar / 六维能力图谱 */}
+      <div className="card p-4 sm:p-5">
         <div className="flex items-center justify-between mb-3 gap-2">
-          <h3 className="font-black text-ink uppercase tracking-tight flex items-center gap-1 sm:gap-1.5 italic text-xs sm:text-base min-w-0">
+          <h3 className="font-bold text-ink flex items-center gap-1 sm:gap-1.5 italic text-xs sm:text-base min-w-0">
             <Target size={16} className="text-ink shrink-0 sm:w-[18px] sm:h-[18px]" />
-            <span className="truncate">能力图谱 <span className="text-[10px] sm:text-xs text-ink/50 font-normal not-italic ml-0.5">/ SPECTRUM</span></span>
+            <span className="truncate">能力图谱 </span>
           </h3>
           <div className="flex items-center gap-1.5 shrink-0">
             {/* View Switcher: Radar vs Bars */}
-            <div className="flex border-2 border-ink bg-paper p-0.5">
+            <div className="flex bg-paper p-0.5">
               <button
                 type="button"
                 onClick={() => setChartView('radar')}
-                className={`px-2 py-0.5 text-[10px] font-black uppercase transition-all cursor-pointer ${
-                  chartView === 'radar' ? 'bg-ink text-neon shadow-[1px_1px_0px_0px_rgba(0,0,0,0.5)]' : 'text-ink/60 hover:text-ink'
-                }`}
+                className="stats-control"
+                aria-pressed={chartView === 'radar'}
                 title="雷达图视图"
               >
                 雷达
@@ -453,9 +350,8 @@ export default function Statistics() {
               <button
                 type="button"
                 onClick={() => setChartView('bars')}
-                className={`px-2 py-0.5 text-[10px] font-black uppercase transition-all cursor-pointer ${
-                  chartView === 'bars' ? 'bg-ink text-neon shadow-[1px_1px_0px_0px_rgba(0,0,0,0.5)]' : 'text-ink/60 hover:text-ink'
-                }`}
+                className="stats-control"
+                aria-pressed={chartView === 'bars'}
                 title="条形进度明细视图"
               >
                 条形
@@ -465,7 +361,7 @@ export default function Statistics() {
             <button
               type="button"
               onClick={() => setShowStandardsModal(true)}
-              className="flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-ink/80 hover:text-ink bg-paper px-1.5 sm:px-2 py-1 border-2 border-ink cursor-pointer transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 shrink-0 whitespace-nowrap"
+              className="stats-control flex items-center gap-1 shrink-0"
             >
               <HelpCircle size={12} className="shrink-0" />
               <span>标准</span>
@@ -474,26 +370,20 @@ export default function Statistics() {
         </div>
 
         {/* Mode Switcher */}
-        <div className="flex bg-paper p-1 border-2 border-ink mb-3 gap-1">
+        <div className="flex bg-paper p-1 mb-4 gap-1">
           <button
             type="button"
             onClick={() => setRadarMode('composite')}
-            className={`flex-1 py-1.5 px-1 text-[11px] sm:text-xs font-black transition-all cursor-pointer text-center truncate ${
-              radarMode === 'composite'
-                ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)]'
-                : 'text-ink/60 hover:text-ink'
-            }`}
+            className="stats-control flex-1"
+            aria-pressed={radarMode === 'composite'}
           >
             训练能力指数
           </button>
           <button
             type="button"
             onClick={() => setRadarMode('strength')}
-            className={`flex-1 py-1.5 px-1 text-[11px] sm:text-xs font-black transition-all cursor-pointer text-center truncate ${
-              radarMode === 'strength'
-                ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)]'
-                : 'text-ink/60 hover:text-ink'
-            }`}
+            className="stats-control flex-1"
+            aria-pressed={radarMode === 'strength'}
           >
             极限力量水平
           </button>
@@ -504,12 +394,12 @@ export default function Statistics() {
             {chartView === 'radar' ? (
               /* Responsive Radar chart */
               <div className="h-[250px] sm:h-[270px] w-full relative">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={230}>
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={230} initialDimension={{ width: 280, height: 250 }}>
                   <RadarChart cx="50%" cy="50%" outerRadius="66%" data={radarChartData}>
-                    <PolarGrid stroke="#e2e8f0" strokeWidth={1.5} />
+                    <PolarGrid stroke="#e4e5df" strokeWidth={1} />
                     <PolarAngleAxis
                       dataKey="subject"
-                      tick={{ fill: '#000', fontSize: 10, fontWeight: '900' }}
+                      tick={{ fill: '#45483f', fontSize: 12, fontWeight: '600' }}
                     />
                     <PolarRadiusAxis
                       angle={30}
@@ -534,8 +424,8 @@ export default function Statistics() {
                       dataKey="score"
                       stroke="#000"
                       fill="#DFFF00"
-                      fillOpacity={0.75}
-                      strokeWidth={2.5}
+                      fillOpacity={0.35}
+                      strokeWidth={2}
                       dot={false}
                       activeDot={false}
                     />
@@ -557,7 +447,7 @@ export default function Statistics() {
                       key={cat}
                       type="button"
                       onClick={() => setSelectedCategoryForModal(cat)}
-                      className="w-full bg-paper hover:bg-white border-2 border-ink p-2 sm:p-2.5 flex flex-col gap-1.5 transition-all text-left cursor-pointer group shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5"
+                      className="w-full bg-paper hover:bg-white border-2 border-ink p-2 sm:p-2.5 flex flex-col gap-1.5 transition-all text-left cursor-pointer group  active:translate-x-0.5 active:translate-y-0.5"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-black text-xs text-ink flex items-center gap-1.5 truncate">
@@ -608,7 +498,7 @@ export default function Statistics() {
                     key={cat}
                     type="button"
                     onClick={() => setSelectedCategoryForModal(cat)}
-                    className="p-2.5 bg-paper border-2 border-ink flex flex-col gap-1 text-left cursor-pointer transition-all hover:bg-white hover:border-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 group"
+                    className="stats-category group"
                   >
                     <div className="flex items-center justify-between gap-1 min-w-0">
                       <span className="font-black text-xs text-ink flex items-center gap-0.5 truncate">
@@ -645,7 +535,7 @@ export default function Statistics() {
               })}
             </div>
             <p className="text-[10px] text-ink/50 text-right mt-2 font-bold">
-              💡 点击任意部位卡片可查看前中后束等肌群细分指标
+              点击部位，查看肌群细分指标
             </p>
           </div>
         ) : (
@@ -664,28 +554,26 @@ export default function Statistics() {
       </div>
 
       {/* 3. Training Load / 训练负荷分布 */}
-      <div className="bg-white p-4 sm:p-5 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+      <div className="card p-4 sm:p-5">
         <div className="flex items-center justify-between mb-3.5 gap-2">
-          <h3 className="font-black text-ink uppercase tracking-tight flex items-center gap-1 sm:gap-1.5 italic text-xs sm:text-base min-w-0">
+          <h3 className="font-bold text-ink flex items-center gap-1 sm:gap-1.5 italic text-xs sm:text-base min-w-0">
             <Zap size={16} className="text-ink shrink-0 sm:w-[18px] sm:h-[18px]" />
-            <span className="truncate">训练负荷分布<span className="text-[10px] sm:text-xs text-ink/50 font-normal not-italic ml-0.5 hidden min-[380px]:inline"> / LOAD</span></span>
+            <span className="truncate">训练负荷分布</span>
           </h3>
-          <div className="flex bg-paper border-2 border-ink p-0.5 shrink-0 whitespace-nowrap">
+          <div className="flex bg-paper p-0.5 shrink-0 whitespace-nowrap">
             <button
               type="button"
               onClick={() => setVolumeTimeframe(7)}
-              className={`px-2 py-0.5 text-[10px] font-black cursor-pointer transition-all ${
-                volumeTimeframe === 7 ? 'bg-ink text-neon' : 'text-ink/60 hover:text-ink'
-              }`}
+              className="stats-control"
+              aria-pressed={volumeTimeframe === 7}
             >
               近 7 天
             </button>
             <button
               type="button"
               onClick={() => setVolumeTimeframe(28)}
-              className={`px-2 py-0.5 text-[10px] font-black cursor-pointer transition-all ${
-                volumeTimeframe === 28 ? 'bg-ink text-neon' : 'text-ink/60 hover:text-ink'
-              }`}
+              className="stats-control"
+              aria-pressed={volumeTimeframe === 28}
             >
               近 28 天
             </button>
@@ -720,11 +608,9 @@ export default function Statistics() {
                     </div>
                   </div>
                   {/* Visual Bar */}
-                  <div className="w-full h-3 bg-paper border-2 border-ink overflow-hidden flex">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${item.percentage}%` }}
-                      transition={{ duration: 0.5, ease: 'easeOut' }}
+                  <div className="w-full h-2 bg-paper overflow-hidden flex">
+                    <div
+                      style={{ width: `${Math.min(100, Math.max(0, item.percentage))}%` }}
                       className={`h-full ${item.color}`}
                     />
                   </div>
@@ -740,23 +626,24 @@ export default function Statistics() {
         ) : (
           <div className="text-center py-6 border-2 border-dashed border-ink/20">
             <Activity size={24} className="text-ink/20 mx-auto mb-2" />
-            <p className="text-ink/40 font-black uppercase text-xs italic">
+            <p className="text-ink/40 font-medium text-xs">
               近 {volumeTimeframe} 天暂无训练数据，开启你的第一练吧！
             </p>
           </div>
         )}
       </div>
 
-      {/* 4. Personal Records (PR) / 巅峰档案 (Collapsible, Default Collapsed, Tiers Removed) */}
-      <div className="bg-white p-4 sm:p-5 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+      {/* 4. Personal Records (PR) / 巅峰档案 */}
+      <div className="card p-4 sm:p-5">
         <button
           type="button"
           onClick={() => setIsPrsOpen(!isPrsOpen)}
+          aria-expanded={isPrsOpen}
           className="w-full flex items-center justify-between text-left cursor-pointer group gap-2"
         >
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <TrendingUp size={18} className="text-ink shrink-0" />
-            <h3 className="font-black text-ink uppercase tracking-tight italic text-sm sm:text-base whitespace-nowrap truncate">
+            <h3 className="font-bold text-ink italic text-sm sm:text-base whitespace-nowrap truncate">
               巅峰档案 <span className="text-xs text-ink/50 font-normal not-italic ml-0.5">/ PR</span>
             </h3>
           </div>
@@ -787,7 +674,7 @@ export default function Statistics() {
                     onClick={() => setSelectedPrCategory('ALL')}
                     className={`px-2.5 py-1 text-xs font-black uppercase shrink-0 border-2 border-ink cursor-pointer transition-all ${
                       selectedPrCategory === 'ALL'
-                        ? 'bg-neon text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+                        ? 'bg-neon text-ink '
                         : 'bg-white text-ink/70 hover:bg-paper'
                     }`}
                   >
@@ -803,7 +690,7 @@ export default function Statistics() {
                         onClick={() => setSelectedPrCategory(cat)}
                         className={`px-2.5 py-1 text-xs font-black uppercase shrink-0 border-2 border-ink cursor-pointer transition-all ${
                           isSelected
-                            ? 'bg-neon text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+                            ? 'bg-neon text-ink '
                             : 'bg-white text-ink/70 hover:bg-paper'
                         }`}
                       >
@@ -819,7 +706,7 @@ export default function Statistics() {
                     filteredPrs.map((pr) => (
                       <div
                         key={pr.name}
-                        className="p-2.5 sm:p-3 bg-paper border-2 border-ink flex items-center justify-between gap-2"
+                        className="py-3 border-b border-ink/10 last:border-0 flex flex-wrap items-center justify-between gap-2"
                       >
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           <span className="font-black text-ink text-xs sm:text-sm tracking-tight truncate" title={pr.name}>
@@ -829,7 +716,7 @@ export default function Statistics() {
                             {CATEGORY_META[pr.category]?.zh || pr.category}
                           </span>
                         </div>
-                        <div className="bg-ink text-neon font-black px-2.5 py-1 text-xs italic shrink-0 whitespace-nowrap border-2 border-ink shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
+                        <div className="text-ink font-black text-lg tabular-nums shrink-0 whitespace-nowrap">
                           {pr.weight} {pr.unit.toUpperCase()}
                         </div>
                       </div>
@@ -837,7 +724,7 @@ export default function Statistics() {
                   ) : (
                     <div className="text-center py-6 border-2 border-dashed border-ink/20">
                       <Award size={22} className="text-ink/20 mx-auto mb-1.5" />
-                      <p className="text-ink/30 font-black uppercase text-xs italic">
+                      <p className="text-ink/30 font-medium text-xs">
                         {selectedPrCategory === 'ALL' ? '打卡记录重量将自动录入 PR 档案' : '该部位暂无 PR 记录'}
                       </p>
                     </div>
@@ -849,12 +736,14 @@ export default function Statistics() {
         </AnimatePresence>
       </div>
 
-      {/* 5. Smart Insights / 训练分析与建议 (Placed at the end, Collapsible, Default Collapsed) */}
+      <CommunityLeaderboard entries={groupStats} />
+
+      {/* 5. Smart Insights / 训练分析与建议 */}
       {hasAnyData && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-paper p-4 sm:p-5 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+          className="card bg-paper p-4 sm:p-5"
         >
           <button
             type="button"
@@ -865,8 +754,8 @@ export default function Statistics() {
               <div className="p-1 bg-ink text-neon border-2 border-ink shrink-0">
                 <Sparkles size={15} />
               </div>
-              <h3 className="font-black text-ink uppercase tracking-tight text-xs sm:text-sm whitespace-nowrap truncate">
-                训练分析与建议 <span className="text-[10px] text-ink/50 font-normal not-italic ml-0.5">/ INSIGHTS</span>
+              <h3 className="font-bold text-ink text-xs sm:text-sm whitespace-nowrap truncate">
+                训练分析与建议
               </h3>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -921,7 +810,7 @@ export default function Statistics() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white border-4 border-ink p-4 sm:p-5 max-w-lg w-full max-h-[88vh] overflow-y-auto shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]"
+              className="bg-white border-4 border-ink p-4 sm:p-5 max-w-lg w-full max-h-[88vh] overflow-y-auto shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]"
             >
               <div className="flex items-center justify-between pb-3 border-b-2 border-ink mb-3.5">
                 <div className="flex items-center gap-2">
@@ -1065,7 +954,7 @@ export default function Statistics() {
               <button
                 type="button"
                 onClick={() => setSelectedCategoryForModal(null)}
-                className="w-full mt-3.5 bg-ink text-neon border-2 border-ink py-2.5 font-black uppercase text-xs cursor-pointer hover:bg-black/80 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                className="w-full mt-3.5 bg-ink text-neon border-2 border-ink py-2.5 font-black uppercase text-xs cursor-pointer hover:bg-black/80 transition-colors "
               >
                 返回图谱
               </button>
@@ -1082,7 +971,7 @@ export default function Statistics() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white border-4 border-ink p-4 sm:p-5 max-w-md w-full max-h-[85vh] overflow-y-auto shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]"
+              className="bg-white border-4 border-ink p-4 sm:p-5 max-w-md w-full max-h-[85vh] overflow-y-auto shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]"
             >
               <div className="flex items-center justify-between pb-2.5 border-b-2 border-ink mb-3">
                 <div className="flex items-center gap-2">
@@ -1107,7 +996,7 @@ export default function Statistics() {
                   onClick={() => setModalTab('rules')}
                   className={`flex-1 py-1.5 text-xs font-black transition-all cursor-pointer ${
                     modalTab === 'rules'
-                      ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)]'
+                      ? 'bg-ink text-neon '
                       : 'text-ink/60 hover:text-ink'
                   }`}
                 >
@@ -1118,7 +1007,7 @@ export default function Statistics() {
                   onClick={() => setModalTab('tiers')}
                   className={`flex-1 py-1.5 text-xs font-black transition-all cursor-pointer ${
                     modalTab === 'tiers'
-                      ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)]'
+                      ? 'bg-ink text-neon '
                       : 'text-ink/60 hover:text-ink'
                   }`}
                 >
@@ -1259,7 +1148,7 @@ export default function Statistics() {
               <button
                 type="button"
                 onClick={() => setShowStandardsModal(false)}
-                className="w-full mt-3 bg-ink text-neon border-2 border-ink py-2.5 font-black uppercase text-xs cursor-pointer hover:bg-black/80 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                className="w-full mt-3 bg-ink text-neon border-2 border-ink py-2.5 font-black uppercase text-xs cursor-pointer hover:bg-black/80 transition-colors "
               >
                 我知道了
               </button>

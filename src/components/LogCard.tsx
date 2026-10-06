@@ -1,4 +1,4 @@
-import { useState, useEffect, memo } from 'react';
+import { useState, useEffect, useRef, memo, lazy, Suspense } from 'react';
 import {
   getCurrentUser,
   toggleLike,
@@ -25,14 +25,17 @@ import {
   Send,
   Trash2,
   Edit3,
-  Globe,
   Users,
   Lock,
+  MoreHorizontal,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import SharePosterModal from './SharePosterModal';
-import EditWorkoutModal from './EditWorkoutModal';
+import { AnimatePresence } from 'motion/react';
+const SharePosterModal = lazy(() => import('./SharePosterModal'));
+const EditWorkoutModal = lazy(() => import('./EditWorkoutModal'));
 import { pushBackHandler } from '../backStack';
+import { summarizeTraining } from '../utils/trainingPresentation';
 
 function formatCompactTime(timestamp?: string): string {
   if (!timestamp) return '刚刚';
@@ -57,15 +60,35 @@ function formatCompactTime(timestamp?: string): string {
   return `${m}月${d}日`;
 }
 
+/** Format exercise data with readable units */
+function formatExerciseData(ex: { type: string; weight?: number; sets?: number; reps?: number; duration?: number; distance?: number; calories?: number }): string {
+  if (ex.type === 'strength') {
+    const parts: string[] = [];
+    if (typeof ex.weight === 'number' && ex.weight !== 0) parts.push(`${Math.abs(ex.weight)} kg`);
+    if (ex.sets && ex.sets > 0) parts.push(`${ex.sets} 组`);
+    if (ex.reps && ex.reps > 0) parts.push(`${ex.reps} 次`);
+    return parts.join(' × ');
+  } else {
+    const parts: string[] = [];
+    if (ex.duration && ex.duration > 0) parts.push(`${ex.duration} 分钟`);
+    if (typeof ex.distance === 'number' && ex.distance > 0) parts.push(`${ex.distance} km`);
+    if (typeof ex.calories === 'number' && ex.calories > 0) parts.push(`${ex.calories} kcal`);
+    return parts.join(' · ');
+  }
+}
+
 interface LogCardProps {
   log: WorkoutLog;
   onLogUpdated?: (updated?: Partial<WorkoutLog> & { id: string; _deleted?: boolean }) => void;
 }
 
+const DEFAULT_VISIBLE_EXERCISES = 2;
+
 function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
   const [currentLog, setCurrentLog] = useState<WorkoutLog>(initialLog);
   const [hasLiked, setHasLiked] = useState(() => Boolean(initialLog.isLiked));
   const [liking, setLiking] = useState(false);
+  const [likeError, setLikeError] = useState('');
   const [likesCount, setLikesCount] = useState(() => Number(initialLog.likesCount) || 0);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<any[]>([]);
@@ -78,6 +101,10 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
   const [userStats, setUserStats] = useState<{ streak: number; totalWorkouts: number } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [expandedExercises, setExpandedExercises] = useState(false);
+  const [expandedNote, setExpandedNote] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
 
   const currentUser = getCurrentUser();
   const isOwner = Boolean(currentUser && currentLog.userId === currentUser.uid);
@@ -107,7 +134,7 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
         setComments(data as any[]);
         setCommentsCount(Array.isArray(data) ? data.length : 0);
       },
-      (error) => setCommentError(error.message || '评论加载失败，请重试'),
+      (error) => setCommentError(error.message || '评论加载失败'),
     );
     return () => unsub();
   }, [showComments, currentLog.id]);
@@ -119,6 +146,27 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
       return true;
     });
   }, [showComments]);
+
+  // Close more menu on outside click
+  useEffect(() => {
+    if (!showMoreMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setShowMoreMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showMoreMenu]);
+
+  // Close more menu via back handler
+  useEffect(() => {
+    if (!showMoreMenu) return;
+    return pushBackHandler(() => {
+      setShowMoreMenu(false);
+      return true;
+    });
+  }, [showMoreMenu]);
 
   const handleDelete = async () => {
     if (!deleteConfirm) {
@@ -142,6 +190,7 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
     const user = getCurrentUser();
     if (!user || !currentLog.id || liking) return;
     setLiking(true);
+    setLikeError('');
     const prevLiked = hasLiked;
     const nextLiked = !prevLiked;
     const nextLikesCount = Math.max(0, likesCount + (nextLiked ? 1 : -1));
@@ -155,6 +204,7 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
       await toggleLike(currentLog.id, user.uid, prevLiked);
     } catch (err) {
       console.error('Like failed:', err);
+      setLikeError('点赞操作失败，请重试');
       const rollbackCount = Math.max(0, nextLikesCount + (prevLiked ? 1 : -1));
       setHasLiked(prevLiked);
       setLikesCount(rollbackCount);
@@ -211,253 +261,277 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
   const handleEditSuccess = (updated: Partial<WorkoutLog>) => {
     setCurrentLog((prev) => ({ ...prev, ...updated }));
     onLogUpdated?.({ id: currentLog.id, ...updated });
+    setShowMoreMenu(false);
   };
 
   const vis: WorkoutVisibility = currentLog.visibility || 'public';
+  const allExercises = currentLog.exercises || [];
+  const visibleExercises = expandedExercises ? allExercises : allExercises.slice(0, DEFAULT_VISIBLE_EXERCISES);
+  const hasHiddenExercises = allExercises.length > DEFAULT_VISIBLE_EXERCISES;
+  const categories = inferLogCategories(currentLog.category, currentLog.categories, currentLog.exercises);
+  const training = summarizeTraining(allExercises);
+
+  // Note handling
+  const noteText = currentLog.note || '';
+  const isLongNote = noteText.length > 120;
+  const displayNote = isLongNote && !expandedNote ? noteText.slice(0, 120) + '…' : noteText;
 
   return (
-    <div
-      className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] mb-6 overflow-hidden transform-gpu"
-    >
-      <div className="p-4 sm:p-5">
-        {/* Author Header */}
-        <div className="flex items-start justify-between mb-3.5 gap-2">
-          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            <div className="border-2 border-ink p-0.5 bg-paper shrink-0">
-              {authorPhoto ? (
-                <img src={authorPhoto} className="w-9 h-9 sm:w-10 sm:h-10 object-cover" />
-              ) : (
-                <div className="w-9 h-9 sm:w-10 sm:h-10 bg-paper flex items-center justify-center">
-                  <UserIcon size={18} className="text-ink/30" />
-                </div>
+    <div className="card log-card p-4 sm:p-5 mb-5">
+      {/* ── Author row ── */}
+      <div className="flex items-start justify-between mb-3 gap-2">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <div className="border-2 border-ink p-0.5 bg-paper shrink-0">
+            {authorPhoto ? (
+              <img src={authorPhoto} className="w-9 h-9 sm:w-10 sm:h-10 object-cover" alt="" />
+            ) : (
+              <div className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center">
+                <UserIcon size={18} className="text-ink/30" />
+              </div>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-black text-ink leading-tight uppercase tracking-tight truncate text-sm sm:text-base" title={authorName}>
+                {authorName}
+              </span>
+              {/* Visibility badge - only for non-public */}
+              {vis === 'friends' && (
+                <span className="inline-flex items-center gap-0.5 bg-sky-100 text-sky-900 border border-sky-600 px-1 py-0.2 text-[9px] font-black uppercase whitespace-nowrap" title="好友小队可见">
+                  <Users size={10} /> 好友小队
+                </span>
+              )}
+              {vis === 'private' && (
+                <span className="inline-flex items-center gap-0.5 bg-ink text-white border border-black px-1 py-0.2 text-[9px] font-black uppercase whitespace-nowrap" title="仅自己可见">
+                  <Lock size={10} /> 仅自己
+                </span>
               )}
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <h3
-                  className="font-black text-ink leading-tight uppercase tracking-tighter truncate text-sm sm:text-base"
-                  title={authorName}
-                >
-                  {authorName}
-                </h3>
-
-                {/* Visibility Badge */}
-                {vis === 'friends' && (
-                  <span
-                    className="inline-flex items-center gap-0.5 bg-sky-100 text-sky-800 border border-sky-600 px-1 py-0.2 text-[9px] font-black uppercase whitespace-nowrap"
-                    title="好友小队可见"
-                  >
-                    <Users size={9} /> 好友小队
-                  </span>
-                )}
-                {vis === 'private' && (
-                  <span
-                    className="inline-flex items-center gap-0.5 bg-zinc-800 text-white border border-black px-1 py-0.2 text-[9px] font-black uppercase whitespace-nowrap"
-                    title="仅自己可见"
-                  >
-                    <Lock size={9} /> 仅自己
-                  </span>
-                )}
-              </div>
-              <p className="text-[10px] font-bold text-ink/50 flex items-center gap-1 whitespace-nowrap mt-0.5">
-                <Clock size={10} className="shrink-0 text-ink/40" />
-                <span className="whitespace-nowrap">{formatCompactTime(currentLog.timestamp)}</span>
-              </p>
-            </div>
-          </div>
-
-          {/* Right Action / Categories / Edit / Delete */}
-          <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end max-w-[55%] pt-0.5">
-            {inferLogCategories(currentLog.category, currentLog.categories, currentLog.exercises).map((cat) => (
-              <div
-                key={cat}
-                className={`px-1.5 sm:px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase tracking-tighter shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] whitespace-nowrap ${getCategoryBadgeColor(cat)}`}
-              >
-                {CATEGORY_META[cat]?.zh || cat}
-              </div>
-            ))}
-
-            {isOwner && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setShowEditModal(true)}
-                  className="px-1.5 sm:px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase bg-white text-ink/70 hover:bg-neon hover:text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer flex items-center gap-0.5 whitespace-nowrap"
-                  title="编辑此打卡"
-                >
-                  <Edit3 size={11} />
-                  <span>编辑</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  className={`px-1.5 sm:px-2 py-0.5 border-2 border-ink text-[10px] font-black uppercase transition-all cursor-pointer flex items-center gap-0.5 shrink-0 whitespace-nowrap ${
-                    deleteConfirm
-                      ? 'bg-red-500 text-white shadow-none animate-pulse'
-                      : 'bg-white text-ink/40 hover:text-red-500 hover:border-red-500 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'
-                  }`}
-                  title="删除打卡"
-                >
-                  <Trash2 size={11} />
-                  {deleteConfirm ? <span>{deleting ? '...' : '确认?'}</span> : <span>删除</span>}
-                </button>
-              </>
-            )}
+            <p className="text-xs font-medium text-ink/60 flex items-center gap-1 mt-1">
+              <Clock size={10} className="shrink-0 text-ink/40" />
+              <span>{formatCompactTime(currentLog.timestamp)}</span>
+            </p>
           </div>
         </div>
 
-        {/* Note */}
-        {currentLog.note && (
-          <p className="text-ink text-base sm:text-lg leading-snug mb-4 font-black uppercase tracking-tight break-words whitespace-pre-wrap">
-            "{currentLog.note}"
-          </p>
+        {/* More menu (owner only) */}
+        {isOwner && (
+          <div className="relative shrink-0" ref={moreMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowMoreMenu(!showMoreMenu)}
+              className="p-1.5 text-ink/50 hover:text-ink hover:bg-paper border border-transparent hover:border-ink transition-colors cursor-pointer"
+              style={{ minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              title="更多操作"
+              aria-label="更多操作"
+              aria-expanded={showMoreMenu}
+            >
+              <MoreHorizontal size={18} />
+            </button>
+            {showMoreMenu && (
+              <div className="absolute right-0 top-full mt-1 bg-white border-2 border-ink shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] py-1 z-20 min-w-[120px]">
+                <button
+                  type="button"
+                  onClick={() => { setShowEditModal(true); setShowMoreMenu(false); }}
+                  className="w-full px-4 py-2 text-left text-xs font-black uppercase text-ink hover:bg-neon transition-colors cursor-pointer flex items-center gap-2"
+                >
+                  <Edit3 size={13} />
+                  编辑
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowMoreMenu(false); handleDelete(); }}
+                  disabled={deleting}
+                  className={`w-full px-4 py-2 text-left text-xs font-black uppercase transition-colors cursor-pointer flex items-center gap-2 ${
+                    deleteConfirm ? 'text-white bg-red-500' : 'text-red-600 hover:bg-red-50'
+                  }`}
+                >
+                  <Trash2 size={13} />
+                  {deleteConfirm ? (deleting ? '删除中…' : '确认删除？') : '删除'}
+                </button>
+              </div>
+            )}
+          </div>
         )}
+      </div>
 
-        {/* Exercises */}
-        <div className="space-y-2 mb-4">
-          {(currentLog.exercises || []).map((ex) => (
-            <div key={ex.id} className="bg-paper border-2 border-ink p-3 flex items-center justify-between gap-2">
+      <h2 className="text-xl font-black tracking-tight mt-5 mb-3">
+        {categories.map(cat => CATEGORY_META[cat]?.zh || cat).join(' · ') || '训练'}打卡
+      </h2>
+      {/* Only show recorded metrics; cardio minutes are not total workout time. */}
+      {training.actions > 0 && (
+        <dl className="training-summary mb-5">
+          <div><dt>训练动作</dt><dd>{training.actions}<span>项</span></dd></div>
+          {training.sets > 0 && <div><dt>力量组数</dt><dd>{training.sets}<span>组</span></dd></div>}
+          {training.cardioMinutes > 0 && <div><dt>有氧时长</dt><dd>{Number(training.cardioMinutes.toFixed(1))}<span>分钟</span></dd></div>}
+          {training.sets === 0 && training.distance > 0 && <div><dt>有氧距离</dt><dd>{Number(training.distance.toFixed(2))}<span>km</span></dd></div>}
+        </dl>
+      )}
+
+      {/* ── Note / 心得 ── */}
+      {noteText && (
+        <div className="mb-3">
+          <p className="text-ink/80 text-sm leading-relaxed break-words whitespace-pre-wrap">
+            {displayNote}
+          </p>
+          {isLongNote && (
+            <button
+              type="button"
+              onClick={() => setExpandedNote(!expandedNote)}
+              className="text-xs font-bold text-ink/50 hover:text-ink mt-1 cursor-pointer underline"
+            >
+              {expandedNote ? '收起' : '展开全文'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Exercises ── */}
+      {allExercises.length > 0 && (
+        <div className="space-y-2 mb-3">
+          {visibleExercises.map((ex) => (
+            <div key={ex.id} className="bg-paper border-l-2 border-ink/20 p-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0 flex-1">
-                <div className="bg-black border border-black dark:border-zinc-700 p-1 shrink-0 flex items-center justify-center">
-                  <Dumbbell size={14} className="text-neon" />
+                <div className="bg-black p-1 shrink-0 flex items-center justify-center">
+                  <Dumbbell size={12} className="text-neon" />
                 </div>
-                <span className="font-black text-ink text-xs uppercase tracking-tighter truncate" title={ex.name}>
+                <span className="font-bold text-ink text-xs uppercase tracking-tight truncate" title={ex.name}>
                   {ex.name}
                 </span>
               </div>
-              <div className="text-[10px] font-black text-ink uppercase space-x-1 sm:space-x-2 shrink-0 flex items-center">
+              <div className="text-xs font-bold text-ink tabular-nums gap-x-1.5 gap-y-1 flex flex-wrap items-center">
                 {ex.type === 'strength' ? (
                   <>
-                    <span className="bg-neon px-1">{ex.weight}KG</span>
-                    <span>x</span>
-                    <span>{ex.sets}S</span>
-                    <span>x</span>
-                    <span>{ex.reps}R</span>
+                    {typeof ex.weight === 'number' && ex.weight !== 0 && (
+                      <span className="font-black">{Math.abs(ex.weight)} <span className="font-medium text-ink/55">kg</span></span>
+                    )}
+                    {ex.sets && ex.sets > 0 && <span>{ex.sets} 组</span>}
+                    {ex.reps && ex.reps > 0 && (
+                      <>
+                        <span>×</span>
+                        <span>{ex.reps} 次</span>
+                      </>
+                    )}
                   </>
                 ) : (
                   <>
-                    <span className="bg-neon px-1">{ex.duration || 0}M</span>
-                    {typeof ex.distance === 'number' && ex.distance > 0 ? (
-                      <>
-                        <span>/</span>
-                        <span>{ex.distance}K</span>
-                      </>
-                    ) : null}
-                    {typeof ex.calories === 'number' && ex.calories > 0 ? (
-                      <>
-                        <span>/</span>
-                        <span>{ex.calories}C</span>
-                      </>
-                    ) : null}
+                    <span className="font-black">{ex.duration || 0} <span className="font-medium text-ink/55">分钟</span></span>
+                    {typeof ex.distance === 'number' && ex.distance > 0 && <span>{ex.distance} km</span>}
+                    {typeof ex.calories === 'number' && ex.calories > 0 && <span>{ex.calories} kcal</span>}
                   </>
                 )}
               </div>
             </div>
           ))}
+          {hasHiddenExercises && (
+            <button
+              type="button"
+              onClick={() => setExpandedExercises(!expandedExercises)}
+              className="flex items-center gap-1 text-xs font-black text-ink/60 hover:text-ink cursor-pointer py-1"
+            >
+              {expandedExercises ? (
+                <><ChevronUp size={14} /> 收起</>
+              ) : (
+                <><ChevronDown size={14} /> 查看全部 {allExercises.length} 个动作</>
+              )}
+            </button>
+          )}
         </div>
+      )}
 
-        {/* Actions Bar */}
-        <div className="flex items-center justify-between pt-4 border-t-2 border-ink/10">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleToggleLike}
-              disabled={liking}
-              className={`flex items-center gap-2 text-xs font-black px-3 py-1 border-2 border-ink transition-all cursor-pointer ${
-                hasLiked
-                  ? 'bg-ink text-neon'
-                  : 'bg-white text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'
-              }`}
-            >
-              <Heart size={16} fill={hasLiked ? 'currentColor' : 'none'} />
-              <span>{likesCount}</span>
-            </button>
-            <button
-              onClick={() => setShowComments(!showComments)}
-              className={`flex items-center gap-2 text-xs font-black px-3 py-1 border-2 border-ink transition-all cursor-pointer ${
-                showComments
-                  ? 'bg-ink text-neon'
-                  : 'bg-white text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'
-              }`}
-            >
-              <MessageCircle size={16} />
-              <span>{commentsCount}</span>
-            </button>
-          </div>
+      {likeError && <p role="alert" className="text-xs font-bold text-rose-600">{likeError}</p>}
+      {/* ── Actions bar ── */}
+      <div className="flex items-center justify-between pt-3 border-t-2 border-ink/10">
+        <div className="flex items-center gap-2">
           <button
-            onClick={handleShare}
-            className="bg-paper p-1 border-2 border-ink hover:bg-neon transition-colors cursor-pointer"
-            title="生成打卡海报"
+            onClick={handleToggleLike}
+            disabled={liking}
+            aria-label={hasLiked === undefined ? '查询点赞状态并操作' : hasLiked ? '取消点赞' : '点赞'}
+            data-like-state={hasLiked === undefined ? 'unknown' : hasLiked ? 'liked' : 'unliked'}
+            className={`log-action ${hasLiked ? 'bg-neon text-ink' : 'text-ink/65 hover:bg-paper'}`}
+            aria-pressed={hasLiked === true}
           >
-            <Share2 size={16} />
+            <Heart size={15} fill={hasLiked ? 'currentColor' : 'none'} />
+            <span>{likesCount}</span>
+          </button>
+          <button
+            onClick={() => setShowComments(!showComments)}
+            className={`log-action ${showComments ? 'bg-paper text-ink' : 'text-ink/65 hover:bg-paper'}`}
+            aria-label={`评论，${commentsCount}条`}
+            aria-expanded={showComments}
+          >
+            <MessageCircle size={15} />
+            <span>{commentsCount}</span>
           </button>
         </div>
-
-        {/* Comments Section */}
-        <AnimatePresence>
-          {showComments && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="overflow-hidden mt-4 border-t-2 border-ink pt-4"
-            >
-              <div className="space-y-3 mb-4 max-h-60 overflow-y-auto">
-                {comments.length === 0 ? (
-                  <p className="text-[10px] font-black text-ink/30 uppercase italic text-center py-4">还没有评论</p>
-                ) : (
-                  comments.map((c) => {
-                    const isMyComment = Boolean(currentUser && c.userId === currentUser.uid);
-                    const cName = (isMyComment && currentUser?.displayName) ? currentUser.displayName : c.userName;
-                    const cPhoto = (isMyComment && currentUser?.photoURL) ? currentUser.photoURL : c.userPhoto;
-                    return (
-                    <div key={c.id} className="flex gap-2 items-start">
-                      <div className="border border-ink w-6 h-6 flex-shrink-0">
-                        {cPhoto ? (
-                          <img src={cPhoto} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full bg-paper flex items-center justify-center">
-                            <UserIcon size={10} className="text-ink/30" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[10px] font-black text-ink uppercase truncate block" title={cName}>
-                          {cName}
-                        </span>
-                        <p className="text-xs text-ink/70 break-words whitespace-pre-wrap leading-tight">{c.content}</p>
-                      </div>
-                    </div>
-                  );})
-                )}
-              </div>
-              {commentError && (
-                <p className="text-[10px] font-black text-red-600 uppercase mb-2">{commentError}</p>
-              )}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={commentText}
-                  onChange={(e) => { setCommentText(e.target.value); setCommentError(''); }}
-                  placeholder="说点什么..."
-                  className="flex-1 bg-paper border-2 border-ink p-2 text-base font-black text-ink outline-none focus:bg-white uppercase placeholder:opacity-30"
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleSendComment(); }}
-                />
-                <button
-                  onClick={handleSendComment}
-                  disabled={sending || !commentText.trim()}
-                  className="bg-neon text-ink border-2 border-ink px-3 py-2 font-black text-xs uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none disabled:opacity-50 cursor-pointer"
-                >
-                  <Send size={14} />
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <button
+          onClick={handleShare}
+          className="log-action text-ink/65 hover:bg-paper"
+          title="生成打卡海报"
+          aria-label="生成打卡海报"
+        >
+          <Share2 size={16} />
+        </button>
       </div>
 
-      {/* Share Poster Modal */}
+      {/* ── Comments Section ── */}
+      {showComments && (
+        <div className="mt-3 pt-3 border-t border-ink/5">
+          <div className="space-y-3 mb-3 max-h-60 overflow-y-auto">
+            {comments.length === 0 ? (
+              <p className="text-xs text-ink/30 text-center py-4">还没有评论</p>
+            ) : (
+              comments.map((c) => {
+                const isMyComment = Boolean(currentUser && c.userId === currentUser.uid);
+                const cName = (isMyComment && currentUser?.displayName) ? currentUser.displayName : c.userName;
+                const cPhoto = (isMyComment && currentUser?.photoURL) ? currentUser.photoURL : c.userPhoto;
+                return (
+                <div key={c.id} className="flex gap-2 items-start">
+                  <div className="w-6 h-6 flex-shrink-0 bg-paper overflow-hidden" style={{ border: '1px solid rgba(0,0,0,0.08)', borderRadius: 'var(--radius-sm)' }}>
+                    {cPhoto ? (
+                      <img src={cPhoto} className="w-full h-full object-cover" alt="" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <UserIcon size={10} className="text-ink/20" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-semibold text-ink truncate block" title={cName}>
+                      {cName}
+                    </span>
+                    <p className="text-xs text-ink/70 break-words whitespace-pre-wrap leading-relaxed">{c.content}</p>
+                  </div>
+                </div>
+              );})
+            )}
+          </div>
+          {commentError && (
+            <p className="text-xs text-red-500 mb-2">{commentError}</p>
+          )}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={commentText}
+              onChange={(e) => { setCommentText(e.target.value); setCommentError(''); }}
+              placeholder="说点什么…"
+              className="input-field flex-1 py-2 text-sm"
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSendComment(); }}
+            />
+            <button
+              onClick={handleSendComment}
+              disabled={sending || !commentText.trim()}
+              className="btn-neon px-3 py-2 disabled:opacity-40 cursor-pointer"
+              aria-label="发送评论"
+            >
+              <Send size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Share and edit dependencies load only on explicit interaction. */}
+      <Suspense fallback={<div role="status" className="bg-white border-4 border-ink p-4">正在加载工具…</div>}>
       <AnimatePresence>
         {showShareModal && (
           <SharePosterModal
@@ -478,6 +552,7 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
           />
         )}
       </AnimatePresence>
+      </Suspense>
     </div>
   );
 }

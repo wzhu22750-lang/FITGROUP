@@ -1,5 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import CommunityLeaderboard from '../src/components/CommunityLeaderboard';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`❌ FAILED: ${message}`);
@@ -29,16 +32,17 @@ assert(
   'getLeaderboard preserves streak as secondary tie-breaker',
 );
 
-// 2. Verify Statistics.tsx UI reflects totalWorkouts instead of streak
+// 2. Verify the extracted leaderboard renders totals, including a zero fallback.
 assert(
-  statsComponentCode.includes('u.totalWorkouts'),
-  'Statistics leaderboard displays u.totalWorkouts',
+  statsComponentCode.includes('<CommunityLeaderboard entries={groupStats} />'),
+  'Statistics passes subscribed leaderboard data to CommunityLeaderboard',
 );
-
-assert(
-  statsComponentCode.includes('次') && statsComponentCode.includes('u.totalWorkouts || 0'),
-  'Statistics leaderboard shows total count formatted with 次',
-);
+const leaderboardMarkup = renderToStaticMarkup(createElement(CommunityLeaderboard, {
+  entries: [{ uid: 'one', displayName: 'Alice', totalWorkouts: 42 }, { uid: 'two', displayName: 'Bob' }],
+}));
+assert(/42<span[^>]*>次<\/span>/.test(leaderboardMarkup), 'Leaderboard renders total count with 次');
+assert(/0<span[^>]*>次<\/span>/.test(leaderboardMarkup), 'Leaderboard renders zero when total count is absent');
+assert(leaderboardMarkup.indexOf('Alice') < leaderboardMarkup.indexOf('Bob'), 'Leaderboard preserves server ranking');
 
 // 3. Verify migration adds index for total_workouts
 assert(

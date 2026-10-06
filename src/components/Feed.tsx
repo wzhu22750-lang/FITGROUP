@@ -514,19 +514,19 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
         }
       }}
     >
-      {/* Three Segmented Domain Tabs */}
-      <div className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-1.5 grid grid-cols-3 gap-1">
+      <div className="feed-intro">
+        <h1 className="text-2xl font-black tracking-tight">一起练，更有动力</h1>
+        <p className="mt-2 text-sm text-ink/60 leading-relaxed">分享每一次突破，也为彼此的坚持喝彩。</p>
+      </div>
+      {/* Keep all existing domains; this release changes presentation only. */}
+      <div className="feed-tabs" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }} role="group" aria-label="动态范围">
         <button
           type="button"
           onClick={() => setActiveDomain('public')}
-          className={`py-2.5 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-            activeDomain === 'public'
-              ? 'bg-neon text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
-              : 'bg-paper text-ink/70 hover:bg-white hover:text-ink'
-          }`}
+          className="feed-tab"
+          aria-pressed={activeDomain === 'public'}
         >
-          <Globe size={15} />
-          <span>全员广场</span>
+          <span>广场动态</span>
         </button>
 
         <button
@@ -534,26 +534,18 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
           onClick={() => setActiveDomain('team')}
           onMouseEnter={preloadTeamDashboard}
           onTouchStart={preloadTeamDashboard}
-          className={`py-2.5 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-            activeDomain === 'team'
-              ? 'bg-neon text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
-              : 'bg-paper text-ink/70 hover:bg-white hover:text-ink'
-          }`}
+          className="feed-tab"
+          aria-pressed={activeDomain === 'team'}
         >
-          <Users size={15} />
           <span>好友小队</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveDomain('my')}
-          className={`py-2.5 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-            activeDomain === 'my'
-              ? 'bg-neon text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
-              : 'bg-paper text-ink/70 hover:bg-white hover:text-ink'
-          }`}
+          className="feed-tab"
+          aria-pressed={activeDomain === 'my'}
         >
-          <UserIcon size={15} />
           <span>我的打卡</span>
         </button>
       </div>
@@ -612,10 +604,11 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
                 </button>
               </div>
             ) : publicLogs.length === 0 ? (
-              <div className="bg-white border-4 border-ink p-12 text-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-3">
-                <Globe size={36} className="text-ink/30 mx-auto" />
-                <p className="font-black text-ink/70 text-sm uppercase">全员广场暂无公开打卡</p>
-                <p className="text-xs font-bold text-ink/40">发布全员公开打卡，即可在此被所有 FitGroup 健友看到！</p>
+              <div className="card px-6 py-10 text-center">
+                <div className="w-14 h-14 mx-auto mb-5 bg-neon flex items-center justify-center border-2 border-ink"><Dumbbell size={26} /></div>
+                <h2 className="text-lg font-black">从你的第一条打卡开始</h2>
+                <p className="text-sm text-ink/60 mt-2 leading-relaxed">广场还没有公开动态。记录训练，让健友看见你的坚持。</p>
+                {onNavigateToLog && <button type="button" onClick={onNavigateToLog} className="btn-neon mt-6 min-h-11">记录训练</button>}
               </div>
             ) : (
               publicLogs.map((log) => (

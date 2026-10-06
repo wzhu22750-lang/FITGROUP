@@ -214,13 +214,13 @@ export default function App() {
             <SplashAnimation onComplete={handleSplashComplete} />
           </Suspense>
         )}
-        <div className="app-shell min-h-screen bg-paper max-w-lg mx-auto border-x-4 border-ink relative">
-      <header className="app-header sticky top-0 z-30 bg-paper border-b-4 border-ink flex items-center justify-between px-6 pb-4">
+        <div className="app-shell min-h-dvh bg-paper max-w-lg mx-auto relative">
+      <header className="app-header sticky top-0 z-30 bg-paper border-b-2 border-ink flex items-center justify-between px-4 pb-3">
         <div className="flex items-center gap-2">
           <div className="bg-black border-2 border-black p-1 flex items-center justify-center shrink-0">
-            <Dumbbell className="text-neon" size={24} />
+            <Dumbbell className="text-neon" size={18} />
           </div>
-          <span className="text-3xl font-black tracking-tighter text-ink uppercase italic">FitGroup</span>
+          <span className="text-xl font-black tracking-tight text-ink uppercase italic">FitGroup</span>
         </div>
         <div className="flex items-center gap-2.5">
           <button
@@ -228,6 +228,8 @@ export default function App() {
             onClick={() => setShowNotificationsModal(true)}
             className="relative bg-white text-ink border-2 border-ink p-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-neon active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer"
             title="消息通知"
+            aria-label={`消息通知${unreadCount > 0 ? `，${unreadCount}条未读` : ''}`}
+            style={{ minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             <Bell size={20} />
             {unreadCount > 0 && (
@@ -240,10 +242,11 @@ export default function App() {
           {activeTab === 'feed' && (
             <button 
               onClick={() => setActiveTab('log')}
-              className="bg-neon text-ink border-2 border-ink p-2 font-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none active:translate-x-0.5 active:translate-y-0.5 transition-all cursor-pointer flex items-center justify-center"
-              title="快速打卡"
+              className="btn-neon min-h-11 px-3 py-1.5 text-xs flex items-center gap-1.5 font-black"
+              title="记录训练"
+              aria-label="记录训练"
             >
-              <Plus size={24} className="stroke-[2.5]" />
+              <Dumbbell size={15} /><span>记录训练</span>
             </button>
           )}
         </div>
@@ -259,7 +262,7 @@ export default function App() {
           <AnimatePresence mode="wait">
             {activeTab === 'feed' && (
               <motion.div key="feed" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <Feed />
+                <Feed onNavigateToLog={() => setActiveTab('log')} />
               </motion.div>
             )}
             {activeTab === 'log' && (
@@ -303,9 +306,9 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <nav className="app-tabbar fixed bottom-0 left-0 right-0 bg-white border-t-4 border-ink px-2 pt-3 flex items-center justify-around max-w-[calc(32rem-8px)] mx-auto z-40">
+      <nav aria-label="主导航" className="app-tabbar fixed bottom-0 left-0 right-0 bg-white border-t border-ink/20 px-3 pt-2 flex items-center justify-around gap-2 max-w-lg mx-auto z-40">
 
-        <NavButton active={activeTab === 'feed'} onClick={() => setActiveTab('feed')} icon={<Layout size={24} />} label="发现" />
+        <NavButton active={activeTab === 'feed'} onClick={() => setActiveTab('feed')} icon={<Layout size={24} />} label="动态" />
         <NavButton active={activeTab === 'log'} onClick={() => setActiveTab('log')} onPreload={preloadLog} icon={<Dumbbell size={24} />} label="打卡" />
         <NavButton active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} onPreload={preloadStats} icon={<BarChart3 size={24} />} label="统计" />
         <NavButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} onPreload={preloadProfile} icon={<UserIcon size={24} />} label="我的" />
@@ -334,11 +337,13 @@ function NavButton({
       onClick={onClick}
       onMouseEnter={onPreload}
       onTouchStart={onPreload}
-      className={`flex flex-col items-center gap-1 transition-all cursor-pointer px-4 py-1 border-2 border-transparent ${
-        active 
-          ? 'bg-neon text-black border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] font-black' 
-          : 'text-slate-400 hover:text-ink'
+      className={`app-nav-button flex flex-col justify-center items-center gap-1 cursor-pointer px-3 py-1 border-2 ${
+        active
+          ? 'bg-neon text-ink border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] font-black'
+          : 'border-transparent text-ink/50 hover:text-ink font-bold'
       }`}
+      style={{ minWidth: 54 }}
+      aria-current={active ? 'page' : undefined}
     >
       {icon}
       <span className="text-[10px] font-black uppercase tracking-tighter">{label}</span>

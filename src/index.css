@@ -15,13 +15,42 @@
     --safe-left: env(safe-area-inset-left, 0px);
     --safe-right: env(safe-area-inset-right, 0px);
     --keyboard-height: 0px;
+
+    /* ── Semantic spacing scale (4-based) ── */
+    --sp-1: 4px;
+    --sp-2: 8px;
+    --sp-3: 12px;
+    --sp-4: 16px;
+    --sp-6: 24px;
+    --sp-8: 32px;
+
+    /* ── Neo-Brutalism tokens ── */
+    --border-a: 3px;
+    --border-b: 2px;
+    --border-c: 1px;
+    --shadow-a: 4px 4px 0px 0px rgba(0,0,0,1);
+    --shadow-b: 3px 3px 0px 0px rgba(0,0,0,1);
+    --shadow-sm: 2px 2px 0px 0px rgba(0,0,0,1);
+    --radius-neo: 0px;
   }
 
   html,
   body {
     @apply bg-paper text-ink font-sans;
     min-height: 100dvh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
+
+  body { margin: 0; }
+  h1, h2, h3 { text-wrap: balance; }
+  button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+  button:focus-visible, a:focus-visible, input:focus-visible,
+  textarea:focus-visible, select:focus-visible {
+    outline: 3px solid #525f00;
+    outline-offset: 4px;
+  }
+  button:disabled { cursor: not-allowed; }
 
   input,
   textarea,
@@ -37,16 +66,18 @@
 }
 
 .app-header {
-  padding-top: calc(var(--safe-top) + 1rem);
+  padding-top: calc(var(--safe-top) + 0.75rem);
 }
 
 .app-tabbar {
-  padding-bottom: calc(var(--safe-bottom) + 0.75rem);
+  padding-bottom: calc(var(--safe-bottom) + 0.5rem);
   transition: transform 180ms ease, opacity 180ms ease;
 }
 
 .app-shell {
-  padding-bottom: calc(6.5rem + var(--safe-bottom) + var(--keyboard-height));
+  padding-bottom: calc(6rem + var(--safe-bottom) + var(--keyboard-height));
+  min-height: 100dvh;
+  font-variant-numeric: tabular-nums;
 }
 
 .keyboard-open .app-tabbar {
@@ -66,16 +97,326 @@
   padding-right: calc(var(--safe-right) + 1rem);
 }
 
+/* ── Respect reduced-motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Neo-brutalist hierarchy: bold outer frames, hard shadows, flat inner detail. */
+.app-header { background: #fff; }
+.app-tabbar { border-top: 3px solid #111; box-shadow: none; }
+.app-nav-button {
+  flex: 1;
+  max-width: 96px;
+  min-height: 52px;
+  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+.app-nav-button:active { transform: translateY(1px); }
+.feed-intro { padding: 12px 0 8px; }
+.feed-intro h1 {
+  display: inline;
+  font-size: clamp(24px, 6.8vw, 30px);
+  font-weight: 950;
+  font-style: italic;
+  line-height: 1.5;
+  letter-spacing: -0.04em;
+  background: linear-gradient(transparent 65%, var(--color-neon) 65%);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.feed-intro p { color: #4a4a4a; }
+.log-card h2 { font-size: 24px; font-style: italic; font-weight: 950; }
+.feed-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  background: #fff;
+  border: 2px solid #111;
+  box-shadow: var(--shadow-b);
+}
+.feed-tab {
+  min-height: 44px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #55564e;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+.feed-tab[aria-pressed="true"] {
+  background: var(--color-neon);
+  color: #111;
+  border-color: #111;
+  box-shadow: 2px 2px 0 #111;
+}
+.feed-tab:hover:not([aria-pressed="true"]) { background: #f4f4f0; color: #111; }
+.log-card { overflow-wrap: anywhere; }
+
+/* One ink-black score strip per card, not a separate box around every metric. */
+.training-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 12px;
+  padding: 16px 14px;
+  background: #171717;
+  color: #fff;
+  border-left: 5px solid var(--color-neon);
+  font-variant-numeric: tabular-nums;
+}
+.training-summary dt, .overview-totals dt {
+  color: #62665b;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+.training-summary dd, .overview-totals dd {
+  font-size: 24px;
+  font-weight: 850;
+  line-height: 1.2;
+  letter-spacing: -0.04em;
+}
+.training-summary dd span, .overview-totals dd span {
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: #62665b;
+}
+.training-summary dt { color: #d0d0d0; font-weight: 700; }
+.training-summary dd { font-size: 28px; font-weight: 950; font-style: italic; }
+.training-summary dd span { color: var(--color-neon); font-style: normal; }
+.training-overview {
+  background: var(--color-neon);
+  padding: 20px;
+  border: 3px solid #111;
+  box-shadow: var(--shadow-a);
+  font-variant-numeric: tabular-nums;
+}
+.training-overview > p { color: #363c10; }
+.training-overview .overview-score { font-size: 64px; font-style: italic; line-height: 1; }
+.streak-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #171717;
+  border: 1px solid #171717;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--color-neon);
+}
+.training-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  margin: 24px 0;
+}
+.training-week li { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.training-day {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  max-width: 44px;
+  aspect-ratio: 1;
+  background: #ffffff80;
+  color: #333;
+  font-size: 12px;
+  font-weight: 800;
+  border: 1px solid #111;
+}
+.training-day.is-active { background: #171717; color: var(--color-neon); box-shadow: 2px 2px 0 #ffffffb3; }
+.training-day.is-today { outline: 2px solid #111; outline-offset: 2px; }
+.overview-totals {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr;
+  gap: 12px;
+  padding: 16px 12px;
+  background: #fff;
+  border: 2px solid #111;
+}
+.overview-totals .balance-value { font-size: 14px; line-height: 1.7; letter-spacing: 0; }
+.log-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 2px solid #111;
+  box-shadow: 2px 2px 0 #111;
+  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+.log-action:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: none; }
+.stats-control {
+  min-height: 40px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  color: #484848;
+  border: 1px solid transparent;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+.stats-control[aria-pressed="true"] { background: #171717; color: var(--color-neon); border-color: #111; }
+.stats-control:hover:not([aria-pressed="true"]) { background: #e9ebe2; }
+.stats-category {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  min-width: 0;
+  background: #f4f4f4;
+  border: 2px solid #111;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+.stats-category:hover { background: #f5ffb3; border-color: #111; }
+.statistics-page h3 { font-style: italic; font-weight: 900; }
+.statistics-page .card { border-top-width: 4px; }
+@media (max-width: 359px) {
+  .training-overview { padding: 16px; }
+  .training-week { gap: 4px; }
+  .overview-totals { gap: 8px; }
+}
+
+.auth-panel { border: 2px solid #111; box-shadow: 6px 6px 0 #111; }
+.auth-brand-panel {
+  background: #181a15;
+  color: #fafaf8;
+  padding: 28px;
+  border-bottom: 2px solid #111;
+}
+.auth-form-panel { padding: 28px; }
+.auth-shell {
+  background-image: radial-gradient(#00000014 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+@media (min-width: 768px) {
+  .app-shell { border-inline: 1px solid #deded8; box-shadow: 0 0 48px rgb(0 0 0 / 5%); }
+  .auth-panel { display: grid; grid-template-columns: 0.9fr 1.1fr; max-width: 800px; }
+  .auth-brand-panel {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 40px;
+    border-bottom: 0;
+    border-right: 2px solid #111;
+  }
+  .auth-form-panel { padding: 40px; }
+}
+
 @layer components {
+  /* Bold primary surfaces; nested detail stays flat. */
+  .card {
+    @apply bg-white;
+    border: 2px solid #111;
+    box-shadow: var(--shadow-a);
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+  }
+
+  /* Flat surface for dense internal groupings. */
+  .card-flat {
+    @apply bg-white;
+    border: 2px solid #111;
+  }
+
+  /* ── A-Level: Main Action Button (Black with white text + neon/black shadow) ── */
+  .btn-primary {
+    @apply bg-ink text-white font-black px-6 py-3.5 transition-all cursor-pointer;
+    border: 2px solid #000;
+    box-shadow: 3px 3px 0px 0px rgba(0,0,0,1);
+  }
+  .btn-primary:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0px 0px rgba(0,0,0,1);
+  }
+
+  /* ── A-Level: Neon CTA Button (High-visibility brand action) ── */
+  .btn-neon {
+    @apply bg-neon text-ink font-black px-4 py-2 transition-all cursor-pointer;
+    border: 2px solid #000;
+    box-shadow: 2px 2px 0px 0px rgba(0,0,0,1);
+  }
+  .btn-neon:active {
+    transform: translate(2px, 2px);
+    box-shadow: 0px 0px 0px 0px rgba(0,0,0,1);
+  }
+
+  /* A-Level: Large Submit CTA Button */
+  .btn-neon-lg {
+    @apply bg-neon text-ink font-black text-lg py-4 px-6 transition-all cursor-pointer flex items-center justify-center gap-2;
+    border: 3px solid #000;
+    box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+  }
+  .btn-neon-lg:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0px 0px rgba(0,0,0,1);
+  }
+
+  /* ── Secondary / Sub-Action Button (White, 2px border, 2px shadow) ── */
+  .btn-secondary {
+    @apply bg-white text-ink font-bold px-4 py-2 transition-all cursor-pointer;
+    border: 2px solid #000;
+    box-shadow: 2px 2px 0px 0px rgba(0,0,0,1);
+  }
+  .btn-secondary:hover {
+    @apply bg-paper;
+  }
+  .btn-secondary:active {
+    transform: translate(2px, 2px);
+    box-shadow: 0px 0px 0px 0px rgba(0,0,0,1);
+  }
+
+  /* ── Input Field (Clean 2px black border, solid focus state) ── */
+  .input-field {
+    @apply w-full bg-paper p-3 text-ink outline-none transition-colors font-medium;
+    border: 2px solid #000;
+    font-size: 16px;
+  }
+  .input-field:focus {
+    @apply bg-white;
+    border-color: #000;
+    box-shadow: 2px 2px 0px 0px rgba(0,0,0,1);
+  }
+
+  /* Legacy brutalist classes */
   .brutalist-card {
-    @apply bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all;
+    @apply bg-white transition-all;
+    border: 3px solid #000;
+    box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
   }
   
   .brutalist-button {
-    @apply bg-ink text-white font-black uppercase px-6 py-4 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(223,255,0,1)] active:translate-x-1 active:translate-y-1 active:shadow-none transition-all;
+    @apply bg-ink text-white font-black px-6 py-4 transition-all;
+    border: 3px solid #000;
+    box-shadow: 4px 4px 0px 0px rgba(223,255,0,1);
+  }
+  .brutalist-button:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0px 0px rgba(223,255,0,1);
   }
 
   .brutalist-input {
-    @apply w-full border-4 border-ink bg-transparent p-3 font-bold outline-none focus:bg-white transition-colors;
+    @apply w-full bg-transparent p-3 font-bold outline-none focus:bg-white transition-colors;
+    border: 2px solid #000;
+  }
+
+  /* Neo-brutalist Tag Badges */
+  .neo-badge {
+    @apply inline-flex items-center px-2 py-0.5 text-xs font-bold border border-black bg-paper text-ink;
+  }
+  .neo-badge-neon {
+    @apply inline-flex items-center px-2 py-0.5 text-xs font-black border border-black bg-neon text-ink shadow-[1px_1px_0px_0px_rgba(0,0,0,1)];
   }
 }
