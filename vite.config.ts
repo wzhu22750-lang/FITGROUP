@@ -1,9 +1,47 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 
-export default defineConfig({
+export default defineConfig(({ command, mode }) => {
+  // Build guard: ensure required Supabase credentials exist before bundling.
+  // Production guard: no bypasses permitted — missing environment variables must always fail.
+  if (command === 'build') {
+    const env = loadEnv(mode, process.cwd(), '');
+    const rawUrl = process.env.VITE_SUPABASE_URL !== undefined
+      ? process.env.VITE_SUPABASE_URL
+      : env.VITE_SUPABASE_URL;
+    const rawKey = process.env.VITE_SUPABASE_ANON_KEY !== undefined
+      ? process.env.VITE_SUPABASE_ANON_KEY
+      : env.VITE_SUPABASE_ANON_KEY;
+
+    const supabaseUrl = (rawUrl || '').trim();
+    const supabaseAnonKey = (rawKey || '').trim();
+
+    const isInvalidUrl = !supabaseUrl ||
+      supabaseUrl === 'https://your-project.supabase.co' ||
+      supabaseUrl === 'https://invalid.localhost';
+    const isInvalidKey = !supabaseAnonKey ||
+      supabaseAnonKey === 'your-anon-or-publishable-key' ||
+      supabaseAnonKey === 'missing-anon-key';
+
+    if (isInvalidUrl || isInvalidKey) {
+      const reasons: string[] = [];
+      if (isInvalidUrl) {
+        reasons.push('VITE_SUPABASE_URL is missing, empty, or an unconfigured placeholder');
+      }
+      if (isInvalidKey) {
+        reasons.push('VITE_SUPABASE_ANON_KEY is missing, empty, or an unconfigured placeholder');
+      }
+      throw new Error(
+        `\n❌ [FATAL BUILD GUARD] Production build aborted due to missing environment variables:\n` +
+        reasons.map((r) => `  - ${r}`).join('\n') +
+        `\n\nEnsure valid credentials are provided in .env or CI environment variables before building.\n`
+      );
+    }
+  }
+
+  return {
     base: '/',
     plugins: [react(), tailwindcss()],
     resolve: {
@@ -15,6 +53,7 @@ export default defineConfig({
       entries: ['index.html', 'src/**/*.{ts,tsx}'],
     },
     build: {
+      manifest: true,
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
         output: {
@@ -45,4 +84,5 @@ export default defineConfig({
       // Do not modify — file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
     },
+  };
 });

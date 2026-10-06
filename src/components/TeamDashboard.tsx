@@ -334,14 +334,14 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
             <button
               type="button"
               onClick={() => setShowCreateModal(true)}
-              className="bg-neon text-ink border-2 border-ink py-3.5 px-4 font-black uppercase text-xs flex items-center justify-center gap-2 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none cursor-pointer"
+              className="bg-neon text-ink border-2 border-ink py-3.5 px-4 font-semibold text-xs flex items-center justify-center gap-2 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none cursor-pointer"
             >
               <Plus size={16} /> 创建新小队
             </button>
             <button
               type="button"
               onClick={() => setShowJoinModal(true)}
-              className="bg-ink text-white border-2 border-ink py-3.5 px-4 font-black uppercase text-xs flex items-center justify-center gap-2 shadow-[3px_3px_0px_0px_rgba(223,255,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none cursor-pointer"
+              className="bg-ink text-white border-2 border-ink py-3.5 px-4 font-semibold text-xs flex items-center justify-center gap-2 shadow-[3px_3px_0px_0px_rgba(223,255,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none cursor-pointer"
             >
               <KeyRound size={16} /> 输入口令加入
             </button>
@@ -387,7 +387,7 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
       )}
 
       {/* 1. Squad Header & Team Switcher */}
-      <div className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-4 sm:p-5 relative">
+      <div className="card p-4 sm:p-5 relative">
         <div className="flex items-center justify-between gap-2 mb-3">
           {/* Team Switcher dropdown trigger */}
           <div className="relative flex-1 min-w-0">
@@ -407,9 +407,9 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
                   initial={{ opacity: 0, y: -5 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -5 }}
-                  className="absolute left-0 top-full mt-2 z-40 bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] w-64 divide-y-2 divide-ink"
+                  className="absolute left-0 top-full mt-2 z-40 bg-white border-2 border-ink shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] w-64 divide-y-2 divide-ink"
                 >
-                  <div className="p-2 bg-paper text-[10px] font-black uppercase text-ink/60">
+                  <div className="p-2 bg-paper text-[10px] font-semibold text-ink/60">
                     我加入的小队 ({teams.length})
                   </div>
                   {teams.map((t) => (
@@ -432,14 +432,14 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
                     <button
                       type="button"
                       onClick={() => { setShowTeamSwitcher(false); setShowCreateModal(true); }}
-                      className="flex-1 bg-white border border-ink py-1 text-[10px] font-black uppercase hover:bg-neon"
+                      className="flex-1 bg-white border border-ink py-1 text-[10px] font-semibold hover:bg-neon"
                     >
                       + 新建小队
                     </button>
                     <button
                       type="button"
                       onClick={() => { setShowTeamSwitcher(false); setShowJoinModal(true); }}
-                      className="flex-1 bg-white border border-ink py-1 text-[10px] font-black uppercase hover:bg-neon"
+                      className="flex-1 bg-white border border-ink py-1 text-[10px] font-semibold hover:bg-neon"
                     >
                       输入口令
                     </button>
@@ -454,7 +454,7 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
             <button
               type="button"
               onClick={() => handleCopyCode(currentTeam.code)}
-              className="bg-paper text-ink border-2 border-ink px-2 py-1 text-[10px] sm:text-xs font-black uppercase flex items-center gap-1 hover:bg-neon transition-all cursor-pointer shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5"
+              className="bg-paper text-ink border-2 border-ink px-2 py-1 text-[10px] sm:text-xs font-semibold flex items-center gap-1 hover:bg-neon transition-all cursor-pointer  active:translate-x-0.5 active:translate-y-0.5"
               title="点击复制口令"
             >
               {copied ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
@@ -499,7 +499,7 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
                   <span className="text-xs font-black text-ink">
                     {dashboardData.todayCheckinCount} / {dashboardData.totalMembers} 人已打卡
                   </span>
-                  <span className="text-xs font-black bg-neon text-ink px-1.5 py-0.2 border border-ink shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
+                  <span className="text-xs font-black bg-neon text-ink px-1.5 py-0.2 border border-ink ">
                     {dashboardData.attendanceRate}%
                   </span>
                 </div>
@@ -562,7 +562,7 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
 
                     <div className="shrink-0">
                       {m.hasCheckedInToday ? (
-                        <span className="bg-ink text-neon border border-ink px-1.5 py-0.5 text-[10px] font-black uppercase flex items-center gap-1 shadow-[1px_1px_0px_0px_rgba(223,255,0,1)]">
+                        <span className="bg-ink text-neon border border-ink px-1.5 py-0.5 text-[10px] font-semibold flex items-center gap-1 shadow-[1px_1px_0px_0px_rgba(223,255,0,1)]">
                           <Check size={11} className="stroke-[3]" />
                           <span>已练 {m.todayWorkoutCount && m.todayWorkoutCount > 1 ? `x${m.todayWorkoutCount}` : ''}</span>
                         </span>

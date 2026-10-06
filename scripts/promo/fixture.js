@@ -1,0 +1,22 @@
+// Synthetic in-memory data, used only by the isolated promo Vite server.
+export const user = {id:'promo-user',uid:'promo-user',displayName:'小燃',photoURL:'',email:'demo@example.invalid',phone:'',streak:3,totalWorkouts:16,sex:'male',bodyweightKg:70,heightCm:175,prs:{'杠铃平板卧推':60,'高位下拉':50}};
+const workouts=[['Chest','杠铃平板卧推',60],['Back','高位下拉',50],['Legs','杠铃深蹲',70],['Shoulders','坐姿哑铃推举',20]];
+let logs=Array.from({length:16},(_,i)=>{const [category,name,weight]=workouts[i%4];return {id:`demo-${i}`,userId:user.uid,userName:user.displayName,userPhoto:'',timestamp:new Date(Date.now()-(i+1)*86400000).toISOString(),category,categories:[category],exercises:[{id:`ex-${i}`,name,weight,sets:4,reps:10,type:'strength'}],note:i===0?'每一组认真完成，进步就有迹可循。':'今天也完成了训练！',likesCount:i===0?6:3,commentsCount:0,isLiked:false,visibility:'public'};});
+const sub=(cb,data)=>{queueMicrotask(()=>cb(data));return ()=>{};};
+export const getCurrentUser=()=>user;
+export const waitForAuthReady=async()=>user;
+export const onAuthStateChangedFn=cb=>sub(cb,user);
+export const getUserProfile=async()=>user;
+export const syncUserStatsFromLogs=async()=>user;
+export const subscribeToUserProfile=(id,cb)=>sub(cb,user);
+export const fetchPublicWorkoutLogs=async()=>logs;
+export const fetchMyWorkoutLogs=async()=>logs;
+export const getUserWorkoutLogs=async()=>logs;
+export const subscribeToPublicWorkoutLogs=cb=>sub(cb,logs);
+export const subscribeToMyWorkoutLogs=(id,cb)=>sub(cb,logs);
+export const subscribeToUserWorkoutLogs=(id,cb)=>sub(cb,logs);
+export const subscribeToLeaderboard=cb=>sub(cb,[user,{...user,uid:'demo-2',displayName:'阿岚',totalWorkouts:12}]);
+export const getLastWorkoutsByCategories=async()=>({});
+export const createWorkoutLog=async data=>{const log={...data,id:'demo-new',userId:user.uid,userName:user.displayName,userPhoto:'',timestamp:new Date().toISOString(),likesCount:0,commentsCount:0,isLiked:false};logs=[log,...logs];user.totalWorkouts++;user.streak++;return log;};
+export const checkUserLike=async()=>false;
+export const toggleLike=async()=>{};

@@ -1,0 +1,131 @@
+[
+  {
+    "label": "entry",
+    "count": 6,
+    "bytes": 748544,
+    "gzipBytes": 213507,
+    "resources": [
+      {
+        "file": "assets/index-C-RVFFQN.js",
+        "bytes": 114094,
+        "gzipBytes": 32303
+      },
+      {
+        "file": "assets/index-Rq_yYy-t.css",
+        "bytes": 50930,
+        "gzipBytes": 8855
+      },
+      {
+        "file": "assets/vendor-react-BjyJSci5.js",
+        "bytes": 222204,
+        "gzipBytes": 67629
+      },
+      {
+        "file": "assets/vendor-supabase-BnGCNdwk.js",
+        "bytes": 220439,
+        "gzipBytes": 57594
+      },
+      {
+        "file": "assets/vendor-share-Br7REqB6.js",
+        "bytes": 12991,
+        "gzipBytes": 5183
+      },
+      {
+        "file": "assets/vendor-motion-43hiRpBH.js",
+        "bytes": 127886,
+        "gzipBytes": 41943
+      }
+    ]
+  },
+  {
+    "label": "login (entry + auth + splash)",
+    "count": 8,
+    "bytes": 758067,
+    "gzipBytes": 217582,
+    "resources": [
+      {
+        "file": "assets/index-C-RVFFQN.js",
+        "bytes": 114094,
+        "gzipBytes": 32303
+      },
+      {
+        "file": "assets/index-Rq_yYy-t.css",
+        "bytes": 50930,
+        "gzipBytes": 8855
+      },
+      {
+        "file": "assets/vendor-react-BjyJSci5.js",
+        "bytes": 222204,
+        "gzipBytes": 67629
+      },
+      {
+        "file": "assets/vendor-supabase-BnGCNdwk.js",
+        "bytes": 220439,
+        "gzipBytes": 57594
+      },
+      {
+        "file": "assets/vendor-share-Br7REqB6.js",
+        "bytes": 12991,
+        "gzipBytes": 5183
+      },
+      {
+        "file": "assets/vendor-motion-43hiRpBH.js",
+        "bytes": 127886,
+        "gzipBytes": 41943
+      },
+      {
+        "file": "assets/AuthScreen-DnHFmh2U.js",
+        "bytes": 3267,
+        "gzipBytes": 1321
+      },
+      {
+        "file": "assets/SplashAnimation-CwkMNTfu.js",
+        "bytes": 6256,
+        "gzipBytes": 2754
+      }
+    ]
+  },
+  {
+    "label": "authenticated feed (no poster/edit)",
+    "count": 7,
+    "bytes": 754800,
+    "gzipBytes": 216261,
+    "resources": [
+      {
+        "file": "assets/index-C-RVFFQN.js",
+        "bytes": 114094,
+        "gzipBytes": 32303
+      },
+      {
+        "file": "assets/index-Rq_yYy-t.css",
+        "bytes": 50930,
+        "gzipBytes": 8855
+      },
+      {
+        "file": "assets/vendor-react-BjyJSci5.js",
+        "bytes": 222204,
+        "gzipBytes": 67629
+      },
+      {
+        "file": "assets/vendor-supabase-BnGCNdwk.js",
+        "bytes": 220439,
+        "gzipBytes": 57594
+      },
+      {
+        "file": "assets/vendor-share-Br7REqB6.js",
+        "bytes": 12991,
+        "gzipBytes": 5183
+      },
+      {
+        "file": "assets/vendor-motion-43hiRpBH.js",
+        "bytes": 127886,
+        "gzipBytes": 41943
+      },
+      {
+        "file": "assets/SplashAnimation-CwkMNTfu.js",
+        "bytes": 6256,
+        "gzipBytes": 2754
+      }
+    ]
+  }
+]

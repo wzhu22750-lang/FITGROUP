@@ -1,7 +1,7 @@
 {
   "name": "fitgroup",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.2",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
@@ -9,12 +9,17 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx tests/stats-recalculation.test.ts && tsx tests/presets-and-import.test.ts && tsx tests/workout-analytics.test.ts && tsx tests/cardio-analytics.test.ts && tsx tests/squad-and-visibility.test.ts && tsx tests/notifications.test.ts && tsx tests/data-export.test.ts && tsx tests/workout-log-update.test.ts && tsx tests/security-hardening-contract.test.ts && tsx tests/feed-cache-and-performance.test.ts && tsx tests/leaderboard.test.ts && tsx tests/profile-nickname-sync.test.ts && tsx tests/training-presentation.test.ts",
+    "test": "tsx tests/stats-recalculation.test.ts && tsx tests/presets-and-import.test.ts && tsx tests/workout-analytics.test.ts && tsx tests/cardio-analytics.test.ts && tsx tests/squad-and-visibility.test.ts && tsx tests/notifications.test.ts && tsx tests/data-export.test.ts && tsx tests/workout-log-update.test.ts && tsx tests/security-hardening-contract.test.ts && tsx tests/feed-cache-and-performance.test.ts && tsx tests/leaderboard.test.ts && tsx tests/profile-nickname-sync.test.ts && tsx tests/training-presentation.test.ts && tsx scripts/verify-apk-guards.ts && npm run test:startup",
+    "test:startup": "tsx tests/startup-auth.test.ts && tsx tests/request-infra.test.ts && tsx tests/startup-feed.test.tsx && tsx tests/startup-logcard.test.tsx",
+    "apk:verify": "tsx scripts/verify-apk.ts",
+    "guard:verify": "tsx scripts/verify-apk-guards.ts",
     "db:apply": "tsx scripts/supabase-admin.ts --apply-all",
     "db:check": "tsx scripts/supabase-admin.ts --check",
     "db:sql": "tsx scripts/supabase-admin.ts --sql",
     "cap:sync": "npm run build && npx cap sync android",
-    "android:debug": "npm run cap:sync && cd android && ./gradlew assembleDebug"
+    "cap:sync:remote": "npm run build && CAP_DEV_REMOTE=true npx cap sync android",
+    "android:debug": "npm run cap:sync && cd android && ./gradlew assembleDebug",
+    "android:debug:remote": "npm run cap:sync:remote && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.4",
@@ -45,7 +50,9 @@
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
+    "@types/react-test-renderer": "^19.3.0",
     "autoprefixer": "^10.4.21",
+    "react-test-renderer": "19.2.6",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",

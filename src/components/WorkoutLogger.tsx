@@ -34,7 +34,7 @@ import {
   Lock,
 } from 'lucide-react';
 
-import { motion, AnimatePresence } from 'motion/react';
+import { AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 
 interface WorkoutLoggerProps {
@@ -76,7 +76,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
     setTimeout(() => setToastMsg(''), 2500);
   };
 
-  // Toggle category in multi-select (clean UI, no extra clutter)
+  // Toggle category in multi-select
   const handleToggleCategory = (cat: WorkoutCategory) => {
     if (selectedCategories.includes(cat)) {
       if (selectedCategories.length === 1) return;
@@ -279,7 +279,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
 
     setExercises(imported);
     setConfirmReimport(false);
-    showToast(`已导入上次 ${imported.length} 个训练动作！`);
+    showToast(`已导入上次 ${imported.length} 个动作`);
   };
 
 
@@ -330,7 +330,7 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
       }
       if (ex.type === 'strength') {
         if (!ex.sets || ex.sets <= 0 || !ex.reps || ex.reps <= 0) {
-          showToast(`「${ex.name}」请填写有效的组数和次数（需大于 0）`);
+          showToast(`「${ex.name}」请填写有效的组数和次数`);
           return;
         }
       } else if (ex.type === 'cardio') {
@@ -398,7 +398,6 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
     }
   };
 
-  const bannerKey = selectedCategories.sort().join('_');
   const availableLastLogsList = selectedCategories
     .map((c) => ({ category: c, log: lastLogs[c] }))
     .filter(({ log }) => Boolean(log && log.exercises && log.exercises.length > 0));
@@ -406,22 +405,45 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
   const hasAnyLastLog = availableLastLogsList.length > 0;
   const currentPresets = PRESET_EXERCISES_BY_CATEGORY[activePresetCategory] || [];
 
+  // Visibility label for status bar
+  const visLabel = visibility === 'public' ? '公开' : visibility === 'friends' ? '小队可见' : '仅自己';
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-4">
       {toastMsg && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="fixed right-4 z-50 bg-ink text-neon border-4 border-ink px-6 py-3 font-black uppercase text-sm shadow-[4px_4px_0px_0px_rgba(223,255,0,0.5)]"
-          style={{ top: 'calc(var(--safe-top) + 1rem)' }}
+        <div
+          className="fixed left-4 right-4 z-50 bg-ink text-white px-4 py-3 text-sm font-medium shadow-lg"
+          style={{ top: 'calc(var(--safe-top) + 0.75rem)', borderRadius: 'var(--radius-md)', maxWidth: '28rem', marginLeft: 'auto', marginRight: 'auto' }}
         >
           {toastMsg}
-        </motion.div>
+        </div>
       )}
 
-      {/* Target Muscle / Category Selector (Multi-Selectable) */}
-      <div className="bg-white p-6 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-        <label className="block text-sm font-black text-ink uppercase tracking-widest mb-4">
+      {/* ── Page title ── */}
+      <h1 className="text-2xl font-black text-ink uppercase tracking-tight">记录训练</h1>
+
+      {/* ── Import from last workout ── */}
+      {hasAnyLastLog && (
+        <button
+          type="button"
+          onClick={() => handleImportData()}
+          className={`w-full text-xs font-black uppercase py-2.5 px-4 flex items-center justify-center gap-2 border-2 transition-all cursor-pointer ${
+            confirmReimport
+              ? 'bg-red-500 text-white border-red-600 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+              : 'bg-paper text-ink border-ink hover:bg-neon shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+          }`}
+        >
+          {confirmReimport ? (
+            <><RotateCcw size={14} /> 将覆盖现有内容，点击确认</>
+          ) : (
+            <><History size={14} /> 沿用上次训练数据</>
+          )}
+        </button>
+      )}
+
+      {/* ── Category selector ── */}
+      <div className="card p-4 sm:p-5">
+        <label className="block text-xs font-black text-ink uppercase tracking-wider mb-2.5">
           Target Muscle / 训练部位
         </label>
         <div className="grid grid-cols-3 gap-2">
@@ -433,376 +455,317 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
                 key={cat}
                 type="button"
                 onClick={() => handleToggleCategory(cat)}
-                className={`py-3 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
+                className={`py-2.5 px-1 border-2 border-ink text-xs transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
                   isSelected
-                    ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
-                    : 'bg-white text-ink hover:bg-neon'
+                    ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)] font-black'
+                    : 'bg-white text-ink hover:bg-neon font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
                 }`}
               >
-                <span className="text-xs tracking-tight">{meta.en}</span>
-                <span className="text-[10px] opacity-80">{meta.zh}</span>
+                <span className="text-xs font-black uppercase tracking-tight">{meta.zh}</span>
+                <span className="text-[10px] opacity-70 font-semibold">{meta.en}</span>
               </button>
             );
           })}
         </div>
       </div>
 
+      {/* ── Exercise list (page body) ── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <label className="text-sm font-black text-ink uppercase tracking-tight">
+            Exercises / 训练内容
+          </label>
+          <span className="text-xs font-black text-ink/70 bg-paper px-2 py-0.5 border-2 border-ink shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
+            {exercises.length}/10
+          </span>
+        </div>
 
-      {/* Preset / Common Exercises Quick Selection with Category Tabs (Collapsible) */}
-      <div className="bg-white border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all">
-        <div
+        {exercises.map((ex, index) => (
+          <div
+            key={ex.id}
+            className={`card p-4 sm:p-5 relative ${
+              deleteConfirm === ex.id ? 'border-red-500 bg-red-50/50' : ''
+            }`}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] font-black uppercase bg-ink text-white px-2 py-0.5 italic">
+                #{index + 1} {ex.type === 'strength' ? '力量训练' : '有氧运动'}
+              </span>
+              <div className="flex items-center gap-1.5">
+                {deleteConfirm === ex.id && (
+                  <span className="text-[10px] font-black text-red-600 uppercase">确认删除？</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleRemoveExercise(ex.id)}
+                  className={`p-1.5 border-2 border-ink transition-colors cursor-pointer ${
+                    deleteConfirm === ex.id
+                      ? 'bg-red-500 text-white'
+                      : 'bg-paper text-ink hover:bg-red-500 hover:text-white'
+                  }`}
+                  title="删除"
+                  style={{ minWidth: 32, minHeight: 32 }}
+                >
+                  {deleteConfirm === ex.id ? <Check size={14} /> : <X size={14} />}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 mb-3.5">
+              <button
+                type="button"
+                className={`p-2 border-2 border-ink cursor-pointer select-none transition-all ${
+                  ex.type === 'strength'
+                    ? 'bg-neon text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+                    : 'bg-white text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+                }`}
+                onClick={() => handleToggleType(ex.id)}
+                title="切换力量/有氧"
+                style={{ minWidth: 40, minHeight: 40 }}
+              >
+                {ex.type === 'strength' ? <Dumbbell size={18} /> : <Timer size={18} />}
+              </button>
+              <input
+                type="text"
+                placeholder={ex.type === 'strength' ? '动作名称（如 杠铃卧推）' : '项目名称（如 跑步机跑步）'}
+                value={ex.name}
+                onChange={(e) => handleNameChange(ex.id, e.target.value)}
+                className="flex-1 text-base font-black text-ink border-b-2 border-ink focus:border-neon outline-none py-1.5 bg-transparent placeholder:text-ink/30 uppercase"
+                required
+              />
+            </div>
+
+            {ex.type === 'strength' ? (
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] font-black text-ink uppercase">重量 (kg)</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const currentWeight = typeof ex.weight === 'number' ? ex.weight : (parseFloat(String(ex.weight)) || 0);
+                        updateExercise(ex.id, { weight: currentWeight === 0 ? -10 : -currentWeight });
+                      }}
+                      className={`text-[9px] font-black px-1 py-0.2 border border-ink transition-colors cursor-pointer ${
+                        typeof ex.weight === 'number' && ex.weight < 0 ? 'bg-ink text-neon' : 'bg-paper text-ink/70 hover:bg-neon'
+                      }`}
+                      title="切换辅助负重"
+                    >
+                      {typeof ex.weight === 'number' && ex.weight < 0 ? '辅助' : '负重'}
+                    </button>
+                  </div>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={ex.weight === undefined || ex.weight === null ? '' : ex.weight}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === '' || val === '-') {
+                        updateExercise(ex.id, { weight: val as any });
+                      } else {
+                        const num = parseFloat(val);
+                        updateExercise(ex.id, { weight: isNaN(num) ? 0 : num });
+                      }
+                    }}
+                    placeholder="0"
+                    className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-ink uppercase block mb-1">组数</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={ex.sets || ''}
+                    onChange={(e) =>
+                      updateExercise(ex.id, { sets: Number(e.target.value) || 0 })
+                    }
+                    placeholder="0"
+                    className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-ink uppercase block mb-1">次数</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={ex.reps || ''}
+                    onChange={(e) =>
+                      updateExercise(ex.id, { reps: Number(e.target.value) || 0 })
+                    }
+                    placeholder="0"
+                    className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                <div>
+                  <label className="text-[10px] font-black text-ink uppercase block mb-1">分钟</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={ex.duration || ''}
+                    onChange={(e) =>
+                      handleCardioDurationChange(ex.id, Number(e.target.value) || 0)
+                    }
+                    placeholder="30"
+                    className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-ink uppercase block mb-1 truncate">
+                    公里 {isCardioDistanceOptional(ex.name) && <span className="opacity-50">(选填)</span>}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={ex.distance || ''}
+                    onChange={(e) =>
+                      updateExercise(ex.id, { distance: Number(e.target.value) || 0 })
+                    }
+                    placeholder={isCardioDistanceOptional(ex.name) ? '—' : '0'}
+                    className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] font-black text-ink uppercase">大卡</label>
+                    <span className="text-[8px] font-black bg-neon text-ink px-1 border border-ink/40" title="按时长自动估算">自动</span>
+                  </div>
+                  <input
+                    type="number"
+                    min="0"
+                    value={ex.calories || ''}
+                    onChange={(e) =>
+                      updateExercise(ex.id, { calories: Number(e.target.value) || 0, caloriesSource: 'reported' })
+                    }
+                    placeholder="0"
+                    className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+
+        {/* Add exercise buttons */}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => addExercise('strength')}
+            className="flex-1 btn-secondary py-3 text-xs font-black uppercase flex items-center justify-center gap-1.5"
+          >
+            <Plus size={16} /> 自定义力量
+          </button>
+          <button
+            type="button"
+            onClick={() => addExercise('cardio')}
+            className="flex-1 btn-secondary py-3 text-xs font-black uppercase flex items-center justify-center gap-1.5"
+          >
+            <Plus size={16} /> 自定义有氧
+          </button>
+        </div>
+      </div>
+
+      {/* ── Preset exercises (collapsible) ── */}
+      <div className="card overflow-hidden">
+        <button
+          type="button"
           onClick={() => setIsPresetsExpanded(!isPresetsExpanded)}
-          className="p-5 flex items-center justify-between cursor-pointer select-none hover:bg-paper/50 transition-colors"
+          className="w-full p-4 flex items-center justify-between cursor-pointer hover:bg-paper transition-colors"
         >
           <div className="flex items-center gap-2">
             <div className="bg-ink p-1">
               <Dumbbell size={14} className="text-neon" />
             </div>
-            <label className="text-xs font-black text-ink uppercase tracking-widest cursor-pointer">
-              常用动作快捷添加
-            </label>
+            <span className="text-xs font-black text-ink uppercase tracking-wider">常用动作快捷添加</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-black text-ink/40">
+            <span className="text-[10px] font-black text-ink/50">
               {isPresetsExpanded ? '点击折叠' : '点击展开'}
             </span>
-            <div className="p-0.5 border border-ink bg-paper">
+            <div className="p-0.5 border-2 border-ink bg-paper">
               {isPresetsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </div>
           </div>
-        </div>
+        </button>
 
-        <AnimatePresence initial={false}>
-          {isPresetsExpanded && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden px-5 pb-5 border-t-2 border-ink/10 pt-3"
-            >
-              {/* 部位选择组件 */}
-              <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3 border-b-2 border-ink/10">
-                {Object.values(WorkoutCategory).map((cat) => {
-                  const isTabActive = activePresetCategory === cat;
-                  const isSelected = selectedCategories.includes(cat);
-                  const meta = CATEGORY_META[cat];
-                  return (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => setActivePresetCategory(cat)}
-                      className={`px-2.5 py-1 border-2 border-ink text-xs font-black uppercase transition-all shrink-0 cursor-pointer ${
-                        isTabActive
-                          ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
-                          : isSelected
-                            ? 'bg-neon/30 text-ink hover:bg-neon'
-                            : 'bg-paper text-ink hover:bg-neon'
-                      }`}
-                    >
-                      {meta?.zh || cat}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* 对应部位常用动作列表 */}
-              <div className="flex flex-wrap gap-2">
-                {currentPresets.map((preset) => {
-                  const isAlreadyAdded = exercises.some((e) => e.name.trim() === preset.name);
-                  return (
-                    <button
-                      key={preset.name}
-                      type="button"
-                      onClick={() => handleAddPresetExercise(preset)}
-                      className={`py-1.5 px-2.5 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex items-center gap-1.5 active:translate-x-0.5 active:translate-y-0.5 ${
-                        isAlreadyAdded
-                          ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
-                          : 'bg-paper text-ink hover:bg-neon hover:border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none'
-                      }`}
-                      title={`点击添加: ${preset.name}`}
-                    >
-                      {isAlreadyAdded ? <Check size={13} className="stroke-[3]" /> : <Plus size={13} />}
-                      <span>{preset.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* Exercise List */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between px-2">
-          <label className="block text-sm font-black text-ink uppercase tracking-widest underline decoration-4 decoration-neon underline-offset-4">
-            Exercises / 训练内容
-          </label>
-
-          {hasAnyLastLog && (
-            <button
-              type="button"
-              onClick={() => handleImportData()}
-              className={`text-[10px] font-black uppercase px-2.5 py-1 border-2 border-ink transition-all cursor-pointer flex items-center gap-1.5 ${
-                confirmReimport
-                  ? 'bg-red-500 text-white animate-pulse'
-                  : 'bg-paper text-ink hover:bg-neon shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none'
-              }`}
-            >
-              {confirmReimport ? (
-                <>
-                  <RotateCcw size={12} />
-                  <span>点击确认覆盖现有内容</span>
-                </>
-              ) : (
-                <>
-                  <History size={12} />
-                  <span>导入上次数据</span>
-                </>
-              )}
-            </button>
-          )}
-        </div>
-
-        <AnimatePresence initial={false}>
-          {exercises.map((ex, index) => (
-            <motion.div
-              key={ex.id}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 10 }}
-              className={`bg-white p-5 border-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] relative ${
-                deleteConfirm === ex.id ? 'border-red-500 bg-red-50' : 'border-ink'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[10px] font-black uppercase bg-ink text-white px-2 py-0.5 italic">
-                  #{index + 1} {ex.type === 'strength' ? '力量训练' : '有氧运动'}
-                </span>
-
-                <div className="flex items-center gap-2">
-                  {deleteConfirm === ex.id && (
-                    <span className="text-[10px] font-black text-red-600 uppercase">
-                      点击确认删除
-                    </span>
-                  )}
+        {isPresetsExpanded && (
+          <div className="px-4 pb-4 border-t-2 border-ink/10 pt-3 space-y-3">
+            {/* Category tabs */}
+            <div className="flex gap-1.5 overflow-x-auto pb-1.5 border-b border-ink/10">
+              {Object.values(WorkoutCategory).map((cat) => {
+                const isTabActive = activePresetCategory === cat;
+                const meta = CATEGORY_META[cat];
+                return (
                   <button
+                    key={cat}
                     type="button"
-                    onClick={() => handleRemoveExercise(ex.id)}
-                    className={`p-1 border-2 border-ink transition-colors cursor-pointer ${
-                      deleteConfirm === ex.id
-                        ? 'bg-red-400 text-white'
-                        : 'bg-paper text-ink hover:bg-red-400 hover:text-white'
+                    onClick={() => setActivePresetCategory(cat)}
+                    className={`px-2.5 py-1 text-xs font-black uppercase shrink-0 border-2 border-ink cursor-pointer transition-all ${
+                      isTabActive
+                        ? 'bg-ink text-neon shadow-[1px_1px_0px_0px_rgba(223,255,0,1)]'
+                        : 'bg-paper text-ink/70 hover:bg-neon'
                     }`}
-                    title="删除该项目"
                   >
-                    {deleteConfirm === ex.id ? <Check size={14} /> : <X size={14} />}
+                    {meta?.zh || cat}
                   </button>
-                </div>
-              </div>
+                );
+              })}
+            </div>
 
-              <div className="flex items-center gap-3 mb-4">
-                <div
-                  className={`p-2 border-2 border-ink cursor-pointer select-none ${
-                    ex.type === 'strength' ? 'bg-neon' : 'bg-white'
-                  }`}
-                  onClick={() => handleToggleType(ex.id)}
-                  title="点击切换力量/有氧类型"
-                >
-                  {ex.type === 'strength' ? (
-                    <Dumbbell size={18} className="text-ink" />
-                  ) : (
-                    <Timer size={18} className="text-ink" />
-                  )}
-                </div>
-                <input
-                  type="text"
-                  placeholder={
-                    ex.type === 'strength'
-                      ? '动作名称 (如 杠铃卧推)'
-                      : '项目名称 (如 羽毛球、跑步机跑步)'
-                  }
-                  value={ex.name}
-                  onChange={(e) => handleNameChange(ex.id, e.target.value)}
-                  className="flex-1 font-black text-ink border-b-4 border-ink focus:border-neon outline-none placeholder:opacity-30 uppercase placeholder:italic text-base"
-                  required
-                />
-              </div>
-
-              {ex.type === 'strength' ? (
-                <div className="grid grid-cols-3 gap-3 sm:gap-4">
-                  <div>
-                    <div className="flex items-center justify-between mb-1 gap-1">
-                      <label className="text-[10px] font-black text-ink uppercase whitespace-nowrap">
-                        KG (重量)
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const currentWeight = typeof ex.weight === 'number' ? ex.weight : (parseFloat(String(ex.weight)) || 0);
-                          updateExercise(ex.id, { weight: currentWeight === 0 ? -10 : -currentWeight });
-                        }}
-                        className={`text-[9px] font-black px-1 py-0.2 border border-ink transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                          typeof ex.weight === 'number' && ex.weight < 0
-                            ? 'bg-ink text-neon shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
-                            : 'bg-paper text-ink/70 hover:bg-neon'
-                        }`}
-                        title="切换辅助负重 (如引体向上/双杠减重)"
-                      >
-                        {typeof ex.weight === 'number' && ex.weight < 0 ? '辅助 (-)' : '负重 (+)'}
-                      </button>
-                    </div>
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={ex.weight === undefined || ex.weight === null ? '' : ex.weight}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === '' || val === '-') {
-                          updateExercise(ex.id, { weight: val as any });
-                        } else {
-                          const num = parseFloat(val);
-                          updateExercise(ex.id, { weight: isNaN(num) ? 0 : num });
-                        }
-                      }}
-                      placeholder="0"
-                      className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-ink uppercase block mb-1 whitespace-nowrap">
-                      Sets (组数)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={ex.sets || ''}
-                      onChange={(e) =>
-                        updateExercise(ex.id, { sets: Number(e.target.value) || 0 })
-                      }
-                      placeholder="0"
-                      className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-ink uppercase block mb-1 whitespace-nowrap">
-                      Reps (次数)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={ex.reps || ''}
-                      onChange={(e) =>
-                        updateExercise(ex.id, { reps: Number(e.target.value) || 0 })
-                      }
-                      placeholder="0"
-                      className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <div className="grid grid-cols-3 gap-3 sm:gap-4">
-                    <div>
-                      <label className="text-[10px] font-black text-ink uppercase block mb-1 whitespace-nowrap">
-                        Min (分钟)
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={ex.duration || ''}
-                        onChange={(e) =>
-                          handleCardioDurationChange(ex.id, Number(e.target.value) || 0)
-                        }
-                        placeholder="30"
-                        className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black text-ink uppercase block mb-1 whitespace-nowrap truncate" title={isCardioDistanceOptional(ex.name) ? 'Km (选填)' : 'Km (公里)'}>
-                        Km ({isCardioDistanceOptional(ex.name) ? '选填' : '公里'})
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={ex.distance || ''}
-                        onChange={(e) =>
-                          updateExercise(ex.id, { distance: Number(e.target.value) || 0 })
-                        }
-                        placeholder={isCardioDistanceOptional(ex.name) ? '无' : '0'}
-                        className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1 gap-1">
-                        <label className="text-[10px] font-black text-ink uppercase whitespace-nowrap">
-                          Kcal (大卡)
-                        </label>
-                        <span className="text-[8px] font-black bg-neon text-ink px-1 border border-ink/40 whitespace-nowrap shrink-0" title="按时长和运动类型自动估算">
-                          自动
-                        </span>
-                      </div>
-                      <input
-                        type="number"
-                        min="0"
-                        value={ex.calories || ''}
-                        onChange={(e) =>
-                          updateExercise(ex.id, { calories: Number(e.target.value) || 0, caloriesSource: 'reported' })
-                        }
-                        placeholder="0"
-                        className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </motion.div>
-          ))}
-        </AnimatePresence>
-
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={() => addExercise('strength')}
-            className="flex-1 bg-white border-4 border-ink text-ink py-3 font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-neon transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
-          >
-            <Plus size={18} /> 自定义力量
-          </button>
-          <button
-            type="button"
-            onClick={() => addExercise('cardio')}
-            className="flex-1 bg-white border-4 border-ink text-ink py-3 font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-neon transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
-          >
-            <Plus size={18} /> 自定义有氧
-          </button>
-        </div>
+            {/* Preset buttons */}
+            <div className="flex flex-wrap gap-2">
+              {currentPresets.map((preset) => {
+                const isAlreadyAdded = exercises.some((e) => e.name.trim() === preset.name);
+                return (
+                  <button
+                    key={preset.name}
+                    type="button"
+                    onClick={() => handleAddPresetExercise(preset)}
+                    className={`py-1.5 px-2.5 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex items-center gap-1.5 active:translate-x-[1px] active:translate-y-[1px] ${
+                      isAlreadyAdded
+                        ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
+                        : 'bg-paper text-ink hover:bg-neon shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none'
+                    }`}
+                    title={`添加: ${preset.name}`}
+                  >
+                    {isAlreadyAdded ? <Check size={13} className="stroke-[3]" /> : <Plus size={13} />}
+                    <span>{preset.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Notes / Feelings */}
-      <div className="bg-white p-6 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-        <label className="block text-sm font-black text-ink uppercase tracking-widest mb-4">
-          Notes / 训练心得
+      {/* ── Note (optional) ── */}
+      <div className="card p-4 sm:p-5">
+        <label className="block text-xs font-black text-ink uppercase tracking-wider mb-2.5">
+          Notes / 训练心得 <span className="font-normal opacity-60">(选填)</span>
         </label>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="今天状态如何？泵感怎样？记录下来吧..."
-          className="w-full bg-paper border-4 border-ink p-4 font-black text-ink min-h-[100px] outline-none focus:bg-white transition-all uppercase placeholder:opacity-30 text-sm"
+          placeholder="今天状态如何？记录下来吧…"
+          className="w-full bg-paper border-2 border-ink p-3 font-bold text-ink min-h-[90px] outline-none focus:bg-white text-sm"
         />
       </div>
 
-      {/* Visibility / 可见范围 */}
-      <div className="bg-white p-6 border-4 border-ink shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-        <label className="block text-sm font-black text-ink uppercase tracking-widest mb-3">
+      {/* ── Visibility ── */}
+      <div className="card p-4 sm:p-5">
+        <label className="block text-xs font-black text-ink uppercase tracking-wider mb-2.5">
           Visibility / 可见范围
         </label>
         <div className="grid grid-cols-3 gap-2">
           <button
             type="button"
             onClick={() => setVisibility('public')}
-            className={`py-3 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center justify-center gap-1 ${
+            className={`py-2.5 text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center gap-1 border-2 border-ink ${
               visibility === 'public'
                 ? 'bg-neon text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
                 : 'bg-paper text-ink/70 hover:bg-white'
@@ -810,25 +773,23 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
           >
             <Globe size={16} />
             <span>全员公开</span>
-            <span className="text-[9px] opacity-75 font-normal">广场可见</span>
           </button>
           <button
             type="button"
             onClick={() => setVisibility('friends')}
-            className={`py-3 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center justify-center gap-1 ${
+            className={`py-2.5 text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center gap-1 border-2 border-ink ${
               visibility === 'friends'
-                ? 'bg-sky-300 text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+                ? 'bg-sky-200 text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
                 : 'bg-paper text-ink/70 hover:bg-white'
             }`}
           >
             <Users size={16} />
             <span>好友小队</span>
-            <span className="text-[9px] opacity-75 font-normal">小队可见</span>
           </button>
           <button
             type="button"
             onClick={() => setVisibility('private')}
-            className={`py-3 px-2 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center justify-center gap-1 ${
+            className={`py-2.5 text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center gap-1 border-2 border-ink ${
               visibility === 'private'
                 ? 'bg-ink text-white shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
                 : 'bg-paper text-ink/70 hover:bg-white'
@@ -836,28 +797,24 @@ export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
           >
             <Lock size={16} />
             <span>仅自己</span>
-            <span className="text-[9px] opacity-75 font-normal">个人历史</span>
           </button>
         </div>
       </div>
 
-      {/* Submit Button */}
+      {/* ── Submit (A-Level CTA) ── */}
       <button
         type="submit"
         disabled={isSubmitting}
-        className={`w-full py-5 font-black uppercase text-xl border-4 border-ink shadow-[6px_6px_0px_0px_rgba(223,255,0,1)] flex items-center justify-center gap-4 transition-all active:translate-x-1 active:translate-y-1 active:shadow-none cursor-pointer ${
-          isSubmitting ? 'bg-paper text-ink opacity-50' : 'bg-ink text-white'
+        className={`w-full btn-neon-lg ${
+          isSubmitting ? 'opacity-50' : ''
         }`}
       >
         {isSubmitting ? (
-          'Saving...'
+          '正在保存…'
         ) : (
-          <>
-            <Send size={24} /> 发布打卡
-          </>
+          <><Send size={20} /> 发布打卡 · {visLabel}</>
         )}
       </button>
-
     </form>
   );
 }

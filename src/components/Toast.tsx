@@ -63,7 +63,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               initial={{ opacity: 0, x: 50, scale: 0.95 }}
               animate={{ opacity: 1, x: 0, scale: 1 }}
               exit={{ opacity: 0, x: 50, scale: 0.95 }}
-              className={`flex items-center gap-2 px-4 py-3 border-4 font-black text-xs uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${getStyle(toast.type)}`}
+              className={`flex items-center gap-2 px-4 py-3 border-2 font-black text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${getStyle(toast.type)}`}
             >
               {getIcon(toast.type)}
               <span>{toast.message}</span>

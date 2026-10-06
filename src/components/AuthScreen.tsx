@@ -1,8 +1,10 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useState, useEffect } from 'react';
+import { markPageReady } from '../utils/startupMetrics';
 import { Dumbbell } from 'lucide-react';
 import { loginWithEmail, registerWithEmail } from '../api';
 
 export default function AuthScreen() {
+  useEffect(() => { markPageReady('login-page-ready'); }, []);
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

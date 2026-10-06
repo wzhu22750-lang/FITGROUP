@@ -72,9 +72,9 @@ export function CreateTeamModal({ onClose, onSuccess }: CreateTeamModalProps) {
         initial={{ opacity: 0, scale: 0.95, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        className="bg-white border-4 border-ink shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] w-full max-w-sm overflow-hidden"
+        className="bg-white border-3 border-ink shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] w-full max-w-sm overflow-hidden"
       >
-        <div className="bg-neon border-b-4 border-ink p-4 flex items-center justify-between">
+        <div className="bg-neon border-b-2 border-ink p-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Users size={20} className="text-ink" />
             <h3 className="font-black text-ink uppercase tracking-tight text-base italic">
@@ -94,7 +94,7 @@ export function CreateTeamModal({ onClose, onSuccess }: CreateTeamModalProps) {
           <div className="p-6 text-center space-y-4">
             <div className="bg-neon/30 border-2 border-ink p-4 space-y-2">
               <span className="text-xs font-black text-ink/70 uppercase block">你的小队专属加入口令</span>
-              <div className="text-2xl sm:text-3xl font-black text-ink tracking-widest uppercase bg-white border-2 border-ink py-2 px-3 inline-block shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+              <div className="text-2xl sm:text-3xl font-black text-ink tracking-widest uppercase bg-white border-2 border-ink py-2 px-3 inline-block ">
                 {createdTeam.code}
               </div>
               <p className="text-[11px] font-bold text-ink/60 mt-1">
@@ -105,7 +105,7 @@ export function CreateTeamModal({ onClose, onSuccess }: CreateTeamModalProps) {
             <button
               type="button"
               onClick={() => handleCopyCode(createdTeam.code)}
-              className="w-full bg-paper text-ink border-2 border-ink py-2.5 px-4 font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-neon transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+              className="w-full bg-paper text-ink border-2 border-ink py-2.5 px-4 font-semibold text-xs flex items-center justify-center gap-2 hover:bg-neon transition-all cursor-pointer  active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
             >
               {copied ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
               <span>{copied ? '口令已复制到剪贴板！' : '一键复制口令发给好友'}</span>
@@ -114,7 +114,7 @@ export function CreateTeamModal({ onClose, onSuccess }: CreateTeamModalProps) {
             <button
               type="button"
               onClick={handleFinish}
-              className="w-full bg-ink text-neon border-2 border-ink py-3 font-black uppercase text-sm shadow-[4px_4px_0px_0px_rgba(223,255,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none cursor-pointer"
+              className="w-full bg-ink text-neon border-2 border-ink py-3 font-semibold text-sm shadow-[4px_4px_0px_0px_rgba(223,255,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none cursor-pointer"
             >
               进入小队看板
             </button>
@@ -158,7 +158,7 @@ export function CreateTeamModal({ onClose, onSuccess }: CreateTeamModalProps) {
                     key={num}
                     type="button"
                     onClick={() => setMaxMembers(num)}
-                    className={`py-1.5 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer ${
+                    className={`py-1.5 border-2 border-ink text-xs font-semibold transition-all cursor-pointer ${
                       maxMembers === num
                         ? 'bg-ink text-neon shadow-[1px_1px_0px_0px_rgba(223,255,0,1)]'
                         : 'bg-paper text-ink/70 hover:bg-neon'
@@ -177,14 +177,14 @@ export function CreateTeamModal({ onClose, onSuccess }: CreateTeamModalProps) {
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 bg-white text-ink border-2 border-ink py-2.5 font-black uppercase text-xs hover:bg-paper cursor-pointer"
+                className="flex-1 bg-white text-ink border-2 border-ink py-2.5 font-semibold text-xs hover:bg-paper cursor-pointer"
               >
                 取消
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting || !name.trim()}
-                className="flex-1 bg-ink text-neon border-2 border-ink py-2.5 font-black uppercase text-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none disabled:opacity-50 cursor-pointer"
+                className="flex-1 bg-ink text-neon border-2 border-ink py-2.5 font-semibold text-xs  active:translate-x-0.5 active:translate-y-0.5 active:shadow-none disabled:opacity-50 cursor-pointer"
               >
                 {isSubmitting ? '创建中...' : '确认创建'}
               </button>
@@ -244,9 +244,9 @@ export function JoinTeamModal({ onClose, onSuccess }: JoinTeamModalProps) {
         initial={{ opacity: 0, scale: 0.95, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        className="bg-white border-4 border-ink shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] w-full max-w-sm overflow-hidden"
+        className="bg-white border-3 border-ink shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] w-full max-w-sm overflow-hidden"
       >
-        <div className="bg-neon border-b-4 border-ink p-4 flex items-center justify-between">
+        <div className="bg-neon border-b-2 border-ink p-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <KeyRound size={20} className="text-ink" />
             <h3 className="font-black text-ink uppercase tracking-tight text-base italic">
@@ -292,14 +292,14 @@ export function JoinTeamModal({ onClose, onSuccess }: JoinTeamModalProps) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 bg-white text-ink border-2 border-ink py-2.5 font-black uppercase text-xs hover:bg-paper cursor-pointer"
+              className="flex-1 bg-white text-ink border-2 border-ink py-2.5 font-semibold text-xs hover:bg-paper cursor-pointer"
             >
               取消
             </button>
             <button
               type="submit"
               disabled={isSubmitting || !code.trim()}
-              className="flex-1 bg-ink text-neon border-2 border-ink py-2.5 font-black uppercase text-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none disabled:opacity-50 cursor-pointer"
+              className="flex-1 bg-ink text-neon border-2 border-ink py-2.5 font-semibold text-xs  active:translate-x-0.5 active:translate-y-0.5 active:shadow-none disabled:opacity-50 cursor-pointer"
             >
               {isSubmitting ? '验证中...' : '加入小队'}
             </button>

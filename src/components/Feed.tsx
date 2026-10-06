@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import {
   subscribeToPublicWorkoutLogs,
-  subscribeToMyWorkoutLogs,
   fetchPublicWorkoutLogs,
-  fetchMyWorkoutLogs,
   getCurrentUser,
 } from '../api';
 import { WorkoutLog } from '../types';
@@ -11,8 +9,6 @@ import LogCard from './LogCard';
 import {
   getCachedPublicLogs,
   setCachedPublicLogs,
-  getCachedMyLogs,
-  setCachedMyLogs,
   mergeLogsPreservingIdentity,
   shouldTriggerPullRefresh,
   getMonotonicTime,
@@ -21,15 +17,15 @@ import {
   OptimisticUpdateMetadata,
 } from '../utils/feedCache';
 import { listenAppResume } from '../native';
-import { Globe, Users, User as UserIcon, Dumbbell, Activity, WifiOff } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { markPageReady } from '../utils/startupMetrics';
+import { Dumbbell, WifiOff } from 'lucide-react';
 
 const TeamDashboard = lazy(() => import('./TeamDashboard'));
 const preloadTeamDashboard = () => {
-  void import('./TeamDashboard');
+  void import('./TeamDashboard').catch(() => undefined);
 };
 
-type FeedTab = 'public' | 'team' | 'my';
+type FeedTab = 'public' | 'team';
 
 interface FeedProps {
   onNavigateToLog?: () => void;
@@ -40,20 +36,15 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
   const currentUser = getCurrentUser();
 
   // Public Feed State with SWR local cache
-  const [publicLogs, setPublicLogs] = useState<WorkoutLog[]>(() => getCachedPublicLogs());
+  const [publicLogs, setPublicLogs] = useState<WorkoutLog[]>(() =>
+    // Public content can be shared across sessions; cached like state cannot.
+    getCachedPublicLogs().map(log => ({ ...log, isLiked: undefined }))
+  );
   const [publicLoading, setPublicLoading] = useState(() => getCachedPublicLogs().length === 0);
   const [publicError, setPublicError] = useState('');
 
   // Inactive tab activation tracking (defer queries until user switches)
-  const [hasActivatedMy, setHasActivatedMy] = useState(false);
   const [hasActivatedTeam, setHasActivatedTeam] = useState(false);
-
-  // My Logs State
-  const [myLogs, setMyLogs] = useState<WorkoutLog[]>(() => {
-    return currentUser ? getCachedMyLogs(currentUser.uid) : [];
-  });
-  const [myLoading, setMyLoading] = useState(false);
-  const [myError, setMyError] = useState('');
 
   // Network offline state detection
   const [isOffline, setIsOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
@@ -63,12 +54,15 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
   const touchX = useRef(0);
   const touchStartScrollY = useRef(0);
   const publicFetchVersion = useRef(0);
-  const myFetchVersion = useRef(0);
   const recentLogUpdates = useRef<Record<string, Partial<WorkoutLog> & OptimisticUpdateMetadata>>({});
   const [refreshing, setRefreshing] = useState(false);
   const isMounted = useRef(true);
+  const lastRecovery = useRef(-Infinity);
+  const recoveryInFlight = useRef(false);
+  const [failureState, setFailureState] = useState<'timeout' | 'error'>('error');
 
   useEffect(() => {
+    markPageReady('app-frame-ready');
     isMounted.current = true;
     return () => {
       isMounted.current = false;
@@ -99,42 +93,20 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
       });
   }, []);
 
-  // Silent background revalidation (used by app resume & online reconnect)
+  // All read successes (including empty results and like patches) commit through
+  // the same subscription callback. Recovery bursts share one request.
   const revalidateSilently = useCallback(() => {
-    if (activeDomain === 'public') {
-      const pVersion = ++publicFetchVersion.current;
-      void fetchPublicWorkoutLogs()
-        .then((data) => {
-          if (!isMounted.current) return;
-          if (pVersion === publicFetchVersion.current) {
-            const reconciled = reconcileRecentUpdates(data, 'public');
-            setPublicLogs((prev) => {
-              const merged = mergeLogsPreservingIdentity(prev, reconciled);
-              setCachedPublicLogs(merged);
-              return merged;
-            });
-            setPublicError('');
-          }
-        })
-        .catch(() => undefined);
-    } else if (activeDomain === 'my' && currentUser && hasActivatedMy) {
-      const mVersion = ++myFetchVersion.current;
-      void fetchMyWorkoutLogs(currentUser.uid)
-        .then((data) => {
-          if (!isMounted.current) return;
-          if (mVersion === myFetchVersion.current) {
-            const reconciled = reconcileRecentUpdates(data, 'my');
-            setMyLogs((prev) => {
-              const merged = mergeLogsPreservingIdentity(prev, reconciled);
-              setCachedMyLogs(currentUser.uid, merged);
-              return merged;
-            });
-            setMyError('');
-          }
-        })
-        .catch(() => undefined);
-    }
-  }, [activeDomain, currentUser?.uid, hasActivatedMy, reconcileRecentUpdates]);
+    if (activeDomain !== 'public' || recoveryInFlight.current || Date.now() - lastRecovery.current < 1000) return;
+    lastRecovery.current = Date.now();
+    recoveryInFlight.current = true;
+    // Reconnection must replace a pre-offline/hung read, not join it.
+    void fetchPublicWorkoutLogs(30, { force: true }).catch((err) => {
+      if (!isMounted.current || err.name === 'AbortError') return;
+      setPublicLoading(false);
+      setFailureState(err.name === 'TimeoutError' ? 'timeout' : 'error');
+      setPublicError(err.name === 'TimeoutError' ? '请求超时，请重试' : err.message || '动态加载失败');
+    }).finally(() => { recoveryInFlight.current = false; });
+  }, [activeDomain]);
 
   // Handle app lifecycle resume (Android Capacitor suspend/resume and window focus)
   useEffect(() => {
@@ -189,25 +161,6 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
         });
         return changed ? next : prev;
       });
-
-      setMyLogs((prev) => {
-        let changed = false;
-        const next = prev.map((log) => {
-          if (log.userId === detail.userId) {
-            const updatedLog = {
-              ...log,
-              userName: nextName !== undefined ? nextName : log.userName,
-              userPhoto: nextPhoto !== undefined ? nextPhoto : log.userPhoto,
-            };
-            if (updatedLog.userName !== log.userName || updatedLog.userPhoto !== log.userPhoto) {
-              changed = true;
-              return updatedLog;
-            }
-          }
-          return log;
-        });
-        return changed ? next : prev;
-      });
     };
 
     window.addEventListener('fitgroup:user-profile-updated', handleProfileUpdate);
@@ -238,7 +191,8 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
       },
       (err) => {
         if (!isMounted.current) return;
-        setPublicError(err.message || '全员广场动态加载失败');
+        setFailureState(err.name === 'TimeoutError' ? 'timeout' : 'error');
+        setPublicError(err.name === 'TimeoutError' ? '请求超时，请重试' : err.message || '广场动态加载失败');
         setPublicLoading(false);
       }
     );
@@ -246,53 +200,12 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
     return () => unsub();
   }, [reconcileRecentUpdates]);
 
-  // 2. Track activation of 'my' and 'team' domains
+  // 2. Track activation of 'team' domain
   useEffect(() => {
-    if (activeDomain === 'my' && !hasActivatedMy) {
-      setHasActivatedMy(true);
-    }
     if (activeDomain === 'team' && !hasActivatedTeam) {
       setHasActivatedTeam(true);
     }
-  }, [activeDomain, hasActivatedMy, hasActivatedTeam]);
-
-  // 3. Subscribe to My Logs Feed ONLY after activation
-  useEffect(() => {
-    if (!hasActivatedMy || !currentUser) {
-      return;
-    }
-
-    if (myLogs.length === 0) {
-      const cached = getCachedMyLogs(currentUser.uid);
-      if (cached.length > 0) {
-        setMyLogs(cached);
-      } else {
-        setMyLoading(true);
-      }
-    }
-    const unsub = subscribeToMyWorkoutLogs(
-      currentUser.uid,
-      (data) => {
-        if (!isMounted.current) return;
-        myFetchVersion.current++;
-        const reconciled = reconcileRecentUpdates(data, 'my');
-        setMyLogs((prev) => {
-          const merged = mergeLogsPreservingIdentity(prev, reconciled);
-          setCachedMyLogs(currentUser.uid, merged);
-          return merged;
-        });
-        setMyLoading(false);
-        setMyError('');
-      },
-      (err) => {
-        if (!isMounted.current) return;
-        setMyError(err.message || '个人打卡记录加载失败');
-        setMyLoading(false);
-      }
-    );
-
-    return () => unsub();
-  }, [hasActivatedMy, currentUser?.uid, reconcileRecentUpdates]);
+  }, [activeDomain, hasActivatedTeam]);
 
   const handleLogUpdated = useCallback((updated?: Partial<WorkoutLog> & { id: string; _deleted?: boolean }) => {
     if (!updated?.id) {
@@ -310,22 +223,6 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
           }
         })
         .catch(() => undefined);
-      if (currentUser && hasActivatedMy) {
-        const mVersion = ++myFetchVersion.current;
-        void fetchMyWorkoutLogs(currentUser.uid)
-          .then((data) => {
-            if (!isMounted.current) return;
-            if (mVersion === myFetchVersion.current) {
-              const reconciled = reconcileRecentUpdates(data, 'my');
-              setMyLogs((prev) => {
-                const merged = mergeLogsPreservingIdentity(prev, reconciled);
-                setCachedMyLogs(currentUser.uid, merged);
-                return merged;
-              });
-            }
-          })
-          .catch(() => undefined);
-      }
       return;
     }
 
@@ -356,13 +253,6 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
         setCachedPublicLogs(next);
         return next;
       });
-      setMyLogs((prev) => {
-        const next = prev.filter((log) => log.id !== updated.id);
-        if (currentUser) {
-          setCachedMyLogs(currentUser.uid, next);
-        }
-        return next;
-      });
       return;
     }
 
@@ -374,14 +264,6 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
         next = prev.map((log) => (log.id === updated.id ? { ...log, ...cleanMerged } : log));
       }
       setCachedPublicLogs(next);
-      return next;
-    });
-
-    setMyLogs((prev) => {
-      const next = prev.map((log) => (log.id === updated.id ? { ...log, ...cleanMerged } : log));
-      if (currentUser) {
-        setCachedMyLogs(currentUser.uid, next);
-      }
       return next;
     });
 
@@ -400,34 +282,13 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
         }
       })
       .catch(() => undefined);
-    if (currentUser && hasActivatedMy) {
-      const mVersion = ++myFetchVersion.current;
-      void fetchMyWorkoutLogs(currentUser.uid)
-        .then((data) => {
-          if (!isMounted.current) return;
-          if (mVersion === myFetchVersion.current) {
-            const reconciled = reconcileRecentUpdates(data, 'my');
-            setMyLogs((prev) => {
-              const preserved = mergeLogsPreservingIdentity(prev, reconciled);
-              setCachedMyLogs(currentUser.uid, preserved);
-              return preserved;
-            });
-          }
-        })
-        .catch(() => undefined);
-    }
-  }, [currentUser?.uid, hasActivatedMy, reconcileRecentUpdates]);
+  }, [reconcileRecentUpdates]);
 
   const handlePullRefresh = () => {
     if (refreshing) return;
     setRefreshing(true);
 
-    // Safety fallback: ensure refreshing spinner is guaranteed to dismiss
-    const safetyTimer = window.setTimeout(() => {
-      if (isMounted.current) setRefreshing(false);
-    }, 8000);
     const finishRefresh = () => {
-      window.clearTimeout(safetyTimer);
       if (isMounted.current) {
         setRefreshing(false);
       }
@@ -435,40 +296,12 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
 
     if (activeDomain === 'public') {
       const pVersion = ++publicFetchVersion.current;
-      void fetchPublicWorkoutLogs()
-        .then((data) => {
-          if (!isMounted.current) return;
-          if (pVersion === publicFetchVersion.current) {
-            const reconciled = reconcileRecentUpdates(data, 'public');
-            setPublicLogs((prev) => {
-              const merged = mergeLogsPreservingIdentity(prev, reconciled);
-              setCachedPublicLogs(merged);
-              return merged;
-            });
-            setPublicError('');
-          }
-        })
+      void fetchPublicWorkoutLogs(30, { force: true })
         .catch((err) => {
-          console.warn('Public pull refresh error:', err);
-        })
-        .finally(finishRefresh);
-    } else if (activeDomain === 'my' && currentUser) {
-      const mVersion = ++myFetchVersion.current;
-      void fetchMyWorkoutLogs(currentUser.uid)
-        .then((data) => {
-          if (!isMounted.current) return;
-          if (mVersion === myFetchVersion.current) {
-            const reconciled = reconcileRecentUpdates(data, 'my');
-            setMyLogs((prev) => {
-              const merged = mergeLogsPreservingIdentity(prev, reconciled);
-              setCachedMyLogs(currentUser.uid, merged);
-              return merged;
-            });
-            setMyError('');
-          }
-        })
-        .catch((err) => {
-          console.warn('My logs pull refresh error:', err);
+          if (!isMounted.current || err.name === 'AbortError') return;
+          setPublicLoading(false);
+          setFailureState(err.name === 'TimeoutError' ? 'timeout' : 'error');
+          setPublicError(err.name === 'TimeoutError' ? '请求超时，请重试' : err.message || '动态加载失败');
         })
         .finally(finishRefresh);
     } else {
@@ -478,7 +311,8 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
 
   return (
     <div
-      className="space-y-5"
+      className="space-y-4"
+      data-state={isOffline ? 'offline' : publicLoading && !publicLogs.length ? 'loading' : publicError ? failureState : publicLogs.length ? 'success' : 'empty'}
       onTouchStart={(e) => {
         if (e.touches.length === 1) {
           touchY.current = e.touches[0].clientY;
@@ -518,8 +352,8 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
         <h1 className="text-2xl font-black tracking-tight">一起练，更有动力</h1>
         <p className="mt-2 text-sm text-ink/60 leading-relaxed">分享每一次突破，也为彼此的坚持喝彩。</p>
       </div>
-      {/* Keep all existing domains; this release changes presentation only. */}
-      <div className="feed-tabs" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }} role="group" aria-label="动态范围">
+      {/* ── Segmented Domain Tabs: 广场 / 小队 ── */}
+      <div className="feed-tabs" role="group" aria-label="动态范围">
         <button
           type="button"
           onClick={() => setActiveDomain('public')}
@@ -528,7 +362,6 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
         >
           <span>广场动态</span>
         </button>
-
         <button
           type="button"
           onClick={() => setActiveDomain('team')}
@@ -539,25 +372,16 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
         >
           <span>好友小队</span>
         </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveDomain('my')}
-          className="feed-tab"
-          aria-pressed={activeDomain === 'my'}
-        >
-          <span>我的打卡</span>
-        </button>
       </div>
 
       {/* Offline Status Banner */}
       {isOffline && (
         <div className="bg-amber-100 border-2 border-amber-600 text-amber-900 px-3 py-2 text-xs font-bold flex items-center justify-between shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
           <div className="flex items-center gap-2">
-            <WifiOff size={16} className="text-amber-700 shrink-0" />
-            <span>离线模式：正在显示本地缓存动态</span>
+            <WifiOff size={15} className="text-amber-700 shrink-0" />
+            <span>{publicLogs.length ? '离线模式：正在显示本地缓存动态' : '网络不可用，请联网后重试'}</span>
           </div>
-          <span className="text-[10px] uppercase font-black tracking-wider bg-amber-200 px-1.5 py-0.5 rounded border border-amber-400">
+          <span className="text-[10px] font-black uppercase bg-amber-200 px-1.5 py-0.5 border border-amber-400">
             本地缓存
           </span>
         </div>
@@ -565,111 +389,69 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
 
       {refreshing && (
         <div className="text-center py-2">
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 0.6, repeat: Infinity, ease: 'linear' }}
-            className="inline-block"
-          >
-            <Dumbbell size={22} className="text-neon" />
-          </motion.div>
+          <Dumbbell size={18} className="text-ink/30 animate-spin inline-block" />
         </div>
       )}
 
       {/* Domain Content */}
-      <AnimatePresence mode="wait">
-        {/* Domain 1: 🌐 全员广场 */}
-        {activeDomain === 'public' && (
-          <motion.div
-            key="public-domain"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="space-y-6"
-          >
-            {publicLoading && publicLogs.length === 0 ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="bg-white h-56 border-4 border-ink animate-pulse" />
-                ))}
+      {/* Domain 1: 广场 */}
+      {activeDomain === 'public' && (
+        <div className="space-y-4">
+          {publicLoading && !isOffline && publicLogs.length === 0 ? (
+            <div className="space-y-4" role="status" aria-label="正在加载训练动态">
+              <span className="sr-only">正在加载训练动态</span>
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="card p-5 space-y-4 animate-pulse" aria-hidden="true">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 bg-ink/10" />
+                    <div className="space-y-2 flex-1">
+                      <div className="h-3 w-24 bg-ink/10" />
+                      <div className="h-2 w-16 bg-ink/5" />
+                    </div>
+                  </div>
+                  <div className="h-3 w-2/3 bg-ink/10" />
+                  <div className="h-12 bg-ink/5" />
+                </div>
+              ))}
+              <button onClick={handlePullRefresh} className="btn-neon">重新加载</button>
+            </div>
+          ) : (publicError || isOffline) && publicLogs.length === 0 ? (
+            <div className="card p-8 text-center space-y-3">
+              <p className="font-black text-ink text-base uppercase">广场动态加载失败</p>
+              <p className="text-ink/50 font-bold text-xs">{isOffline ? '网络不可用，请联网后重试' : publicError}</p>
+              <button
+                onClick={handlePullRefresh}
+                className="btn-neon px-6 py-2.5 text-xs font-black uppercase"
+              >
+                点击重试
+              </button>
+            </div>
+          ) : publicLogs.length === 0 ? (
+            <div className="card px-6 py-10 text-center">
+              <div className="w-14 h-14 mx-auto mb-5 bg-neon flex items-center justify-center border-2 border-ink">
+                <Dumbbell size={26} />
               </div>
-            ) : publicError && publicLogs.length === 0 ? (
-              <div className="bg-white border-4 border-ink p-8 text-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-                <p className="font-black text-ink text-lg mb-2 uppercase">广场动态加载失败</p>
-                <p className="text-ink/50 font-bold text-xs mb-4">{publicError}</p>
-                <button
-                  onClick={handlePullRefresh}
-                  className="bg-neon text-ink border-2 border-ink px-6 py-2.5 font-black uppercase text-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 cursor-pointer"
-                >
-                  点击重试
-                </button>
-              </div>
-            ) : publicLogs.length === 0 ? (
-              <div className="card px-6 py-10 text-center">
-                <div className="w-14 h-14 mx-auto mb-5 bg-neon flex items-center justify-center border-2 border-ink"><Dumbbell size={26} /></div>
-                <h2 className="text-lg font-black">从你的第一条打卡开始</h2>
-                <p className="text-sm text-ink/60 mt-2 leading-relaxed">广场还没有公开动态。记录训练，让健友看见你的坚持。</p>
-                {onNavigateToLog && <button type="button" onClick={onNavigateToLog} className="btn-neon mt-6 min-h-11">记录训练</button>}
-              </div>
-            ) : (
-              publicLogs.map((log) => (
-                <LogCard key={log.id} log={log} onLogUpdated={handleLogUpdated} />
-              ))
-            )}
-          </motion.div>
-        )}
+              <h2 className="text-lg font-black">从你的第一条打卡开始</h2>
+              <p className="text-sm text-ink/60 mt-2 leading-relaxed">广场还没有公开动态。记录训练，<br />让健友看见你的坚持。</p>
+              {onNavigateToLog && (
+                <button type="button" onClick={onNavigateToLog} className="btn-neon mt-6 min-h-11">记录训练</button>
+              )}
+            </div>
+          ) : (
+            publicLogs.map((log) => (
+              <LogCard key={log.id} log={log} onLogUpdated={handleLogUpdated} />
+            ))
+          )}
+        </div>
+      )}
 
-        {/* Domain 3: 👤 我的打卡 (个人训练历史管理主要入口) */}
-        {activeDomain === 'my' && (
-          <motion.div
-            key="my-domain"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="space-y-6"
-          >
-            {myLoading && myLogs.length === 0 ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="bg-white h-56 border-4 border-ink animate-pulse" />
-                ))}
-              </div>
-            ) : myError && myLogs.length === 0 ? (
-              <div className="bg-white border-4 border-ink p-8 text-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-                <p className="font-black text-ink text-lg mb-2 uppercase">记录加载失败</p>
-                <p className="text-ink/50 font-bold text-xs mb-4">{myError}</p>
-                <button
-                  onClick={handlePullRefresh}
-                  className="bg-neon text-ink border-2 border-ink px-6 py-2.5 font-black uppercase text-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 cursor-pointer"
-                >
-                  点击重试
-                </button>
-              </div>
-            ) : myLogs.length === 0 ? (
-              <div className="bg-white border-4 border-ink p-12 text-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] space-y-3">
-                <Dumbbell size={36} className="text-ink/30 mx-auto" />
-                <p className="font-black text-ink/70 text-sm uppercase">你还没有任何打卡记录</p>
-                <p className="text-xs font-bold text-ink/40">点击下方打卡按钮，记录你的第一笔训练吧！</p>
-              </div>
-            ) : (
-              myLogs.map((log) => (
-                <LogCard
-                  key={log.id}
-                  log={log}
-                  onLogUpdated={handleLogUpdated}
-                />
-              ))
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Domain 2: 👥 好友小队 (Deferred until activated; retained mounted to prevent tearing down subscriptions) */}
+      {/* Domain 2: 小队 (Deferred until activated; retained mounted to prevent tearing down subscriptions) */}
       {hasActivatedTeam && (
         <div className={activeDomain === 'team' ? 'block' : 'hidden'}>
           <Suspense fallback={
-            <div className="py-16 text-center space-y-3">
-              <Activity size={32} className="text-ink animate-spin inline-block" />
-              <p className="font-black text-xs uppercase tracking-widest text-ink/60">加载小队数据中...</p>
+            <div className="py-12 text-center space-y-2">
+              <Dumbbell size={24} className="text-ink/20 animate-spin inline-block" />
+              <p className="text-xs text-ink/40">加载小队数据…</p>
             </div>
           }>
             <TeamDashboard onLogUpdated={handleLogUpdated} />

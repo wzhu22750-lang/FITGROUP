@@ -1,0 +1,131 @@
+[
+  {
+    "label": "entry",
+    "count": 5,
+    "bytes": 693040,
+    "gzipBytes": 198074,
+    "resources": [
+      {
+        "file": "assets/index-CiA_uhkD.js",
+        "bytes": 69375,
+        "gzipBytes": 21925
+      },
+      {
+        "file": "assets/index-B2ZLJtHj.css",
+        "bytes": 53273,
+        "gzipBytes": 9032
+      },
+      {
+        "file": "assets/vendor-react-BsVe7bIn.js",
+        "bytes": 222067,
+        "gzipBytes": 67580
+      },
+      {
+        "file": "assets/vendor-supabase-BnGCNdwk.js",
+        "bytes": 220439,
+        "gzipBytes": 57594
+      },
+      {
+        "file": "assets/vendor-motion-D7-nR629.js",
+        "bytes": 127886,
+        "gzipBytes": 41943
+      }
+    ]
+  },
+  {
+    "label": "login (entry + auth + splash)",
+    "count": 7,
+    "bytes": 702579,
+    "gzipBytes": 202169,
+    "resources": [
+      {
+        "file": "assets/index-CiA_uhkD.js",
+        "bytes": 69375,
+        "gzipBytes": 21925
+      },
+      {
+        "file": "assets/index-B2ZLJtHj.css",
+        "bytes": 53273,
+        "gzipBytes": 9032
+      },
+      {
+        "file": "assets/vendor-react-BsVe7bIn.js",
+        "bytes": 222067,
+        "gzipBytes": 67580
+      },
+      {
+        "file": "assets/vendor-supabase-BnGCNdwk.js",
+        "bytes": 220439,
+        "gzipBytes": 57594
+      },
+      {
+        "file": "assets/vendor-motion-D7-nR629.js",
+        "bytes": 127886,
+        "gzipBytes": 41943
+      },
+      {
+        "file": "assets/AuthScreen-C9zvAinQ.js",
+        "bytes": 3283,
+        "gzipBytes": 1339
+      },
+      {
+        "file": "assets/SplashAnimation-nq6KmUUr.js",
+        "bytes": 6256,
+        "gzipBytes": 2756
+      }
+    ]
+  },
+  {
+    "label": "authenticated feed (no poster/edit)",
+    "count": 9,
+    "bytes": 734840,
+    "gzipBytes": 212195,
+    "resources": [
+      {
+        "file": "assets/index-CiA_uhkD.js",
+        "bytes": 69375,
+        "gzipBytes": 21925
+      },
+      {
+        "file": "assets/index-B2ZLJtHj.css",
+        "bytes": 53273,
+        "gzipBytes": 9032
+      },
+      {
+        "file": "assets/vendor-react-BsVe7bIn.js",
+        "bytes": 222067,
+        "gzipBytes": 67580
+      },
+      {
+        "file": "assets/vendor-supabase-BnGCNdwk.js",
+        "bytes": 220439,
+        "gzipBytes": 57594
+      },
+      {
+        "file": "assets/vendor-motion-D7-nR629.js",
+        "bytes": 127886,
+        "gzipBytes": 41943
+      },
+      {
+        "file": "assets/Feed-_4kaOxXz.js",
+        "bytes": 8171,
+        "gzipBytes": 2995
+      },
+      {
+        "file": "assets/LogCard-DE9F47e2.js",
+        "bytes": 13700,
+        "gzipBytes": 4739
+      },
+      {
+        "file": "assets/workoutPresets-CZVbSqmk.js",
+        "bytes": 13673,
+        "gzipBytes": 3631
+      },
+      {
+        "file": "assets/SplashAnimation-nq6KmUUr.js",
+        "bytes": 6256,
+        "gzipBytes": 2756
+      }
+    ]
+  }
+]

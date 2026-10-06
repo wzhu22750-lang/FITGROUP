@@ -1,0 +1,11 @@
+import { createServer } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const root = resolve(import.meta.dirname, '../..');
+const names = [...readFileSync(resolve(root,'src/api.ts'),'utf8').matchAll(/export (?:async )?(?:function|const) (\w+)/g)].map(m=>m[1]);
+const mock = readFileSync(resolve(root,'scripts/promo/fixture.js'),'utf8');
+const implemented = [...mock.matchAll(/export (?:async )?(?:function|const) (\w+)/g)].map(m=>m[1]);
+const server = await createServer({ root, configFile:false, plugins:[{name:'promo-local-fixtures',enforce:'pre',load(id){if(id===resolve(root,'src/api.ts')) return mock+'\n'+names.filter(n=>!implemented.includes(n)).map(n=>`export const ${n} = (...args) => { const cb=args.find(a=>typeof a==='function'); if(cb) {queueMicrotask(()=>cb([]));return ()=>{};}return Promise.resolve([]); };`).join('\n');if(id===resolve(root,'src/lib/supabase.ts'))return 'export const supabaseConfigError=null; export const supabase={};';}},react(),tailwindcss()],server:{host:'127.0.0.1',port:4317,strictPort:true}});
+await server.listen();console.log('Promo fixture: http://127.0.0.1:4317');

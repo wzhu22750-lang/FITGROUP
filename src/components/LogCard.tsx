@@ -86,7 +86,7 @@ const DEFAULT_VISIBLE_EXERCISES = 2;
 
 function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
   const [currentLog, setCurrentLog] = useState<WorkoutLog>(initialLog);
-  const [hasLiked, setHasLiked] = useState(() => Boolean(initialLog.isLiked));
+  const [hasLiked, setHasLiked] = useState<boolean | undefined>(() => initialLog.isLiked);
   const [liking, setLiking] = useState(false);
   const [likeError, setLikeError] = useState('');
   const [likesCount, setLikesCount] = useState(() => Number(initialLog.likesCount) || 0);
@@ -114,17 +114,13 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
   // Sync prop changes
   useEffect(() => {
     setCurrentLog(initialLog);
-    setHasLiked(initialLog.isLiked ?? false);
+    setHasLiked(initialLog.isLiked);
     setLikesCount(Number(initialLog.likesCount) || 0);
     setCommentsCount(Number(initialLog.commentsCount) || 0);
   }, [initialLog]);
 
-  useEffect(() => {
-    if (currentLog.isLiked !== undefined) return;
-    const user = getCurrentUser();
-    if (!user || !currentLog.id) return;
-    checkUserLike(currentLog.id, user.uid).then(setHasLiked).catch(() => undefined);
-  }, [currentLog.id, currentLog.isLiked]);
+  // Unknown likes are resolved by the batch query, or on explicit interaction only.
+  // Never fan out a failed batch into one request per mounted card.
 
   useEffect(() => {
     if (!showComments || !currentLog.id) return;
@@ -191,7 +187,17 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
     if (!user || !currentLog.id || liking) return;
     setLiking(true);
     setLikeError('');
-    const prevLiked = hasLiked;
+    let prevLiked = hasLiked;
+    if (prevLiked === undefined) {
+      try {
+        prevLiked = await checkUserLike(currentLog.id, user.uid);
+        if (getCurrentUser()?.uid !== user.uid) { setLiking(false); return; }
+      } catch {
+        setLikeError('点赞状态读取失败，请重试');
+        setLiking(false);
+        return;
+      }
+    }
     const nextLiked = !prevLiked;
     const nextLikesCount = Math.max(0, likesCount + (nextLiked ? 1 : -1));
 
@@ -243,6 +249,7 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
   };
 
   const handleShare = async () => {
+    setShowShareModal(true);
     try {
       const user = getCurrentUser();
       if (user) {

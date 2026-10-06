@@ -11,14 +11,12 @@ import {
   Dumbbell,
   BarChart3,
   User as UserIcon,
-  Plus,
-  Layout,
-  Activity,
   Bell,
+  Compass,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { AnimatePresence } from 'motion/react';
 import type { AppNotification } from './types';
-import Feed from './components/Feed';
+const Feed = lazy(() => import('./components/Feed'));
 
 const AuthScreen = lazy(() => import('./components/AuthScreen'));
 const WorkoutLogger = lazy(() => import('./components/WorkoutLogger'));
@@ -30,8 +28,8 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider } from './components/Toast';
 
 export default function App() {
-  const [user, setUser] = useState<any>(() => getCurrentUser());
-  const [loading, setLoading] = useState(() => !supabaseConfigError && !getCurrentUser());
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(() => !supabaseConfigError);
   const [activeTab, setActiveTab] = useState<'feed' | 'log' | 'stats' | 'profile'>('feed');
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
@@ -67,26 +65,26 @@ export default function App() {
       return;
     }
 
+    let disposed = false;
     waitForAuthReady()
-      .then((next) => {
-        if (next) {
-          setUser(next);
-        } else if (!getCurrentUser()) {
-          setUser(null);
-        }
+      .then(() => {
+        if (!disposed) setUser(getCurrentUser());
       })
       .catch((err) => {
         console.error('waitForAuthReady error:', err);
       })
       .finally(() => {
+        if (disposed) return;
         setLoading(false);
         void hideSplash();
       });
 
     const unsub = onAuthStateChangedFn((next) => {
       setUser(next);
+      setLoading(false);
+      void hideSplash();
     });
-    return () => unsub?.();
+    return () => { disposed = true; unsub?.(); };
   }, []);
 
   // Listen for user profile updates to instantly sync App-level user state
@@ -128,17 +126,12 @@ export default function App() {
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
-  const preloadLog = useCallback(() => { void import('./components/WorkoutLogger'); }, []);
-  const preloadStats = useCallback(() => { void import('./components/Statistics'); }, []);
-  const preloadProfile = useCallback(() => { void import('./components/Profile'); }, []);
+  const preloadLog = useCallback(() => { void import('./components/WorkoutLogger').catch(() => undefined); }, []);
+  const preloadStats = useCallback(() => { void import('./components/Statistics').catch(() => undefined); }, []);
+  const preloadProfile = useCallback(() => { void import('./components/Profile').catch(() => undefined); }, []);
 
-  useEffect(() => {
-    // Idle preloading: warm up WorkoutLogger chunk after initial feed render
-    const timer = setTimeout(() => {
-      preloadLog();
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, [preloadLog]);
+  // Preload only on navigation intent (hover/touch), not during authentication
+  // or the initial feed request. This also avoids downloading editing dependencies offline.
 
   useEffect(() => {
     return listenAndroidBack(() => {
@@ -157,10 +150,10 @@ export default function App() {
   if (supabaseConfigError) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-paper p-4">
-        <div className="bg-white border-4 border-ink p-8 max-w-sm w-full text-center shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
-          <Dumbbell size={48} className="text-ink mx-auto mb-4" />
-          <h1 className="text-2xl font-black text-ink uppercase mb-4">配置缺失</h1>
-          <p className="text-sm font-bold text-ink/70">{supabaseConfigError}</p>
+        <div className="card p-8 max-w-sm w-full text-center" style={{ border: '2px solid #000', boxShadow: 'var(--shadow-cta)' }}>
+          <Dumbbell size={36} className="text-ink mx-auto mb-4" />
+          <h1 className="text-xl font-bold text-ink mb-3">配置缺失</h1>
+          <p className="text-sm text-ink/60">{supabaseConfigError}</p>
         </div>
       </div>
     );
@@ -170,13 +163,7 @@ export default function App() {
     return (
       <>
         <div className="flex items-center justify-center min-h-screen bg-paper">
-          <motion.div 
-            animate={{ rotate: [0, 90, 180, 270, 360] }}
-            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-            className="border-8 border-ink p-4"
-          >
-            <Dumbbell size={48} className="text-ink" />
-          </motion.div>
+          <Dumbbell size={32} className="text-ink animate-spin" />
         </div>
         {showSplash && (
           <Suspense fallback={null}>
@@ -197,7 +184,7 @@ export default function App() {
         )}
         <Suspense fallback={
           <div className="flex items-center justify-center min-h-screen bg-paper">
-            <Activity size={32} className="text-ink animate-spin" />
+            <Dumbbell size={32} className="text-ink animate-spin" />
           </div>
         }>
           <AuthScreen />
@@ -215,25 +202,26 @@ export default function App() {
           </Suspense>
         )}
         <div className="app-shell min-h-dvh bg-paper max-w-lg mx-auto relative">
+      {/* ── Compact header with bold brand personality ── */}
       <header className="app-header sticky top-0 z-30 bg-paper border-b-2 border-ink flex items-center justify-between px-4 pb-3">
         <div className="flex items-center gap-2">
-          <div className="bg-black border-2 border-black p-1 flex items-center justify-center shrink-0">
+          <div className="bg-black border-2 border-black p-1 flex items-center justify-center shrink-0 shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]">
             <Dumbbell className="text-neon" size={18} />
           </div>
           <span className="text-xl font-black tracking-tight text-ink uppercase italic">FitGroup</span>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setShowNotificationsModal(true)}
-            className="relative bg-white text-ink border-2 border-ink p-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-neon active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all cursor-pointer"
+            className="relative bg-white text-ink border-2 border-ink p-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-neon active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
             title="消息通知"
             aria-label={`消息通知${unreadCount > 0 ? `，${unreadCount}条未读` : ''}`}
             style={{ minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             <Bell size={20} />
             {unreadCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white text-[9px] font-black min-w-4 h-4 px-1 rounded-full border border-ink flex items-center justify-center animate-bounce shadow-xs">
+              <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-black min-w-4 h-4 px-1 rounded-full border border-ink flex items-center justify-center">
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
@@ -242,49 +230,52 @@ export default function App() {
           {activeTab === 'feed' && (
             <button 
               onClick={() => setActiveTab('log')}
-              className="btn-neon min-h-11 px-3 py-1.5 text-xs flex items-center gap-1.5 font-black"
+              className="btn-neon min-h-11 px-3 py-1.5 text-xs flex items-center gap-1.5 font-black uppercase tracking-tight"
               title="记录训练"
               aria-label="记录训练"
             >
-              <Dumbbell size={15} /><span>记录训练</span>
+              <Dumbbell size={15} />
+              <span>记录训练</span>
             </button>
           )}
         </div>
       </header>
 
 
-      <main className="p-4">
+      <main className="px-4 py-4">
         <Suspense fallback={
           <div className="p-8 text-center">
-            <Activity size={32} className="text-ink animate-spin inline-block" />
+            <Dumbbell size={24} className="text-ink/30 animate-spin inline-block" />
           </div>
         }>
           <AnimatePresence mode="wait">
             {activeTab === 'feed' && (
-              <motion.div key="feed" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <Feed onNavigateToLog={() => setActiveTab('log')} />
-              </motion.div>
+              <div key="feed">
+                <Feed key={user.uid} onNavigateToLog={() => setActiveTab('log')} />
+              </div>
             )}
             {activeTab === 'log' && (
-              <motion.div key="log" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}>
+              <div key="log">
                 <WorkoutLogger onSuccess={() => setActiveTab('feed')} />
-              </motion.div>
+              </div>
             )}
             {activeTab === 'stats' && (
-              <motion.div key="stats" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <div key="stats">
                 <Statistics />
-              </motion.div>
+              </div>
             )}
               {activeTab === 'profile' && (
-                <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <div key="profile">
                   <Profile
                     user={user}
                     onLogout={async () => { await logout(); setUser(null); }}
                     unreadCount={unreadCount}
                     onOpenNotifications={() => setShowNotificationsModal(true)}
-                    onUserUpdate={(updated) => setUser(updated)}
+                    onUserUpdate={(updated) => {
+                      if (updated.uid === getCurrentUser()?.uid) setUser(updated);
+                    }}
                   />
-                </motion.div>
+                </div>
               )}
 
           </AnimatePresence>
@@ -306,12 +297,12 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* ── Bottom tab bar ── */}
       <nav aria-label="主导航" className="app-tabbar fixed bottom-0 left-0 right-0 bg-white border-t border-ink/20 px-3 pt-2 flex items-center justify-around gap-2 max-w-lg mx-auto z-40">
-
-        <NavButton active={activeTab === 'feed'} onClick={() => setActiveTab('feed')} icon={<Layout size={24} />} label="动态" />
-        <NavButton active={activeTab === 'log'} onClick={() => setActiveTab('log')} onPreload={preloadLog} icon={<Dumbbell size={24} />} label="打卡" />
-        <NavButton active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} onPreload={preloadStats} icon={<BarChart3 size={24} />} label="统计" />
-        <NavButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} onPreload={preloadProfile} icon={<UserIcon size={24} />} label="我的" />
+        <NavButton active={activeTab === 'feed'} onClick={() => setActiveTab('feed')} icon={<Compass size={22} />} label="动态" />
+        <NavButton active={activeTab === 'log'} onClick={() => setActiveTab('log')} onPreload={preloadLog} icon={<Dumbbell size={22} />} label="打卡" />
+        <NavButton active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} onPreload={preloadStats} icon={<BarChart3 size={22} />} label="统计" />
+        <NavButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} onPreload={preloadProfile} icon={<UserIcon size={22} />} label="我的" />
       </nav>
     </div>
     </ToastProvider>
@@ -338,7 +329,7 @@ function NavButton({
       onMouseEnter={onPreload}
       onTouchStart={onPreload}
       className={`app-nav-button flex flex-col justify-center items-center gap-1 cursor-pointer px-3 py-1 border-2 ${
-        active
+        active 
           ? 'bg-neon text-ink border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] font-black'
           : 'border-transparent text-ink/50 hover:text-ink font-bold'
       }`}
@@ -346,9 +337,7 @@ function NavButton({
       aria-current={active ? 'page' : undefined}
     >
       {icon}
-      <span className="text-[10px] font-black uppercase tracking-tighter">{label}</span>
+      <span className="text-[11px] leading-tight tracking-tight">{label}</span>
     </button>
   );
 }
-
-

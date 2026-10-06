@@ -5,6 +5,9 @@ import { executeWorkoutLogUpdate, sanitizeExercisesForDb } from './utils/workout
 export { sanitizeExercisesForDb } from './utils/workoutLogUpdate';
 import { DEFAULT_MAX_TEAM_MEMBERS } from './constants/teamConfig';
 import { updateCachedLogsProfile } from './utils/feedCache';
+import { readRequest, type ReadRequestOptions, withCallerSignal } from './utils/request';
+import { startStage } from './utils/startupMetrics';
+export { readRequest, REQUEST_TIMEOUT_MS, type ReadRequestOptions } from './utils/request';
 
 
 export type AppUser = {
@@ -85,14 +88,14 @@ const CACHED_USER_STORAGE_KEY = 'fitgroup_cached_user_profile';
 
 function getSafeLocalStorage(): Storage | null {
   try {
-    if (typeof window !== 'undefined' && window.localStorage) {
+    if (typeof window !== 'undefined' && window.localStorage && typeof window.localStorage.getItem === 'function') {
       return window.localStorage;
     }
   } catch {
     // Window localStorage blocked or sandbox restricted
   }
   try {
-    if (typeof globalThis !== 'undefined' && (globalThis as any)?.localStorage) {
+    if (typeof globalThis !== 'undefined' && (globalThis as any)?.localStorage && typeof (globalThis as any).localStorage.getItem === 'function') {
       return (globalThis as any).localStorage;
     }
   } catch {
@@ -101,7 +104,7 @@ function getSafeLocalStorage(): Storage | null {
   return null;
 }
 
-function loadCachedUserFromStorage(): AppUser | null {
+function loadCachedUserFromStorage(expectedUid?: string): AppUser | null {
   try {
     const storage = getSafeLocalStorage();
     if (!storage) return null;
@@ -109,7 +112,9 @@ function loadCachedUserFromStorage(): AppUser | null {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && (parsed.id || parsed.uid)) {
-        return parsed;
+        if (!expectedUid || ((parsed.id === expectedUid || parsed.uid === expectedUid) && (!parsed.id || parsed.id === expectedUid) && (!parsed.uid || parsed.uid === expectedUid))) {
+          return parsed;
+        }
       }
     }
   } catch (e) {
@@ -132,7 +137,62 @@ function persistCachedUser(user: AppUser | null): void {
   }
 }
 
-let cachedUser: AppUser | null = loadCachedUserFromStorage();
+// Real session only: never assume authentication from cached data without a verified session
+let cachedUser: AppUser | null = null;
+let activeAuthUid: string | null = null;
+let authGeneration = 0;
+let currentProfileAbortController: AbortController | null = null;
+
+// Singleflight per UID: deduplicate concurrent profile requests
+const profileSingleflightMap = new Map<string, Promise<AppUser>>();
+
+// Set of UIDs whose full profile is ready
+const readyProfiles = new Set<string>();
+
+// Subscribed auth listeners
+const authStateCallbacks = new Set<(user: AppUser | null) => void>();
+
+function handleAuthSignOut(): void {
+  authGeneration++;
+  if (currentProfileAbortController) {
+    try {
+      currentProfileAbortController.abort();
+    } catch {
+      // ignore
+    }
+    currentProfileAbortController = null;
+  }
+  profileSingleflightMap.clear();
+  readyProfiles.clear();
+  activeAuthUid = null;
+  cachedUser = null;
+  persistCachedUser(null);
+}
+
+function handleAuthSessionUser(user: User): AppUser {
+  if (activeAuthUid !== user.id) {
+    // Account switch: increment generation and abort pending profile requests
+    authGeneration++;
+    if (currentProfileAbortController) {
+      try {
+        currentProfileAbortController.abort();
+      } catch {
+        // ignore
+      }
+      currentProfileAbortController = null;
+    }
+    profileSingleflightMap.clear();
+    readyProfiles.clear();
+    activeAuthUid = user.id;
+  }
+
+  // Auth-only immediate: construct immediate user object
+  const baseAuth = authOnlyUser(user);
+  const stored = loadCachedUserFromStorage(user.id);
+  const immediate = stored ? { ...baseAuth, ...stored, id: user.id, uid: user.id, email: user.email } : baseAuth;
+  cachedUser = immediate;
+  return immediate;
+}
 
 function toIso(value: unknown): string | undefined {
   if (!value) return undefined;
@@ -198,8 +258,7 @@ async function currentAuthUser(): Promise<User | null> {
   if (sessionData?.session?.user) {
     return sessionData.session.user;
   }
-  const { data } = await supabase.auth.getUser();
-  return data.user ?? null;
+  return null;
 }
 
 function createRefreshScheduler<T>(
@@ -212,10 +271,15 @@ function createRefreshScheduler<T>(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let version = 0;
   let disposed = false;
+  let inFlight = false;
+  let refreshPending = false;
 
   const execute = () => {
+    if (disposed) return;
+    if (inFlight) { refreshPending = true; return; }
+    inFlight = true;
     const requestedVersion = ++version;
-    void fetcher()
+    void Promise.resolve().then(fetcher)
       .then((value) => {
         if (!disposed && requestedVersion === version) onData(value);
       })
@@ -223,6 +287,10 @@ function createRefreshScheduler<T>(
         if (!disposed && requestedVersion === version) {
           onError?.(error instanceof Error ? error : new Error(fallbackMessage));
         }
+      })
+      .finally(() => {
+        inFlight = false;
+        if (refreshPending && !disposed) { refreshPending = false; pull(); }
       });
   };
 
@@ -244,45 +312,147 @@ function createRefreshScheduler<T>(
   return { pull, dispose };
 }
 
-async function getMyProfileRow(): Promise<ProfileRow | null> {
-  const { data, error } = await supabase.rpc('get_my_profile');
+async function getMyProfileRow(signal?: AbortSignal): Promise<ProfileRow | null> {
+  const { data, error } = await readRequest('profile', (deadlineSignal) =>
+    supabase.rpc('get_my_profile').abortSignal(deadlineSignal), { signal });
   if (error) throw error;
   return (data || null) as ProfileRow | null;
 }
 
-export async function ensureUserProfile(user: User, extras: Partial<AppUser> = {}): Promise<AppUser> {
-  const existing = await getMyProfileRow();
-  if (existing) {
-    const profile = profileFromRow(existing, user);
-    cachedUser = profile;
-    persistCachedUser(profile);
-    return profile;
+export const isProfileReady = (userId?: string): boolean => {
+  const uid = userId || activeAuthUid || cachedUser?.uid || cachedUser?.id;
+  return !!uid && readyProfiles.has(uid);
+};
+
+async function requireProfileForWrite(user: User): Promise<AppUser> {
+  const profile = readyProfiles.has(user.id) && cachedUser?.uid === user.id
+    ? cachedUser
+    : await ensureUserProfile(user);
+  if (activeAuthUid !== user.id || !readyProfiles.has(user.id)) {
+    throw new Error('用户资料尚未就绪，请稍后重试');
   }
-
-  const displayName = (extras.displayName || user.user_metadata?.display_name || user.email?.split('@')[0] || 'FitGroup')
-    .toString()
-    .slice(0, 50);
-  const photoURL = extras.photoURL || user.user_metadata?.photo_url || '';
-
-  const { error: insertError } = await supabase.from('profiles').insert({
-    id: user.id,
-    display_name: displayName,
-    photo_url: photoURL,
-  });
-
-  if (insertError && insertError.code !== '23505') throw insertError;
-
-  const created = await getMyProfileRow();
-  if (!created) throw new Error('用户资料创建后无法读取');
-
-  const profile = profileFromRow(created, user);
-  cachedUser = profile;
-  persistCachedUser(profile);
   return profile;
 }
 
+export const waitForProfileReady = async (userId?: string, timeoutMs = 3000): Promise<AppUser | null> => {
+  const uid = userId || activeAuthUid || cachedUser?.uid || cachedUser?.id;
+  if (!uid) return cachedUser;
+
+  if (readyProfiles.has(uid) && cachedUser && (cachedUser.uid === uid || cachedUser.id === uid)) {
+    return cachedUser;
+  }
+
+  const inFlight = profileSingleflightMap.get(uid);
+  if (inFlight) {
+    try {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<null>((res) => {
+        timer = setTimeout(() => res(null), timeoutMs);
+      });
+      const result = await Promise.race([
+        inFlight.catch(() => null),
+        timeoutPromise,
+      ]);
+      if (timer) clearTimeout(timer);
+      if (result) return result;
+    } catch {
+      // Fallback
+    }
+  }
+
+  return cachedUser;
+};
+
+export async function ensureUserProfile(user: User, extras: Partial<AppUser> = {}): Promise<AppUser> {
+  const uid = user.id;
+
+  // Singleflight per UID: deduplicate concurrent requests
+  const inFlight = profileSingleflightMap.get(uid);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const controller = new AbortController();
+  currentProfileAbortController = controller;
+  const gen = authGeneration;
+
+  const fetchPromise = (async () => {
+    try {
+      const existing = await getMyProfileRow(controller.signal);
+
+      // Generation guard: abort on account switch
+      if (controller.signal.aborted || gen !== authGeneration || (activeAuthUid && activeAuthUid !== uid)) {
+        throw new Error('Profile fetch aborted: account switch or session change');
+      }
+
+      if (existing) {
+        if (existing.id !== uid) throw new Error('用户资料与当前会话不匹配');
+        const profile = profileFromRow(existing, user);
+        if (gen === authGeneration && activeAuthUid === uid) {
+          cachedUser = profile;
+          persistCachedUser(profile);
+          readyProfiles.add(uid);
+          for (const cb of authStateCallbacks) {
+            try { cb(profile); } catch { /* ignore */ }
+          }
+        }
+        return profile;
+      }
+
+      if (controller.signal.aborted || gen !== authGeneration || (activeAuthUid && activeAuthUid !== uid)) {
+        throw new Error('Profile fetch aborted: account switch or session change');
+      }
+
+      const displayName = (extras.displayName || user.user_metadata?.display_name || user.email?.split('@')[0] || 'FitGroup')
+        .toString()
+        .slice(0, 50);
+      const photoURL = extras.photoURL || user.user_metadata?.photo_url || '';
+
+      // Execute once; cancellation is not an automatic retry of this write.
+      const { error: insertError } = await readRequest('profile-create', (signal) =>
+        supabase.from('profiles').insert({
+          id: user.id,
+          display_name: displayName,
+          photo_url: photoURL,
+        }).abortSignal(signal), { signal: controller.signal });
+
+      if (insertError && insertError.code !== '23505') throw insertError;
+
+      if (controller.signal.aborted || gen !== authGeneration || (activeAuthUid && activeAuthUid !== uid)) {
+        throw new Error('Profile fetch aborted: account switch or session change');
+      }
+
+      const created = await getMyProfileRow(controller.signal);
+      if (!created || created.id !== uid) throw new Error('用户资料创建后无法读取');
+
+      if (controller.signal.aborted || gen !== authGeneration || (activeAuthUid && activeAuthUid !== uid)) {
+        throw new Error('Profile fetch aborted: account switch or session change');
+      }
+
+      const profile = profileFromRow(created, user);
+      if (gen === authGeneration && activeAuthUid === uid) {
+        cachedUser = profile;
+        persistCachedUser(profile);
+        readyProfiles.add(uid);
+        for (const cb of authStateCallbacks) {
+          try { cb(profile); } catch { /* ignore */ }
+        }
+      }
+      return profile;
+    } finally {
+      if (currentProfileAbortController === controller) profileSingleflightMap.delete(uid);
+      if (currentProfileAbortController === controller) {
+        currentProfileAbortController = null;
+      }
+    }
+  })();
+
+  profileSingleflightMap.set(uid, fetchPromise);
+  return fetchPromise;
+}
+
 function mapAuthError(error: unknown): Error {
-  const err = error as { code?: string; message?: string; status?: number };
+  const err = error as { code?: string; message?: string; status?: number; name?: string };
   const code = (err?.code || '').toLowerCase();
   const message = (err?.message || '').toLowerCase();
   const table: Record<string, string> = {
@@ -304,6 +474,9 @@ function mapAuthError(error: unknown): Error {
   if (message.includes('invalid login') || message.includes('invalid credentials')) {
     return new Error('邮箱或密码错误');
   }
+  if (err.name === 'TimeoutError' || message.includes('timed out') || message.includes('timeout')) {
+    return new Error('请求超时，请检查网络后重试；注册是否成功请先检查确认邮件');
+  }
   if (message.includes('network')) {
     return new Error('网络异常，请检查网络后重试');
   }
@@ -323,7 +496,11 @@ export const registerWithEmail = async (email: string, password: string, display
     if (!data.session) {
       throw new Error('注册成功，请查收确认邮件后再登录');
     }
-    return ensureUserProfile(data.user, { displayName: name });
+    const immediateUser = handleAuthSessionUser(data.user);
+    void ensureUserProfile(data.user, { displayName: name }).catch((e) => {
+      console.warn('Background profile create failed:', e);
+    });
+    return immediateUser;
   } catch (e) {
     throw mapAuthError(e);
   }
@@ -336,16 +513,19 @@ export const loginWithEmail = async (email: string, password: string) => {
       password,
     });
     if (error) throw error;
-    if (!data.user) throw new Error('登录失败，请重试');
-    return ensureUserProfile(data.user);
+    if (!data.user || !data.session) throw new Error('登录失败，请重试');
+    const immediateUser = handleAuthSessionUser(data.user);
+    void ensureUserProfile(data.user).catch((e) => {
+      console.warn('Background profile load failed:', e);
+    });
+    return immediateUser;
   } catch (e) {
     throw mapAuthError(e);
   }
 };
 
 export const logout = async () => {
-  cachedUser = null;
-  persistCachedUser(null);
+  handleAuthSignOut();
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
   return null;
@@ -354,39 +534,56 @@ export const logout = async () => {
 export const getCurrentUser = () => cachedUser;
 
 export const onAuthStateChangedFn = (callback: (user: AppUser | null) => void) => {
+  authStateCallbacks.add(callback);
+
   const { data } = supabase.auth.onAuthStateChange((_event, session) => {
     const user = session?.user;
     if (!user) {
-      cachedUser = null;
-      persistCachedUser(null);
+      handleAuthSignOut();
       callback(null);
       return;
     }
-    void ensureUserProfile(user)
-      .then(callback)
-      .catch((e) => {
-        console.error('Load profile failed:', e);
-        cachedUser = authOnlyUser(user);
-        persistCachedUser(cachedUser);
-        callback(cachedUser);
-      });
+
+    // Real session confirmed: auth-only immediate
+    const immediateUser = handleAuthSessionUser(user);
+    callback(immediateUser);
+
+    // Leave the Supabase auth callback/lock before making SDK requests.
+    const generation = authGeneration;
+    setTimeout(() => {
+      if (generation !== authGeneration || activeAuthUid !== user.id) return;
+      void ensureUserProfile(user).catch((e) => console.warn('Load profile failed:', e));
+    }, 0);
   });
-  return () => data.subscription.unsubscribe();
+
+  return () => {
+    authStateCallbacks.delete(callback);
+    data.subscription.unsubscribe();
+  };
 };
 
 export const getUserProfile = async (userId: string) => {
   const authUser = await currentAuthUser();
   if (authUser?.id === userId) {
-    const data = await getMyProfileRow();
+    const shared = profileSingleflightMap.get(userId);
+    if (shared) return shared;
+    const generation = authGeneration;
+    const data = await getMyProfileRow(currentProfileAbortController?.signal);
     if (!data) throw new Error('User not found');
-    return profileFromRow(data, authUser);
+    const profile = profileFromRow(data, authUser);
+    if (activeAuthUid === userId && generation === authGeneration) {
+      cachedUser = profile;
+      persistCachedUser(profile);
+      readyProfiles.add(userId);
+    }
+    return profile;
   }
 
-  const { data, error } = await supabase
-    .from('public_profiles')
-    .select('id, display_name, photo_url, streak, total_workouts, last_workout_date')
-    .eq('id', userId)
-    .maybeSingle();
+  const { data, error } = await readRequest('public-profile', (signal) =>
+    supabase.from('public_profiles')
+      .select('id, display_name, photo_url, streak, total_workouts, last_workout_date')
+      .eq('id', userId)
+      .abortSignal(signal).maybeSingle());
   if (error) throw error;
   if (!data) throw new Error('User not found');
   return profileFromRow(data as ProfileRow, null);
@@ -449,7 +646,7 @@ export const updateUserProfileFn = async (userId: string, updates: Record<string
     });
   }
 
-  if (cachedUser && cachedUser.uid === userId) {
+  if (cachedUser && (cachedUser.uid === userId || cachedUser.id === userId)) {
     cachedUser = {
       ...cachedUser,
       displayName: typeof payload.display_name === 'string' ? payload.display_name : cachedUser.displayName,
@@ -460,6 +657,7 @@ export const updateUserProfileFn = async (userId: string, updates: Record<string
       bodyMetricsUpdatedAt: 'body_metrics_updated_at' in payload ? (payload.body_metrics_updated_at as string) : cachedUser.bodyMetricsUpdatedAt,
     };
     persistCachedUser(cachedUser);
+    readyProfiles.add(userId);
   }
 
   // Synchronize updated display name and avatar to historical workout_logs & workout_comments
@@ -522,7 +720,9 @@ export const createWorkoutLog = async (logData: Record<string, unknown>) => {
 
   const logId = typeof logData.id === 'string' && logData.id ? logData.id : newId('log');
   const exercises = sanitizeExercisesForDb(logData.exercises);
-  const profile = cachedUser || await ensureUserProfile(user);
+
+  // A cached/auth-only name is not sufficient for a profile-dependent write.
+  const profile = await requireProfileForWrite(user);
 
   const categoriesList = Array.isArray(logData.categories) && logData.categories.length > 0
     ? (logData.categories as string[])
@@ -594,7 +794,7 @@ export const deleteWorkoutLog = async (workoutLogId: string) => {
   if (error) throw error;
 };
 
-function normalizeLog(row: WorkoutLogRow): WorkoutLog {
+export function normalizeLog(row: WorkoutLogRow): WorkoutLog {
   const rawVis = (row.visibility || '').toLowerCase();
   const visibility: WorkoutVisibility = (
     rawVis === 'friends' || rawVis === 'private' ? rawVis : 'public'
@@ -616,74 +816,314 @@ function normalizeLog(row: WorkoutLogRow): WorkoutLog {
   };
 }
 
-async function attachCurrentUserLikeState(logs: WorkoutLog[]): Promise<WorkoutLog[]> {
+export async function attachCurrentUserLikeState(
+  logs: WorkoutLog[],
+  options?: ReadRequestOptions,
+): Promise<WorkoutLog[]> {
   if (logs.length === 0) return logs;
   const userId = cachedUser?.uid || cachedUser?.id || (await currentAuthUser())?.id;
   if (!userId) return logs;
 
-  const { data, error } = await supabase
-    .from('workout_likes')
-    .select('log_id')
-    .eq('user_id', userId)
-    .in('log_id', logs.map((log) => log.id));
-  if (error) {
-    // Like state is auxiliary; keep the feed usable and let LogCard perform a
-    // single-item fallback check only when the batch request was unavailable.
-    console.warn('Batch like state load failed:', error);
+  try {
+    const { data, error } = await readRequest(
+      'attachCurrentUserLikeState',
+      (signal) =>
+        supabase
+          .from('workout_likes')
+          .select('log_id')
+          .eq('user_id', userId)
+          .in('log_id', logs.map((log) => log.id))
+          .abortSignal(signal),
+      { signal: options?.signal, timeoutMs: options?.timeoutMs ?? 5000 },
+    );
+
+    if (error) {
+      // Like state is auxiliary; keep the feed usable and let individual LogCard fallback check
+      console.warn('Batch like state load failed:', error);
+      return logs;
+    }
+
+    const likedIds = new Set((data || []).map((row: { log_id: string }) => row.log_id));
+    return logs.map((log) => ({ ...log, isLiked: likedIds.has(log.id) }));
+  } catch (err: any) {
+    if (options?.signal?.aborted) {
+      throw err;
+    }
+    console.warn('Batch like state load failed or timed out:', err);
     return logs;
   }
-
-  const likedIds = new Set((data || []).map((row: { log_id: string }) => row.log_id));
-  return logs.map((log) => ({ ...log, isLiked: likedIds.has(log.id) }));
 }
 
-export async function fetchPublicWorkoutLogs(maxCount = 30): Promise<WorkoutLog[]> {
-  const { data, error } = await supabase
-    .from('workout_logs')
-    .select('*')
-    .eq('visibility', 'public')
-    .order('created_at', { ascending: false })
-    .limit(maxCount);
-
-  if (error) throw error;
-  return attachCurrentUserLikeState((data as WorkoutLogRow[]).map(normalizeLog));
+interface FeedSubscriber {
+  id: string;
+  callback: (logs: WorkoutLog[]) => void;
+  onError?: (error: Error) => void;
 }
 
-export async function fetchTeamWorkoutLogs(teamId: string, maxCount = 30): Promise<WorkoutLog[]> {
+class SharedFeedScheduler {
+  private subscribers = new Map<string, Map<string, FeedSubscriber>>();
+  private inFlight = new Map<string, Promise<WorkoutLog[]>>();
+  private controllers = new Map<string, AbortController>();
+  private likeControllers = new Map<string, AbortController>();
+  private latestVersion = new Map<string, number>();
+  private latestCommittedVersion = new Map<string, number>();
+  private latestLogs = new Map<string, WorkoutLog[]>();
+  private channels = new Map<string, any>();
+  private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  nextVersion(domainKey: string): number {
+    const next = (this.latestVersion.get(domainKey) || 0) + 1;
+    this.latestVersion.set(domainKey, next);
+    return next;
+  }
+
+  async fetch(
+    domainKey: string,
+    fetcher: (signal: AbortSignal) => Promise<WorkoutLog[]>,
+    options?: ReadRequestOptions,
+  ): Promise<WorkoutLog[]> {
+    // Single latest / dedup feed reads: coalesce concurrent calls into single flight
+    const existing = this.inFlight.get(domainKey);
+    if (existing && !options?.force) {
+      return withCallerSignal(existing, options?.signal);
+    }
+
+    const version = this.nextVersion(domainKey);
+    this.controllers.get(domainKey)?.abort(new DOMException('Read superseded', 'AbortError'));
+    this.likeControllers.get(domainKey)?.abort(new Error('Likes superseded'));
+    const controller = new AbortController();
+    this.controllers.set(domainKey, controller);
+
+    // Defer execution until flight has been stored, including synchronous throws.
+    const flight = Promise.resolve().then(async () => {
+      try {
+        const logs = await readRequest(
+          `feed:${domainKey}`,
+          (signal) => fetcher(signal),
+          { ...options, signal: controller.signal },
+        );
+
+        // Also reject responses superseded before the replacement has committed.
+        if (version !== this.latestVersion.get(domainKey)) {
+          return this.latestLogs.get(domainKey) || logs;
+        }
+
+        this.latestCommittedVersion.set(domainKey, version);
+        this.latestLogs.set(domainKey, logs);
+
+        // Immediately notify active subscribers with logs BEFORE batch likes!
+        this.notifySubscribers(domainKey, logs);
+
+        // Asynchronously attach like state for active subscribers with bounded cancellation
+        const subs = this.subscribers.get(domainKey);
+        if (subs && subs.size > 0 && logs.length > 0) {
+          const likesController = new AbortController();
+          this.likeControllers.set(domainKey, likesController);
+          const uid = activeAuthUid;
+          void attachCurrentUserLikeState(logs, { timeoutMs: 4000, signal: likesController.signal })
+            .then((logsWithLikes) => {
+              if (this.latestVersion.get(domainKey) === version && activeAuthUid === uid && !likesController.signal.aborted) {
+                this.latestLogs.set(domainKey, logsWithLikes);
+                this.notifySubscribers(domainKey, logsWithLikes);
+              }
+            })
+            .catch(() => undefined);
+        }
+
+        // Feed fetch returns logs before batch likes!
+        return logs;
+      } finally {
+        if (this.inFlight.get(domainKey) === flight) {
+          this.inFlight.delete(domainKey);
+        }
+      }
+    });
+
+    this.inFlight.set(domainKey, flight);
+    return withCallerSignal(flight, options?.signal);
+  }
+
+  private notifySubscribers(domainKey: string, logs: WorkoutLog[]) {
+    const domainSubs = this.subscribers.get(domainKey);
+    if (!domainSubs) return;
+    for (const sub of Array.from(domainSubs.values())) {
+      try {
+        sub.callback(logs);
+      } catch (e) {
+        console.error('Feed subscriber error:', e);
+      }
+    }
+  }
+
+  private notifyError(domainKey: string, error: Error) {
+    if (error.name === 'AbortError') return;
+    const domainSubs = this.subscribers.get(domainKey);
+    if (!domainSubs) return;
+    for (const sub of Array.from(domainSubs.values())) {
+      try {
+        sub.onError?.(error);
+      } catch (e) {
+        console.error('Feed subscriber error callback failed:', e);
+      }
+    }
+  }
+
+  subscribe(
+    domainKey: string,
+    fetcher: (signal: AbortSignal) => Promise<WorkoutLog[]>,
+    setupChannel: (pull: () => void) => any,
+    callback: (logs: WorkoutLog[]) => void,
+    onError?: (error: Error) => void,
+  ): () => void {
+    let domainSubs = this.subscribers.get(domainKey);
+    if (!domainSubs) {
+      domainSubs = new Map();
+      this.subscribers.set(domainKey, domainSubs);
+    }
+
+    const subId = newId('sub');
+    domainSubs.set(subId, { id: subId, callback, onError });
+
+    const pull = () => {
+      const existingTimer = this.debounceTimers.get(domainKey);
+      if (existingTimer) clearTimeout(existingTimer);
+      const timer = setTimeout(() => {
+        this.debounceTimers.delete(domainKey);
+        void this.fetch(domainKey, fetcher).catch((err) => {
+          this.notifyError(domainKey, err instanceof Error ? err : new Error(String(err)));
+        });
+      }, 120);
+      this.debounceTimers.set(domainKey, timer);
+    };
+
+    if (!this.channels.has(domainKey)) {
+      const channel = setupChannel(pull);
+      this.channels.set(domainKey, channel);
+    }
+
+    // Immediately trigger initial fetch
+    void this.fetch(domainKey, fetcher).catch((err) => {
+      this.notifyError(domainKey, err instanceof Error ? err : new Error(String(err)));
+    });
+
+    return () => {
+      const currentSubs = this.subscribers.get(domainKey);
+      if (currentSubs) {
+        currentSubs.delete(subId);
+        if (currentSubs.size === 0) {
+          this.subscribers.delete(domainKey);
+
+          const ch = this.channels.get(domainKey);
+          if (ch) {
+            void supabase.removeChannel(ch);
+            this.channels.delete(domainKey);
+          }
+
+          const timer = this.debounceTimers.get(domainKey);
+          if (timer) {
+            clearTimeout(timer);
+            this.debounceTimers.delete(domainKey);
+          }
+
+          this.nextVersion(domainKey);
+          this.controllers.get(domainKey)?.abort(new DOMException('Feed disposed', 'AbortError'));
+          this.likeControllers.get(domainKey)?.abort(new Error('Feed disposed'));
+          this.controllers.delete(domainKey);
+          this.likeControllers.delete(domainKey);
+          this.inFlight.delete(domainKey);
+        }
+      }
+    };
+  }
+}
+
+export const sharedFeedScheduler = new SharedFeedScheduler();
+
+export async function fetchPublicWorkoutLogs(
+  maxCount = 30,
+  options?: ReadRequestOptions,
+): Promise<WorkoutLog[]> {
+  const domainKey = `public:${maxCount}`;
+  return sharedFeedScheduler.fetch(
+    domainKey,
+    async (signal) => {
+      const { data, error } = await supabase
+        .from('workout_logs')
+        .select('*')
+        .eq('visibility', 'public')
+        .order('created_at', { ascending: false })
+        .limit(maxCount)
+        .abortSignal(signal);
+
+      if (error) throw error;
+      return ((data || []) as WorkoutLogRow[]).map(normalizeLog);
+    },
+    options,
+  );
+}
+
+export async function fetchTeamWorkoutLogs(
+  teamId: string,
+  maxCount = 30,
+  options?: ReadRequestOptions,
+): Promise<WorkoutLog[]> {
   if (!teamId) return [];
 
-  // 1. Get member user IDs of this squad
-  const { data: members, error: mErr } = await supabase
-    .from('team_members')
-    .select('user_id')
-    .eq('team_id', teamId);
-  if (mErr) throw mErr;
-  if (!members || members.length === 0) return [];
+  const domainKey = `team:${teamId}:${maxCount}`;
+  return sharedFeedScheduler.fetch(
+    domainKey,
+    async (signal) => {
+      // 1. Get member user IDs of this squad
+      const { data: members, error: mErr } = await supabase
+        .from('team_members')
+        .select('user_id')
+        .eq('team_id', teamId)
+        .abortSignal(signal);
+      if (mErr) throw mErr;
+      if (!members || members.length === 0) return [];
 
-  const memberIds = members.map((m: any) => m.user_id);
+      const memberIds = members.map((m: any) => m.user_id);
 
-  // 2. Fetch public and friends workouts from those squad members (never private!)
-  const { data, error } = await supabase
-    .from('workout_logs')
-    .select('*')
-    .in('user_id', memberIds)
-    .in('visibility', ['public', 'friends'])
-    .order('created_at', { ascending: false })
-    .limit(maxCount);
+      // 2. Fetch public and friends workouts from those squad members (never private!)
+      const { data, error } = await supabase
+        .from('workout_logs')
+        .select('*')
+        .in('user_id', memberIds)
+        .in('visibility', ['public', 'friends'])
+        .order('created_at', { ascending: false })
+        .limit(maxCount)
+        .abortSignal(signal);
 
-  if (error) throw error;
-  return attachCurrentUserLikeState((data as WorkoutLogRow[]).map(normalizeLog));
+      if (error) throw error;
+      return ((data || []) as WorkoutLogRow[]).map(normalizeLog);
+    },
+    options,
+  );
 }
 
-export async function fetchMyWorkoutLogs(userId: string, maxCount = 100): Promise<WorkoutLog[]> {
-  const { data, error } = await supabase
-    .from('workout_logs')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(maxCount);
-  if (error) throw error;
-  return attachCurrentUserLikeState((data as WorkoutLogRow[]).map(normalizeLog));
+export async function fetchMyWorkoutLogs(
+  userId: string,
+  maxCount = 100,
+  options?: ReadRequestOptions,
+): Promise<WorkoutLog[]> {
+  if (!userId) return [];
+
+  const domainKey = `my:${userId}:${maxCount}`;
+  return sharedFeedScheduler.fetch(
+    domainKey,
+    async (signal) => {
+      const { data, error } = await supabase
+        .from('workout_logs')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(maxCount)
+        .abortSignal(signal);
+      if (error) throw error;
+      return ((data || []) as WorkoutLogRow[]).map(normalizeLog);
+    },
+    options,
+  );
 }
 
 export const subscribeToPublicWorkoutLogs = (
@@ -691,23 +1131,31 @@ export const subscribeToPublicWorkoutLogs = (
   onError?: (error: Error) => void,
   maxCount = 30,
 ) => {
-  const refresh = createRefreshScheduler(
-    () => fetchPublicWorkoutLogs(maxCount),
+  const domainKey = `public:${maxCount}`;
+  return sharedFeedScheduler.subscribe(
+    domainKey,
+    async (signal) => {
+      const { data, error } = await supabase
+        .from('workout_logs')
+        .select('*')
+        .eq('visibility', 'public')
+        .order('created_at', { ascending: false })
+        .limit(maxCount)
+        .abortSignal(signal);
+      if (error) throw error;
+      return ((data || []) as WorkoutLogRow[]).map(normalizeLog);
+    },
+    (pull) => {
+      return supabase
+        .channel(`public_feed_${newId('ch')}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_logs' }, pull)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_likes' }, pull)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_comments' }, pull)
+        .subscribe();
+    },
     callback,
     onError,
-    '全员广场动态加载失败',
   );
-  const channel = supabase
-    .channel(`public_feed_${newId('ch')}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_logs' }, refresh.pull)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_likes' }, refresh.pull)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_comments' }, refresh.pull)
-    .subscribe();
-
-  return () => {
-    refresh.dispose();
-    void supabase.removeChannel(channel);
-  };
 };
 
 export const subscribeToTeamWorkoutLogs = (
@@ -721,24 +1169,42 @@ export const subscribeToTeamWorkoutLogs = (
     return () => {};
   }
 
-  const refresh = createRefreshScheduler(
-    () => fetchTeamWorkoutLogs(teamId, maxCount),
+  const domainKey = `team:${teamId}:${maxCount}`;
+  return sharedFeedScheduler.subscribe(
+    domainKey,
+    async (signal) => {
+      const { data: members, error: mErr } = await supabase
+        .from('team_members')
+        .select('user_id')
+        .eq('team_id', teamId)
+        .abortSignal(signal);
+      if (mErr) throw mErr;
+      if (!members || members.length === 0) return [];
+
+      const memberIds = members.map((m: any) => m.user_id);
+      const { data, error } = await supabase
+        .from('workout_logs')
+        .select('*')
+        .in('user_id', memberIds)
+        .in('visibility', ['public', 'friends'])
+        .order('created_at', { ascending: false })
+        .limit(maxCount)
+        .abortSignal(signal);
+      if (error) throw error;
+      return ((data || []) as WorkoutLogRow[]).map(normalizeLog);
+    },
+    (pull) => {
+      return supabase
+        .channel(`team_feed_${teamId}_${newId('ch')}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_logs' }, pull)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_likes' }, pull)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_comments' }, pull)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, pull)
+        .subscribe();
+    },
     callback,
     onError,
-    '小队动态加载失败',
   );
-  const channel = supabase
-    .channel(`team_feed_${teamId}_${newId('ch')}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_logs' }, refresh.pull)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_likes' }, refresh.pull)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_comments' }, refresh.pull)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, refresh.pull)
-    .subscribe();
-
-  return () => {
-    refresh.dispose();
-    void supabase.removeChannel(channel);
-  };
 };
 
 export const subscribeToMyWorkoutLogs = (
@@ -747,42 +1213,66 @@ export const subscribeToMyWorkoutLogs = (
   onError?: (error: Error) => void,
   maxCount = 100,
 ) => {
-  const refresh = createRefreshScheduler(
-    () => fetchMyWorkoutLogs(userId, maxCount),
+  if (!userId) {
+    callback([]);
+    return () => {};
+  }
+
+  const domainKey = `my:${userId}:${maxCount}`;
+  return sharedFeedScheduler.subscribe(
+    domainKey,
+    async (signal) => {
+      const { data, error } = await supabase
+        .from('workout_logs')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(maxCount)
+        .abortSignal(signal);
+      if (error) throw error;
+      return ((data || []) as WorkoutLogRow[]).map(normalizeLog);
+    },
+    (pull) => {
+      return supabase
+        .channel(`my_feed_${userId}_${newId('ch')}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'workout_logs', filter: `user_id=eq.${userId}` },
+          pull,
+        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_likes' }, pull)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_comments' }, pull)
+        .subscribe();
+    },
     callback,
     onError,
-    '个人打卡记录加载失败',
   );
-  const channel = supabase
-    .channel(`my_feed_${userId}_${newId('ch')}`)
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'workout_logs', filter: `user_id=eq.${userId}` },
-      refresh.pull
-    )
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_likes' }, refresh.pull)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'workout_comments' }, refresh.pull)
-    .subscribe();
-
-  return () => {
-    refresh.dispose();
-    void supabase.removeChannel(channel);
-  };
 };
 
 // Backward-compatible alias
 export const subscribeToWorkoutLogs = subscribeToPublicWorkoutLogs;
 
-
-export const checkUserLike = async (workoutLogId: string, userId: string) => {
-  const { data, error } = await supabase
-    .from('workout_likes')
-    .select('user_id')
-    .eq('log_id', workoutLogId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (error) throw error;
-  return Boolean(data);
+export const checkUserLike = async (
+  workoutLogId: string,
+  userId: string,
+  options?: ReadRequestOptions,
+) => {
+  if (!workoutLogId || !userId) return false;
+  return readRequest(
+    'checkUserLike',
+    async (signal) => {
+      const { data, error } = await supabase
+        .from('workout_likes')
+        .select('user_id')
+        .eq('log_id', workoutLogId)
+        .eq('user_id', userId)
+        .abortSignal(signal)
+        .maybeSingle();
+      if (error) throw error;
+      return Boolean(data);
+    },
+    options,
+  );
 };
 
 export const toggleLike = async (workoutLogId: string, userId: string, hasLiked: boolean) => {
@@ -819,43 +1309,68 @@ export const subscribeToComments = (
   callback: (comments: unknown[]) => void,
   onError?: (error: Error) => void,
 ) => {
-  const refresh = createRefreshScheduler(
-    () => Promise.resolve(
-      supabase
-        .from('workout_comments')
-        .select('*')
-        .eq('log_id', workoutLogId)
-        .order('created_at', { ascending: true })
-    ),
-    ({ data, error }) => {
-      if (error) {
-        onError?.(error);
-        return;
-      }
-      callback((data as CommentRow[]).map((row) => ({
-        id: row.id,
-        userId: row.user_id,
-        userName: row.user_name,
-        userPhoto: row.user_photo,
-        content: row.content,
-        timestamp: toIso(row.created_at) || row.created_at,
-      })));
-    },
-    onError,
-    '评论加载失败',
-  );
+  let version = 0;
+  let disposed = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
 
+  const pull = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      execute();
+    }, 120);
+  };
+
+  const execute = () => {
+    const currentVersion = ++version;
+    void readRequest(
+      `comments:${workoutLogId}`,
+      async (signal) => {
+        const { data, error } = await supabase
+          .from('workout_comments')
+          .select('*')
+          .eq('log_id', workoutLogId)
+          .order('created_at', { ascending: true })
+          .abortSignal(signal);
+        if (error) throw error;
+        return data;
+      },
+    )
+      .then((data) => {
+        if (!disposed && currentVersion === version) {
+          callback(
+            ((data || []) as CommentRow[]).map((row) => ({
+              id: row.id,
+              userId: row.user_id,
+              userName: row.user_name,
+              userPhoto: row.user_photo,
+              content: row.content,
+              timestamp: toIso(row.created_at) || row.created_at,
+            })),
+          );
+        }
+      })
+      .catch((err) => {
+        if (!disposed && currentVersion === version) {
+          onError?.(err instanceof Error ? err : new Error('评论加载失败'));
+        }
+      });
+  };
+
+  execute();
   const channel = supabase
     .channel(`comments_${workoutLogId}_${newId('ch')}`)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'workout_comments', filter: `log_id=eq.${workoutLogId}` },
-      refresh.pull,
+      pull,
     )
     .subscribe();
 
   return () => {
-    refresh.dispose();
+    disposed = true;
+    version++;
+    if (timer) clearTimeout(timer);
     void supabase.removeChannel(channel);
   };
 };
@@ -869,6 +1384,7 @@ export const addComment = async (
 ) => {
   const user = await currentAuthUser();
   if (!user || user.id !== userId) throw new Error('未登录');
+  const profile = await requireProfileForWrite(user);
 
   const { data: log, error: logError } = await supabase
     .from('workout_logs')
@@ -882,31 +1398,43 @@ export const addComment = async (
     id: newId('c'),
     log_id: workoutLogId,
     user_id: userId,
-    user_name: userName.slice(0, 50),
-    user_photo: userPhoto || '',
+    user_name: (profile.displayName || userName).slice(0, 50),
+    user_photo: profile.photoURL || userPhoto || '',
     content: content.slice(0, 300),
   });
   if (error) throw error;
 };
 
-export const getLeaderboard = async (maxCount = 10) => {
-  const { data, error } = await supabase
-    .from('public_profiles')
-    .select('id, display_name, photo_url, streak, total_workouts, last_workout_date')
-    .order('total_workouts', { ascending: false })
-    .order('streak', { ascending: false })
-    .limit(maxCount);
-  if (error) throw error;
-  return (data as ProfileRow[]).map((row) => profileFromRow(row));
+export const getLeaderboard = async (maxCount = 10, options?: ReadRequestOptions) => {
+  return readRequest(
+    'getLeaderboard',
+    async (signal) => {
+      const { data, error } = await supabase
+        .from('public_profiles')
+        .select('id, display_name, photo_url, streak, total_workouts, last_workout_date')
+        .order('total_workouts', { ascending: false })
+        .order('streak', { ascending: false })
+        .limit(maxCount)
+        .abortSignal(signal);
+      if (error) throw error;
+      return ((data || []) as ProfileRow[]).map((row) => profileFromRow(row));
+    },
+    options,
+  );
 };
 
+
 export const subscribeToUserProfile = (userId: string, callback: (profile: AppUser) => void) => {
+  let disposed = false;
+  const generation = authGeneration;
   const pull = () => {
     void getUserProfile(userId)
       .then((profile) => {
-        if (cachedUser && cachedUser.uid === userId) {
+        if (disposed || generation !== authGeneration) return;
+        if (cachedUser && (cachedUser.uid === userId || cachedUser.id === userId)) {
           cachedUser = { ...cachedUser, ...profile };
           persistCachedUser(cachedUser);
+          readyProfiles.add(userId);
         }
         callback(profile);
       })
@@ -924,6 +1452,7 @@ export const subscribeToUserProfile = (userId: string, callback: (profile: AppUs
     .subscribe();
 
   return () => {
+    disposed = true;
     void supabase.removeChannel(channel);
   };
 };
@@ -933,51 +1462,99 @@ export const subscribeToLeaderboard = (
   maxCount = 10,
   onError?: (error: Error) => void,
 ) => {
-  const refresh = createRefreshScheduler(
-    () => getLeaderboard(maxCount),
-    callback,
-    onError,
-    '排行榜加载失败',
-  );
+  let version = 0;
+  let disposed = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const pull = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      execute();
+    }, 150);
+  };
+
+  const execute = () => {
+    const currentVersion = ++version;
+    void getLeaderboard(maxCount)
+      .then((users) => {
+        if (!disposed && currentVersion === version) {
+          callback(users);
+        }
+      })
+      .catch((err) => {
+        if (!disposed && currentVersion === version) {
+          onError?.(err instanceof Error ? err : new Error('排行榜加载失败'));
+        }
+      });
+  };
+
+  execute();
   const channel = supabase
     .channel(`leaderboard_${newId('ch')}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, refresh.pull)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, pull)
     .subscribe();
 
   return () => {
-    refresh.dispose();
+    disposed = true;
+    version++;
+    if (timer) clearTimeout(timer);
     void supabase.removeChannel(channel);
   };
 };
 
-export const getLastWorkoutByCategory = async (userId: string, category: string): Promise<any | null> => {
+export const getLastWorkoutByCategory = async (
+  userId: string,
+  category: string,
+  options?: ReadRequestOptions,
+): Promise<any | null> => {
+  if (!userId || !category) return null;
   try {
-    const { data, error } = await supabase
-      .from('workout_logs')
-      .select('*')
-      .eq('user_id', userId)
-      .ilike('category', `%${category}%`)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (error) throw error;
-    if (!data) return null;
-    return normalizeLog(data as WorkoutLogRow);
+    return await readRequest(
+      'getLastWorkoutByCategory',
+      async (signal) => {
+        const { data, error } = await supabase
+          .from('workout_logs')
+          .select('*')
+          .eq('user_id', userId)
+          .ilike('category', `%${category}%`)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .abortSignal(signal)
+          .maybeSingle();
+        if (error) throw error;
+        if (!data) return null;
+        return normalizeLog(data as WorkoutLogRow);
+      },
+      options,
+    );
   } catch (err) {
     console.warn('Failed to get last workout for category:', err);
     return null;
   }
 };
 
-export const getUserWorkoutLogs = async (userId: string, maxCount = 100): Promise<WorkoutLog[]> => {
-  const { data, error } = await supabase
-    .from('workout_logs')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(maxCount);
-  if (error) throw error;
-  return (data as WorkoutLogRow[]).map(normalizeLog);
+export const getUserWorkoutLogs = async (
+  userId: string,
+  maxCount = 100,
+  options?: ReadRequestOptions,
+): Promise<WorkoutLog[]> => {
+  if (!userId) return [];
+  return readRequest(
+    'getUserWorkoutLogs',
+    async (signal) => {
+      const { data, error } = await supabase
+        .from('workout_logs')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(maxCount)
+        .abortSignal(signal);
+      if (error) throw error;
+      return ((data || []) as WorkoutLogRow[]).map(normalizeLog);
+    },
+    options,
+  );
 };
 
 export const subscribeToUserWorkoutLogs = (
@@ -986,30 +1563,58 @@ export const subscribeToUserWorkoutLogs = (
   onError?: (error: Error) => void,
   maxCount = 100,
 ) => {
-  const refresh = createRefreshScheduler(
-    () => getUserWorkoutLogs(userId, maxCount),
-    callback,
-    onError,
-    '个人训练记录加载失败',
-  );
+  if (!userId) {
+    callback([]);
+    return () => {};
+  }
+  let version = 0;
+  let disposed = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const pull = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      execute();
+    }, 120);
+  };
+
+  const execute = () => {
+    const currentVersion = ++version;
+    void getUserWorkoutLogs(userId, maxCount)
+      .then((logs) => {
+        if (!disposed && currentVersion === version) {
+          callback(logs);
+        }
+      })
+      .catch((err) => {
+        if (!disposed && currentVersion === version) {
+          onError?.(err instanceof Error ? err : new Error('个人训练记录加载失败'));
+        }
+      });
+  };
+
+  execute();
   const channel = supabase
     .channel(`user_workout_logs_${userId}_${newId('ch')}`)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'workout_logs', filter: `user_id=eq.${userId}` },
-      refresh.pull
+      pull,
     )
     .subscribe();
 
   return () => {
-    refresh.dispose();
+    disposed = true;
+    version++;
+    if (timer) clearTimeout(timer);
     void supabase.removeChannel(channel);
   };
 };
 
 export const getLastWorkoutsByCategories = async (
   userId: string,
-  categories: string[]
+  categories: string[],
 ): Promise<Record<string, any>> => {
   const result: Record<string, any> = {};
   await Promise.all(
@@ -1018,7 +1623,7 @@ export const getLastWorkoutsByCategories = async (
       if (log) {
         result[cat] = log;
       }
-    })
+    }),
   );
   return result;
 };
@@ -1035,42 +1640,52 @@ function toLocalDateKey(isoOrDate: string | Date): string {
   return `${year}-${month}-${day}`;
 }
 
-export const getUserTeams = async (userId: string): Promise<Team[]> => {
-  const { data: memberships, error: mErr } = await supabase
-    .from('team_members')
-    .select('team_id')
-    .eq('user_id', userId);
-  if (mErr) throw mErr;
-  if (!memberships || memberships.length === 0) return [];
+export const getUserTeams = async (userId: string, options?: ReadRequestOptions): Promise<Team[]> => {
+  if (!userId) return [];
+  return readRequest(
+    'getUserTeams',
+    async (signal) => {
+      const { data: memberships, error: mErr } = await supabase
+        .from('team_members')
+        .select('team_id')
+        .eq('user_id', userId)
+        .abortSignal(signal);
+      if (mErr) throw mErr;
+      if (!memberships || memberships.length === 0) return [];
 
-  const teamIds = memberships.map((m: { team_id: string }) => m.team_id);
-  const { data: teams, error: tErr } = await supabase
-    .from('teams')
-    .select('id, name, code, created_by, max_members, created_at')
-    .in('id', teamIds)
-    .order('created_at', { ascending: false });
-  if (tErr) throw tErr;
+      const teamIds = memberships.map((m: { team_id: string }) => m.team_id);
+      const { data: teams, error: tErr } = await supabase
+        .from('teams')
+        .select('id, name, code, created_by, max_members, created_at')
+        .in('id', teamIds)
+        .order('created_at', { ascending: false })
+        .abortSignal(signal);
+      if (tErr) throw tErr;
 
-  const { data: allMembers, error: membersError } = await supabase
-    .from('team_members')
-    .select('team_id')
-    .in('team_id', teamIds);
-  if (membersError) throw membersError;
+      const { data: allMembers, error: membersError } = await supabase
+        .from('team_members')
+        .select('team_id')
+        .in('team_id', teamIds)
+        .abortSignal(signal);
+      if (membersError) throw membersError;
 
-  const countsMap = new Map<string, number>();
-  (allMembers || []).forEach((m: { team_id: string }) => {
-    countsMap.set(m.team_id, (countsMap.get(m.team_id) || 0) + 1);
-  });
+      const countsMap = new Map<string, number>();
+      (allMembers || []).forEach((m: { team_id: string }) => {
+        countsMap.set(m.team_id, (countsMap.get(m.team_id) || 0) + 1);
+      });
 
-  return (teams as TeamRow[]).map((t) => ({
-    id: t.id,
-    name: t.name,
-    code: t.code,
-    createdBy: t.created_by,
-    maxMembers: Number(t.max_members || DEFAULT_MAX_TEAM_MEMBERS),
-    createdAt: toIso(t.created_at) || t.created_at,
-    memberCount: countsMap.get(t.id) || 1,
-  }));
+      return (teams as TeamRow[]).map((t) => ({
+        id: t.id,
+        name: t.name,
+        code: t.code,
+        createdBy: t.created_by,
+        maxMembers: Number(t.max_members || DEFAULT_MAX_TEAM_MEMBERS),
+        createdAt: toIso(t.created_at) || t.created_at,
+        memberCount: countsMap.get(t.id) || 1,
+      }));
+    },
+    options,
+  );
 };
 
 export const subscribeToUserTeams = (
@@ -1078,24 +1693,48 @@ export const subscribeToUserTeams = (
   callback: (teams: Team[]) => void,
   onError?: (error: Error) => void,
 ) => {
-  const refresh = createRefreshScheduler(
-    () => getUserTeams(userId),
-    callback,
-    onError,
-    '小队列表加载失败',
-  );
+  let version = 0;
+  let disposed = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const pull = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      execute();
+    }, 120);
+  };
+
+  const execute = () => {
+    const currentVersion = ++version;
+    void getUserTeams(userId)
+      .then((teams) => {
+        if (!disposed && currentVersion === version) {
+          callback(teams);
+        }
+      })
+      .catch((err) => {
+        if (!disposed && currentVersion === version) {
+          onError?.(err instanceof Error ? err : new Error('小队列表加载失败'));
+        }
+      });
+  };
+
+  execute();
   const channel = supabase
     .channel(`user_teams_${userId}_${newId('ch')}`)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'team_members', filter: `user_id=eq.${userId}` },
-      refresh.pull
+      pull,
     )
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'teams' }, refresh.pull)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'teams' }, pull)
     .subscribe();
 
   return () => {
-    refresh.dispose();
+    disposed = true;
+    version++;
+    if (timer) clearTimeout(timer);
     void supabase.removeChannel(channel);
   };
 };
@@ -1157,117 +1796,150 @@ export const leaveTeam = async (teamId: string): Promise<void> => {
   if (error) throw error;
 };
 
-export const getTeamDashboard = async (teamId: string): Promise<TeamDashboardData> => {
-  const { data: teamRow, error: tErr } = await supabase
-    .from('teams')
-    .select('id, name, code, created_by, max_members, created_at')
-    .eq('id', teamId)
-    .maybeSingle();
-  if (tErr) throw tErr;
-  if (!teamRow) throw new Error('小队不存在');
+export const getTeamDashboard = async (
+  teamId: string,
+  options?: ReadRequestOptions,
+): Promise<TeamDashboardData> => {
+  if (!teamId) throw new Error('小队不存在');
 
-  const { data: memberRows, error: mErr } = await supabase
-    .from('team_members')
-    .select('id, team_id, user_id, role, joined_at')
-    .eq('team_id', teamId)
-    .order('joined_at', { ascending: true });
-  if (mErr) throw mErr;
+  return readRequest(
+    `teamDashboard:${teamId}`,
+    async (signal) => {
+      const { data: teamRow, error: tErr } = await supabase
+        .from('teams')
+        .select('id, name, code, created_by, max_members, created_at')
+        .eq('id', teamId)
+        .abortSignal(signal)
+        .maybeSingle();
+      if (tErr) throw tErr;
+      if (!teamRow) throw new Error('小队不存在');
 
-  const memberUserIds = (memberRows || []).map((m: any) => m.user_id);
-  const { data: profileRows, error: profileError } = memberUserIds.length > 0
-    ? await supabase
-        .from('public_profiles')
-        .select('id, display_name, photo_url, streak, total_workouts, last_workout_date')
-        .in('id', memberUserIds)
-    : { data: [], error: null };
-  if (profileError) throw profileError;
-  const profilesMap = new Map((profileRows || []).map((p: any) => [p.id, p]));
+      const { data: memberRows, error: mErr } = await supabase
+        .from('team_members')
+        .select('id, team_id, user_id, role, joined_at')
+        .eq('team_id', teamId)
+        .order('joined_at', { ascending: true })
+        .abortSignal(signal);
+      if (mErr) throw mErr;
 
-  // Today check-in status calculation (last 36 hours query to cover local day boundaries)
-  const todayStr = toLocalDateKey(new Date());
-  const thirtySixHoursAgo = new Date(Date.now() - 36 * 3600 * 1000).toISOString();
-  const { data: recentLogs, error: recentLogsError } = memberUserIds.length > 0
-    ? await supabase
-        .from('workout_logs')
-        .select('id, user_id, created_at')
-        .in('user_id', memberUserIds)
-        .gte('created_at', thirtySixHoursAgo)
-    : { data: [], error: null };
-  if (recentLogsError) throw recentLogsError;
+      const memberUserIds = (memberRows || []).map((m: any) => m.user_id);
+      const { data: profileRows, error: profileError } = memberUserIds.length > 0
+        ? await supabase
+            .from('public_profiles')
+            .select('id, display_name, photo_url, streak, total_workouts, last_workout_date')
+            .in('id', memberUserIds)
+            .abortSignal(signal)
+        : { data: [], error: null };
+      if (profileError) throw profileError;
+      const profilesMap = new Map((profileRows || []).map((p: any) => [p.id, p]));
 
-  const todayLogsByUser = new Map<string, number>();
-  (recentLogs || []).forEach((l: any) => {
-    if (toLocalDateKey(l.created_at) === todayStr) {
-      todayLogsByUser.set(l.user_id, (todayLogsByUser.get(l.user_id) || 0) + 1);
-    }
-  });
+      const todayStr = toLocalDateKey(new Date());
+      const thirtySixHoursAgo = new Date(Date.now() - 36 * 3600 * 1000).toISOString();
+      const { data: recentLogs, error: recentLogsError } = memberUserIds.length > 0
+        ? await supabase
+            .from('workout_logs')
+            .select('id, user_id, created_at')
+            .in('user_id', memberUserIds)
+            .gte('created_at', thirtySixHoursAgo)
+            .abortSignal(signal)
+        : { data: [], error: null };
+      if (recentLogsError) throw recentLogsError;
 
-  let checkedInCount = 0;
-  const members: TeamMember[] = (memberRows || []).map((mr: any) => {
-    const prof = profilesMap.get(mr.user_id);
-    const count = todayLogsByUser.get(mr.user_id) || 0;
-    const hasCheckedIn = count > 0;
-    if (hasCheckedIn) checkedInCount++;
+      const todayLogsByUser = new Map<string, number>();
+      (recentLogs || []).forEach((l: any) => {
+        if (toLocalDateKey(l.created_at) === todayStr) {
+          todayLogsByUser.set(l.user_id, (todayLogsByUser.get(l.user_id) || 0) + 1);
+        }
+      });
 
-    return {
-      id: mr.id,
-      teamId: mr.team_id,
-      userId: mr.user_id,
-      role: mr.role as 'owner' | 'member',
-      joinedAt: toIso(mr.joined_at) || mr.joined_at,
-      profile: prof
-        ? {
-            displayName: prof.display_name,
-            photoURL: prof.photo_url,
-            streak: Number(prof.streak || 0),
-            totalWorkouts: Number(prof.total_workouts || 0),
-            lastWorkoutDate: toIso(prof.last_workout_date),
-          }
-        : undefined,
-      hasCheckedInToday: hasCheckedIn,
-      todayWorkoutCount: count,
-    };
-  });
+      let checkedInCount = 0;
+      const members: TeamMember[] = (memberRows || []).map((mr: any) => {
+        const prof = profilesMap.get(mr.user_id);
+        const count = todayLogsByUser.get(mr.user_id) || 0;
+        const hasCheckedIn = count > 0;
+        if (hasCheckedIn) checkedInCount++;
 
-  const totalMembers = members.length;
-  const attendanceRate = totalMembers > 0 ? Math.round((checkedInCount / totalMembers) * 100) : 0;
+        return {
+          id: mr.id,
+          teamId: mr.team_id,
+          userId: mr.user_id,
+          role: mr.role as 'owner' | 'member',
+          joinedAt: toIso(mr.joined_at) || mr.joined_at,
+          profile: prof
+            ? {
+                displayName: prof.display_name,
+                photoURL: prof.photo_url,
+                streak: Number(prof.streak || 0),
+                totalWorkouts: Number(prof.total_workouts || 0),
+                lastWorkoutDate: toIso(prof.last_workout_date),
+              }
+            : undefined,
+          hasCheckedInToday: hasCheckedIn,
+          todayWorkoutCount: count,
+        };
+      });
 
-  const team: Team = {
-    id: teamRow.id,
-    name: teamRow.name,
-    code: teamRow.code,
-    createdBy: teamRow.created_by,
-    maxMembers: Number(teamRow.max_members || DEFAULT_MAX_TEAM_MEMBERS),
-    createdAt: toIso(teamRow.created_at) || teamRow.created_at,
-    memberCount: totalMembers,
-  };
+      const totalMembers = members.length;
+      const attendanceRate = totalMembers > 0 ? Math.round((checkedInCount / totalMembers) * 100) : 0;
 
-  return {
-    team,
-    members,
-    todayCheckinCount: checkedInCount,
-    totalMembers,
-    attendanceRate,
-  };
+      const team: Team = {
+        id: teamRow.id,
+        name: teamRow.name,
+        code: teamRow.code,
+        createdBy: teamRow.created_by,
+        maxMembers: Number(teamRow.max_members || DEFAULT_MAX_TEAM_MEMBERS),
+        createdAt: toIso(teamRow.created_at) || teamRow.created_at,
+        memberCount: totalMembers,
+      };
+
+      return {
+        team,
+        members,
+        todayCheckinCount: checkedInCount,
+        totalMembers,
+        attendanceRate,
+      };
+    },
+    options,
+  );
 };
 
 export const subscribeToTeamDashboard = (
   teamId: string,
   callback: (data: TeamDashboardData) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
 ) => {
   if (!teamId) return () => {};
 
+  let version = 0;
+  let disposed = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
   const pull = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      execute();
+    }, 150);
+  };
+
+  const execute = () => {
+    const currentVersion = ++version;
     void getTeamDashboard(teamId)
-      .then(callback)
+      .then((data) => {
+        if (!disposed && currentVersion === version) {
+          callback(data);
+        }
+      })
       .catch((err) => {
-        console.warn('Dashboard fetch error:', err);
-        onError?.(err instanceof Error ? err : new Error('小队数据加载失败'));
+        if (!disposed && currentVersion === version) {
+          console.warn('Dashboard fetch error:', err);
+          onError?.(err instanceof Error ? err : new Error('小队数据加载失败'));
+        }
       });
   };
 
-  pull();
+  execute();
   const channel = supabase
     .channel(`team_dashboard_${teamId}_${newId('ch')}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'teams', filter: `id=eq.${teamId}` }, pull)
@@ -1277,65 +1949,67 @@ export const subscribeToTeamDashboard = (
     .subscribe();
 
   return () => {
+    disposed = true;
+    version++;
+    if (timer) clearTimeout(timer);
     void supabase.removeChannel(channel);
   };
 };
 
 
-export const waitForAuthReady = (timeoutMs = 3000) => new Promise<AppUser | null>((resolve) => {
+
+export const waitForAuthReady = (timeoutMs = 3000): Promise<AppUser | null> => new Promise<AppUser | null>((settle) => {
+  const finishStage = startStage('auth');
+  const resolve = (value: AppUser | null) => { finishStage(value ? 'session' : 'no-session'); settle(value); };
+  const generation = authGeneration;
   let settled = false;
   const timer = setTimeout(() => {
     if (!settled) {
       settled = true;
       console.warn(`waitForAuthReady timed out after ${timeoutMs}ms`);
-      resolve(cachedUser);
+      // Real session only: never cached authentication on timeout
+      resolve(null);
     }
   }, timeoutMs);
 
   supabase.auth.getSession()
-    .then(({ data }) => {
+    .then(({ data, error }) => {
       if (settled) return;
-      const user = data?.session?.user;
-      if (!user) {
+      if (generation !== authGeneration) {
         settled = true;
         clearTimeout(timer);
-        cachedUser = null;
-        persistCachedUser(null);
+        resolve(cachedUser);
+        return;
+      }
+      const user = data?.session?.user;
+      if (error || !user) {
+        settled = true;
+        clearTimeout(timer);
+        handleAuthSignOut();
         resolve(null);
         return;
       }
 
-      // Fast path: if cachedUser matches current session user, resolve immediately without blocking startup
-      if (cachedUser && (cachedUser.id === user.id || cachedUser.uid === user.id)) {
-        settled = true;
-        clearTimeout(timer);
-        resolve(cachedUser);
-        void ensureUserProfile(user).catch(() => undefined);
-        return;
-      }
+      // Real session confirmed! Immediate auth user
+      const immediateUser = handleAuthSessionUser(user);
 
-      ensureUserProfile(user)
-        .then((p) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          resolve(p);
-        })
-        .catch(() => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          cachedUser = authOnlyUser(user);
-          persistCachedUser(cachedUser);
-          resolve(cachedUser);
-        });
+      settled = true;
+      clearTimeout(timer);
+      // Resolve auth IMMEDIATELY! Do not wait for remote profile fetch!
+      resolve(immediateUser);
+
+      // Trigger background profile fetch via singleflight
+      void ensureUserProfile(user).catch((e) => {
+        console.warn('Background profile load failed:', e);
+      });
     })
     .catch((err) => {
       console.warn('waitForAuthReady getSession error:', err);
       if (!settled) {
         settled = true;
         clearTimeout(timer);
-        resolve(cachedUser);
+        // Real session only: never cached authentication on error
+        resolve(null);
       }
     });
 });
@@ -1345,27 +2019,39 @@ export const waitForAuthReady = (timeoutMs = 3000) => new Promise<AppUser | null
 // ---------------------------------------------------------------------------
 
 
-export const fetchNotifications = async (userId: string, limit = 50): Promise<AppNotification[]> => {
-  const { data, error } = await supabase
-    .from('notifications')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
-  if (error) throw error;
-  return (data || []).map((row: any) => ({
-    id: row.id,
-    userId: row.user_id,
-    actorId: row.actor_id,
-    actorName: row.actor_name,
-    actorPhoto: row.actor_photo,
-    type: row.type,
-    logId: row.log_id,
-    content: row.content,
-    logCategory: row.log_category,
-    isRead: Boolean(row.is_read),
-    createdAt: row.created_at,
-  }));
+export const fetchNotifications = async (
+  userId: string,
+  limit = 50,
+  options?: ReadRequestOptions,
+): Promise<AppNotification[]> => {
+  if (!userId) return [];
+  return readRequest(
+    'fetchNotifications',
+    async (signal) => {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(limit)
+        .abortSignal(signal);
+      if (error) throw error;
+      return (data || []).map((row: any) => ({
+        id: row.id,
+        userId: row.user_id,
+        actorId: row.actor_id,
+        actorName: row.actor_name,
+        actorPhoto: row.actor_photo,
+        type: row.type,
+        logId: row.log_id,
+        content: row.content,
+        logCategory: row.log_category,
+        isRead: Boolean(row.is_read),
+        createdAt: row.created_at,
+      }));
+    },
+    options,
+  );
 };
 
 export const subscribeToNotifications = (
@@ -1374,27 +2060,58 @@ export const subscribeToNotifications = (
   limit = 50,
   onError?: (error: Error) => void,
 ) => {
-  const refresh = createRefreshScheduler(
-    () => fetchNotifications(userId, limit),
-    callback,
-    onError,
-    '通知加载失败',
-  );
+  if (!userId) {
+    callback([]);
+    return () => {};
+  }
+  let version = 0;
+  let disposed = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
 
+  const pull = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      execute();
+    }, 120);
+  };
+
+  const execute = () => {
+    const currentVersion = ++version;
+    void fetchNotifications(userId, limit)
+      .then((notifications) => {
+        if (!disposed && currentVersion === version) {
+          callback(notifications);
+        }
+      })
+      .catch((err) => {
+        if (!disposed && currentVersion === version) {
+          onError?.(err instanceof Error ? err : new Error('通知加载失败'));
+        }
+      });
+  };
+
+  execute();
   const channel = supabase
     .channel(`notifications_${userId}_${newId('ch')}`)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
-      refresh.pull
+      refreshPullFallback(pull)
     )
     .subscribe();
 
   return () => {
-    refresh.dispose();
+    disposed = true;
+    version++;
+    if (timer) clearTimeout(timer);
     void supabase.removeChannel(channel);
   };
 };
+
+function refreshPullFallback(pull: () => void) {
+  return pull;
+}
 
 export const markNotificationAsRead = async (notificationId: string): Promise<void> => {
   try {
@@ -1448,6 +2165,7 @@ export const submitFeedbackFn = async (feedback: {
   const contact = (feedback.contact || '').trim().slice(0, 200);
   const id = newId('fb');
 
+  // Non-idempotent write: execute once without automatic retries
   const { data, error } = await supabase
     .from('feedbacks')
     .insert({
@@ -1474,31 +2192,40 @@ export const submitFeedbackFn = async (feedback: {
   };
 };
 
-export const fetchUserFeedbacksFn = async (userId?: string): Promise<UserFeedback[]> => {
+export const fetchUserFeedbacksFn = async (
+  userId?: string,
+  options?: ReadRequestOptions,
+): Promise<UserFeedback[]> => {
   const user = await currentAuthUser();
   if (!user || !userId || user.id !== userId) return [];
 
-  const { data, error } = await supabase
-    .from('feedbacks')
-    .select('id, user_id, user_name, user_email, type, content, contact, status, created_at')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(20);
-  if (error) throw error;
+  return readRequest(
+    'fetchUserFeedbacks',
+    async (signal) => {
+      const { data, error } = await supabase
+        .from('feedbacks')
+        .select('id, user_id, user_name, user_email, type, content, contact, status, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(20)
+        .abortSignal(signal);
+      if (error) throw error;
 
-  return (data || []).map((r: any) => ({
-    id: r.id,
-    userId: r.user_id,
-    userName: r.user_name,
-    userEmail: r.user_email,
-    type: r.type as FeedbackType,
-    content: r.content,
-    contact: r.contact,
-    status: r.status,
-    createdAt: r.created_at,
-  }));
+      return (data || []).map((r: any) => ({
+        id: r.id,
+        userId: r.user_id,
+        userName: r.user_name,
+        userEmail: r.user_email,
+        type: r.type as FeedbackType,
+        content: r.content,
+        contact: r.contact,
+        status: r.status,
+        createdAt: r.created_at,
+      }));
+    },
+    options,
+  );
 };
 
 export default supabase;
-
 

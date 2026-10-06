@@ -51,7 +51,7 @@ Brutalist 粗野主义：粗黑边框、硬阴影、荧光黄 `#DFFF00` 强调�
 
 ## 🚀 快速开始
 
-**前置条件：** Node.js 18+，以及一个 [Supabase](https://supabase.com/dashboard) 项目。
+**前置条件：** Node.js 22+（Capacitor 8 要求），以及一个 [Supabase](https://supabase.com/dashboard) 项目。
 
 ```bash
 # 1. 安装依赖
@@ -77,17 +77,33 @@ npm run dev
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`（publishable key）
 4. 之后推送到 `main` 即自动构建上线。
-5. APK 默认使用本地打包资源，不要把 `server.url` 写回 `capacitor.config.ts`；这样可以避免手机无法访问 Vercel 时卡在启动页。只有确认目标手机可稳定访问远程地址时，才使用远程 WebView 模式。
+5. **APK 本地资源打包与防线架构**：
+   - **默认本地资源打包**：APK 默认采用本地打包静态资源（`dist/` → `android/app/src/main/assets/public/`），WebView 直接加载本地页面资源，避免网络波动导致静态页面白屏（注：用户认证与数据同步等动态业务仍依赖 Supabase 网络服务）。
+   - **构建守卫（Build Guard）**：Vite 构建时若缺失 `VITE_SUPABASE_URL` 或 `VITE_SUPABASE_ANON_KEY`，直接抛出致命错误中断，且无任何绕过机制（严禁 `SKIP_ENV_GUARD`）。
+   - **生产安全防线（Production Guard）**：生产构建严格禁止注入远程 `server.url`（杜绝 `CAP_ALLOW_REMOTE_PROD` 等任何后门）；Gradle 所有 release 路径强制校验 `capacitor.config.json` 存在且无远程 `server.url`，并校验 `index.html` 及其引用的所有本地静态资源文件完整存在。
+   - **显式开发远程热更新**：开发调试场景下仅支持显式传入 `CAP_DEV_REMOTE=true` 标志（如 `npm run android:debug:remote`）开启远程 Web 壳，生产环境下使用该标志直接报错中止。
 
-### Android APK 构建
+### Android APK 构建与调试
 
-确保 `.env` 中已配置 `VITE_SUPABASE_URL` 和 `VITE_SUPABASE_ANON_KEY`，然后执行：
+确保 `.env` 中已配置 `VITE_SUPABASE_URL` 和 `VITE_SUPABASE_ANON_KEY`，常用构建命令如下：
 
 ```bash
+# 1. 检验构建防线与本地资源配置规范
+npm run guard:verify
+
+# 2. 构建本地资源 APK（默认推荐，版本 v1.0.2 / versionCode 3）
 npm run android:debug
+
+# 3. 显式开启开发远程热更新 Web 壳构建（仅限开发联调）
+npm run android:debug:remote
 ```
 
-生成文件：`android/app/build/outputs/apk/debug/app-debug.apk`。每次安装新包前请确认 APK 的版本号已递增。
+- 生成文件路径：`android/app/build/outputs/apk/debug/app-debug.apk`；执行 `cd android && ./gradlew assembleRelease` 可生成未签名 release，发布前须用原发布密钥签名。
+- 已安装的远程 Web 壳 APK **必须升级**，仅更新网页不生效。远程 origin 切到 `https://localhost` 后可能需要重新登录，本地缓存会重新建立；云端记录不会因此被删除。
+- 真机覆盖升级须保持签名一致，不要用卸载正式包来绕过 debug 签名不匹配。
+- Java 21 / Android SDK 是原生构建前置条件；`npm run apk:verify` 核对实际 APK 的启动配置和全部运行时资源。
+- 修复、测试、资源体积及待验证项：[启动修复报告](docs/startup-fix.md)；[新版 APK 安装说明](docs/startup-apk.md)。
+- 版本规范：每次安装新包前请确认已递增 `android/app/build.gradle` 的 `versionCode` 与 `versionName`（当前基线为 `3` / `1.0.2`）。
 
 ---
 
@@ -123,7 +139,8 @@ src/
 - [x] 训练记录为单一事实源：连续天数 / PR / 总次数由数据库触发器重算
 - [x] 提交幂等性防重复记录
 - [x] 生产包代码分割与懒加载优化
-- [x] Android 沉浸式安全区域适配与远程 Web 热更新模式
+- [x] Android 沉浸式安全区域适配与本地资源打包架构
+- [x] APK 自动化构建守卫、生产安全防线与显式远程热更新模式
 
 ---
 

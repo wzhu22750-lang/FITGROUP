@@ -124,16 +124,16 @@ export default function NotificationModal({ onClose, onSelectLog }: Notification
         initial={{ opacity: 0, scale: 0.95, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        className="bg-paper border-4 border-ink shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] w-full max-w-md max-h-[85vh] flex flex-col my-auto overflow-hidden"
+        className="bg-paper border-3 border-ink shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] w-full max-w-md max-h-[85vh] flex flex-col my-auto overflow-hidden"
       >
         {/* Header */}
-        <div className="bg-neon border-b-4 border-ink p-4 flex items-center justify-between shrink-0">
+        <div className="bg-neon border-b-2 border-ink p-4 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
-            <div className="bg-ink p-1">
+            <div className="bg-ink p-1 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
               <Bell size={18} className="text-neon" />
             </div>
             <h2 className="font-black text-ink uppercase tracking-tight text-base sm:text-lg italic">
-              消息通知 / NOTIFICATIONS
+              消息通知
             </h2>
             {unreadCount > 0 && (
               <span className="bg-ink text-neon border border-ink text-[10px] font-black px-1.5 py-0.2 shadow-[1px_1px_0px_0px_rgba(223,255,0,1)]">
@@ -147,7 +147,7 @@ export default function NotificationModal({ onClose, onSelectLog }: Notification
               <button
                 type="button"
                 onClick={handleMarkAllRead}
-                className="p-1.5 border-2 border-ink bg-white hover:bg-ink hover:text-neon transition-colors cursor-pointer flex items-center gap-1 text-[10px] font-black uppercase shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+                className="p-1.5 border-2 border-ink bg-white hover:bg-ink hover:text-neon shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center gap-1 text-[10px] font-black uppercase"
                 title="一键全部已读"
               >
                 <CheckCheck size={13} />
@@ -157,7 +157,7 @@ export default function NotificationModal({ onClose, onSelectLog }: Notification
             <button
               type="button"
               onClick={onClose}
-              className="p-1 border-2 border-ink bg-white hover:bg-ink hover:text-white transition-colors cursor-pointer"
+              className="p-1 border-2 border-ink bg-white hover:bg-ink hover:text-white shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] transition-colors cursor-pointer"
             >
               <X size={16} />
             </button>
@@ -176,7 +176,7 @@ export default function NotificationModal({ onClose, onSelectLog }: Notification
             <button
               type="button"
               onClick={() => setFilter('all')}
-              className={`px-3 py-1 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer ${
+              className={`px-3 py-1 border-2 border-ink text-xs font-semibold transition-all cursor-pointer ${
                 filter === 'all'
                   ? 'bg-ink text-neon shadow-[1px_1px_0px_0px_rgba(223,255,0,1)]'
                   : 'bg-paper text-ink/70 hover:bg-neon'
@@ -187,7 +187,7 @@ export default function NotificationModal({ onClose, onSelectLog }: Notification
             <button
               type="button"
               onClick={() => setFilter('unread')}
-              className={`px-3 py-1 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer ${
+              className={`px-3 py-1 border-2 border-ink text-xs font-semibold transition-all cursor-pointer ${
                 filter === 'unread'
                   ? 'bg-ink text-neon shadow-[1px_1px_0px_0px_rgba(223,255,0,1)]'
                   : 'bg-paper text-ink/70 hover:bg-neon'
@@ -205,12 +205,12 @@ export default function NotificationModal({ onClose, onSelectLog }: Notification
         {/* Notifications List */}
         <div className="p-3 overflow-y-auto flex-1 space-y-2.5">
           {loading ? (
-            <div className="py-12 text-center text-xs font-black uppercase tracking-widest text-ink/50">
+            <div className="py-12 text-center text-xs font-semibold tracking-widest text-ink/50">
               加载通知中...
             </div>
           ) : filteredList.length === 0 ? (
             <div className="py-16 text-center space-y-3">
-              <div className="w-12 h-12 bg-white border-2 border-ink mx-auto flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+              <div className="w-12 h-12 bg-white border-2 border-ink mx-auto flex items-center justify-center ">
                 <Bell size={24} className="text-ink/30" />
               </div>
               <p className="font-black text-xs uppercase text-ink/60">
@@ -227,7 +227,7 @@ export default function NotificationModal({ onClose, onSelectLog }: Notification
                 onClick={() => handleItemClick(item)}
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
-                className={`p-3 border-2 border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] cursor-pointer transition-all relative ${
+                className={`p-3 border-2 border-ink  cursor-pointer transition-all relative ${
                   item.isRead ? 'bg-white hover:bg-paper' : 'bg-neon/15 hover:bg-neon/25'
                 }`}
               >
@@ -265,7 +265,7 @@ export default function NotificationModal({ onClose, onSelectLog }: Notification
                         {item.type === 'like' ? '赞了你的打卡' : '评论了你的打卡'}
                       </span>
                       {item.logCategory && (
-                        <span className="bg-paper border border-ink px-1 text-[9px] font-black uppercase text-ink/60">
+                        <span className="bg-paper border border-ink px-1 text-[9px] font-semibold text-ink/60">
                           {item.logCategory}
                         </span>
                       )}

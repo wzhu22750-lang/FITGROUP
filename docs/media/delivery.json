@@ -1,0 +1,24 @@
+{
+  "version": "svg-review-v1",
+  "status": "awaiting-user-svg-review",
+  "svg": "promo.svg",
+  "sha256": "ab3b69a0ac9afc9bc26f9f78f2fe542bcb05a9f760fc7cd1288a3cdac2f9d8c8",
+  "width": 1080,
+  "height": 1920,
+  "durationSeconds": 27,
+  "audio": false,
+  "finalVideoExportAuthorized": false,
+  "sources": [
+    {"scenes": "01,06,10", "component": "src/components/Feed.tsx + LogCard.tsx", "route": "/ (发现)"},
+    {"scenes": "02,03,04,05", "component": "src/components/WorkoutLogger.tsx", "route": "/ (打卡)"},
+    {"scenes": "07,08,09", "component": "src/components/Statistics.tsx", "route": "/ (统计)"},
+    {"scenes": "11", "component": "src/components/SharePoster.tsx + SharePosterModal.tsx", "route": "/ (发现 → 生成打卡海报)"}
+  ],
+  "data": "Synthetic in-memory fixture; external requests blocked during capture; no production mutations.",
+  "visuals": "Computed DOM layout converted to SVG primitives; original Lucide and Recharts SVG; subset embedded fonts. No bitmap screenshots embedded.",
+  "captureAdjustment": "For poster capture only, cleared settled transforms on main div elements to let fixed modal escape transformed ancestors. Production source was not modified.",
+  "validation": {"svgErrors": 0, "animationTracks": 33, "browser": "Chrome", "imageMode": "1080x1920 complete", "playbackSeconds": 28, "sampledFrames": 18},
+  "commands": ["node scripts/promo/serve.mjs", "node scripts/promo/capture.mjs", "python3 scripts/promo/build.py", "node scripts/promo/verify.mjs"],
+  "dependencies": "Existing Vite/React/Tailwind, Playwright (PROMO_PLAYWRIGHT may override module path), Chrome, Python fontTools + WOFF2 support, local Arial and PingFang fonts.",
+  "limitations": "Scene state snapshots with SMIL transitions and click indicators; intermediate text entry and scrolling are condensed. DOM conversion approximates text shaping and dashed borders. No system share or remote delivery is performed."
+}
