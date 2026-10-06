@@ -1,7 +1,10 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
+
+const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')) as { version?: string };
 
 export default defineConfig(({ command, mode }) => {
   // Build guard: ensure required Supabase credentials exist before bundling.
@@ -43,6 +46,11 @@ export default defineConfig(({ command, mode }) => {
 
   return {
     base: '/',
+    define: {
+      // Single source of app version: injected from package.json so the UI,
+      // JSON backup and TXT report can never drift apart.
+      __APP_VERSION__: JSON.stringify(pkg.version || '0.0.0'),
+    },
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {

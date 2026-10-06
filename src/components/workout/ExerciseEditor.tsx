@@ -1,0 +1,118 @@
+import { useState } from 'react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, History, Minus, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Exercise } from '../../types';
+import { isCardioDistanceOptional } from '../../constants/workoutPresets';
+import { describeExercise, DraftExercise, ExerciseErrors, fromRecordedExercise, NumericField, toRecordedExercise, validateDraftExercise, WeightMode } from '../../utils/workoutDraft';
+
+function NumberField({ exerciseId, field, label, value, onChange, step = 1, min = 0, max, error, disabled = false, decimal = false }: {
+  exerciseId: string; field: NumericField; label: string; value: string; onChange: (value: string) => void;
+  step?: number; min?: number; max: number; error?: string; disabled?: boolean; decimal?: boolean;
+}) {
+  const id = `workout-${exerciseId}-${field}`;
+  const bump = (direction: number) => {
+    const next = Math.min(max, Math.max(min, (Number(value) || 0) + direction * step));
+    onChange(String(Number(next.toFixed(2))));
+  };
+  return (
+    <div className="workout-number-field">
+      <label htmlFor={id}>{label}</label>
+      <div className={`workout-stepper ${error ? 'has-error' : ''}`}>
+        <button type="button" aria-label={`减少${label}`} onClick={() => bump(-1)} disabled={disabled || (value !== '' && Number(value) <= min)}><Minus size={15} /></button>
+        <input id={id} type="text" inputMode={decimal ? 'decimal' : 'numeric'} value={value} placeholder="—" disabled={disabled}
+          autoComplete="off" maxLength={10} aria-invalid={!!error} aria-describedby={error ? `${id}-error` : undefined}
+          onChange={event => { if ((decimal ? /^\d*\.?\d*$/ : /^\d*$/).test(event.target.value)) onChange(event.target.value); }}
+          onFocus={event => event.currentTarget.select()} />
+        <button type="button" aria-label={`增加${label}`} onClick={() => bump(1)} disabled={disabled || Number(value) >= max}><Plus size={15} /></button>
+      </div>
+      {error && <p id={`${id}-error`} className="workout-field-error">{error}</p>}
+    </div>
+  );
+}
+
+export default function ExerciseEditor({ exercise, index, count, expanded, errors, previous, onToggle, onChange, onDelete, onMove }: {
+  exercise: DraftExercise; index: number; count: number; expanded: boolean; errors: ExerciseErrors;
+  previous?: { exercise: Exercise; timestamp: string };
+  onToggle: () => void; onChange: (patch: Partial<DraftExercise>) => void; onDelete: () => void; onMove: (direction: -1 | 1) => void;
+}) {
+  const ex = exercise;
+  const [weightStep, setWeightStep] = useState(2.5);
+  const [editingName, setEditingName] = useState(!ex.name.trim());
+  const valid = Object.keys(validateDraftExercise(ex)).length === 0;
+  const field = (name: NumericField, label: string, options: { min?: number; max: number; decimal?: boolean; step?: number; disabled?: boolean }) => (
+    <NumberField exerciseId={ex.id} field={name} label={label} value={ex[name]} error={errors[name]}
+      onChange={value => onChange({ [name]: value, ...(name === 'calories' ? { caloriesSource: 'reported' as const } : {}) })} {...options} />
+  );
+  return (
+    <section className={`workout-exercise ${expanded ? 'is-expanded' : ''}`} aria-label={`动作 ${index + 1} ${ex.name || '未命名'}`}>
+      <button type="button" className="workout-exercise-heading" onClick={onToggle} aria-expanded={expanded} aria-controls={`exercise-body-${ex.id}`}>
+        <span className="workout-exercise-index">{String(index + 1).padStart(2, '0')}</span>
+        <span className="flex-1 min-w-0 text-left">
+          <strong className="block text-base break-words">{ex.name || '填写动作名称'}</strong>
+          <span className="block mt-1 text-xs text-ink/60">{!expanded && valid ? describeExercise(toRecordedExercise(ex)) : ex.type === 'strength' ? '力量训练' : '有氧 / 球类'}</span>
+        </span>
+        <span className={`workout-entry-status ${valid ? 'is-ready' : ''}`}>{valid ? '已填写' : '待填写'}</span>
+        {expanded ? <ChevronUp size={16} className="shrink-0" /> : <ChevronDown size={16} className="shrink-0" />}
+      </button>
+      {expanded && (
+        <div className="workout-exercise-body" id={`exercise-body-${ex.id}`}>
+          {previous && (
+            <div className="workout-previous">
+              <div className="min-w-0"><span className="text-[11px] text-ink/60">上次 · {new Date(previous.timestamp).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}</span><p className="text-xs font-bold mt-1">{describeExercise(previous.exercise)}</p></div>
+              <button type="button" onClick={() => onChange({ ...fromRecordedExercise(previous.exercise), id: ex.id })}><History size={14} />沿用</button>
+            </div>
+          )}
+          {(editingName || errors.name) && <div className="mb-4">
+            <label className="workout-field-label" htmlFor={`workout-${ex.id}-name`}>动作名称</label>
+            <input id={`workout-${ex.id}-name`} className="workout-name-input" value={ex.name} maxLength={80} placeholder="如：杠铃卧推"
+              aria-invalid={!!errors.name} aria-describedby={errors.name ? `name-error-${ex.id}` : undefined}
+              onChange={event => onChange({ name: event.target.value })} />
+            {errors.name && <p id={`name-error-${ex.id}`} className="workout-field-error">{errors.name}</p>}
+            <button type="button" className="workout-text-button" onClick={() => setEditingName(false)} disabled={!ex.name.trim()}>完成改名</button>
+          </div>}
+          {ex.type === 'strength' ? (
+            <div className="space-y-4 mt-4">
+              <div className="workout-weight-modes" role="group" aria-label="重量类型">
+                {([['load', '负重'], ['bodyweight', '自重'], ['assisted', '辅助']] as [WeightMode, string][]).map(([mode, label]) => (
+                  <button type="button" key={mode} aria-pressed={ex.weightMode === mode} onClick={() => onChange({ weightMode: mode })}>{label}</button>
+                ))}
+              </div>
+              {ex.weightMode === 'bodyweight' ? <p className="workout-helper">仅使用自身体重，不计额外负重。</p> : <>
+                {field('weight', ex.weightMode === 'assisted' ? '辅助重量 · kg' : '重量 · kg', { max: ex.weightMode === 'assisted' ? 500 : 2000, step: weightStep, decimal: true })}
+                <div className="workout-weight-steps" role="group" aria-label="重量调整步长">
+                  <span>每次调整</span>
+                  {[1, 2.5, 5].map(step => <button type="button" key={step} aria-pressed={weightStep === step} onClick={() => setWeightStep(step)}>{step} kg</button>)}
+                </div>
+                {ex.weightMode === 'assisted' && <p className="workout-helper">填写器械提供的辅助重量，数值越小越难。</p>}
+              </>}
+              <div className="workout-count-grid">
+                {field('sets', '组数', { min: 1, max: 100 })}
+                {field('reps', '每组次数', { min: 1, max: 1000 })}
+              </div>
+              <p className="workout-helper">组数、次数可沿用预设，请按实际训练调整。</p>
+            </div>
+          ) : (
+            <div className="space-y-4 mt-4">
+              {field('duration', '时长 · 分钟', { max: 1440, step: 5 })}
+              {field('distance', `距离 · km${isCardioDistanceOptional(ex.name) ? '（选填）' : ''}`, { max: 1000, decimal: true, step: 0.5 })}
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold">热量 · {ex.caloriesSource === 'estimated' ? '按时长估算' : '手动记录'}</span>
+                <button type="button" className="workout-text-button" onClick={() => onChange({ caloriesSource: ex.caloriesSource === 'estimated' ? 'reported' : 'estimated' })}>{ex.caloriesSource === 'estimated' ? '改为手动' : '恢复估算'}</button>
+              </div>
+              {field('calories', '热量 · 大卡', { max: 20000, step: 10, disabled: ex.caloriesSource === 'estimated' })}
+              <p className="workout-helper">时长、距离、手动热量至少填一项。估算值不等于设备实测值。</p>
+            </div>
+          )}
+          <div className="workout-exercise-tools">
+            <div className="flex gap-1">
+              <button type="button" className="workout-icon-button" onClick={() => onMove(-1)} disabled={index === 0} aria-label={`上移动作 ${ex.name}`}><ArrowUp size={16} /></button>
+              <button type="button" className="workout-icon-button" onClick={() => onMove(1)} disabled={index === count - 1} aria-label={`下移动作 ${ex.name}`}><ArrowDown size={16} /></button>
+            </div>
+            <button type="button" className="workout-text-button" onClick={() => setEditingName(true)} aria-label={`修改动作名称 ${ex.name}`}><Pencil size={15} />改名</button>
+            <button type="button" className="workout-text-button text-red-700" onClick={onDelete}><Trash2 size={15} />删除动作</button>
+            <button type="button" className="workout-text-button font-black" onClick={onToggle}>收起<ChevronUp size={15} /></button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}

@@ -1,6 +1,9 @@
 import type { User } from '@supabase/supabase-js';
 import { supabase } from './lib/supabase';
 import type { WorkoutLog, WorkoutVisibility, Team, TeamMember, TeamDashboardData, AppNotification, FeedbackType, UserFeedback } from './types';
+import { WorkoutCategory } from './types';
+import { parseCategories } from './constants/workoutPresets';
+import { fetchAllPages } from './utils/pagination';
 import { executeWorkoutLogUpdate, sanitizeExercisesForDb } from './utils/workoutLogUpdate';
 export { sanitizeExercisesForDb } from './utils/workoutLogUpdate';
 import { DEFAULT_MAX_TEAM_MEMBERS } from './constants/teamConfig';
@@ -48,6 +51,7 @@ type WorkoutLogRow = {
   user_photo: string;
   created_at: string;
   category: string;
+  categories?: unknown;
   exercises: unknown;
   note: string;
   photo_url: string;
@@ -800,6 +804,18 @@ export function normalizeLog(row: WorkoutLogRow): WorkoutLog {
     rawVis === 'friends' || rawVis === 'private' ? rawVis : 'public'
   );
 
+  // Persist multi-category data as a comma-joined `category` string in the DB.
+  // Rehydrate the structured `categories` array here so callers (feed, export)
+  // can rely on it without re-parsing legacy strings.
+  const explicitCategories = Array.isArray(row.categories)
+    ? (row.categories as unknown[]).filter(
+        (c): c is WorkoutCategory => typeof c === 'string' && Object.values(WorkoutCategory).includes(c as WorkoutCategory),
+      )
+    : [];
+  const categories = explicitCategories.length > 0
+    ? Array.from(new Set(explicitCategories))
+    : parseCategories(row.category);
+
   return {
     id: row.id,
     userId: row.user_id,
@@ -807,6 +823,7 @@ export function normalizeLog(row: WorkoutLogRow): WorkoutLog {
     userPhoto: row.user_photo,
     timestamp: toIso(row.created_at) || new Date().toISOString(),
     category: row.category,
+    categories,
     exercises: Array.isArray(row.exercises) ? row.exercises as any : [],
     note: row.note || '',
     photoUrl: row.photo_url || '',
@@ -1554,6 +1571,63 @@ export const getUserWorkoutLogs = async (
       return ((data || []) as WorkoutLogRow[]).map(normalizeLog);
     },
     options,
+  );
+};
+
+/**
+ * Page size for full-history export reads. Kept below common provider caps so
+ * `.range()` reliably returns complete pages.
+ */
+export const EXPORT_PAGE_SIZE = 400;
+
+/**
+ * Read the user's *complete* workout history for export.
+ *
+ * Unlike `getUserWorkoutLogs` (a bounded feed read using `.limit()`), this
+ * paginates with `.range()` until a short page is returned, pins the result set
+ * to logs created at or before `exportStartedAt` so records added mid-export
+ * cannot shift the offset window, orders by a stable `(created_at, id)` pair and
+ * de-duplicates by id. It never truncates to a fixed count.
+ */
+export const fetchAllMyWorkoutLogsForExport = async (
+  userId: string,
+  options?: ReadRequestOptions & { exportStartedAt?: string; pageSize?: number },
+): Promise<WorkoutLog[]> => {
+  if (!userId) return [];
+  const exportStartedAt = options?.exportStartedAt || new Date().toISOString();
+  const pageSize = Math.min(Math.max(Math.trunc(options?.pageSize ?? EXPORT_PAGE_SIZE), 1), 1000);
+
+  return readRequest(
+    'fetchAllMyWorkoutLogsForExport',
+    async (signal) => {
+      const rows = await fetchAllPages<WorkoutLogRow>(
+        async (from, to) => {
+          const { data, error } = await supabase
+            .from('workout_logs')
+            .select('*')
+            .eq('user_id', userId)
+            .lte('created_at', exportStartedAt)
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: false })
+            .range(from, to)
+            .abortSignal(signal);
+          if (error) throw error;
+          return (data || []) as WorkoutLogRow[];
+        },
+        pageSize,
+        { signal },
+      );
+
+      const byId = new Map<string, WorkoutLog>();
+      rows.forEach((row) => {
+        const log = normalizeLog(row);
+        if (!byId.has(log.id)) {
+          byId.set(log.id, log);
+        }
+      });
+      return Array.from(byId.values());
+    },
+    { ...options, timeoutMs: options?.timeoutMs ?? 60000 },
   );
 };
 

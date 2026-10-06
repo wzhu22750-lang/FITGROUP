@@ -1,820 +1,262 @@
-import { useState, useEffect, useRef, FormEvent } from 'react';
-import {
-  createWorkoutLog,
-  getCurrentUser,
-  getUserProfile,
-  getLastWorkoutsByCategories,
-} from '../api';
-import { WorkoutCategory, Exercise, WorkoutLog, WorkoutVisibility } from '../types';
-import {
-  CATEGORY_META,
-  PRESET_EXERCISES_BY_CATEGORY,
-  PresetExercise,
-  CARDIO_REFERENCE_BODYWEIGHT_KG,
-  estimateCardioCalories,
-  isCardioDistanceOptional,
-  inferLogCategories,
-} from '../constants/workoutPresets';
-import { resolveEffectiveExerciseWeight } from '../utils/workoutAnalytics';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { createWorkoutLog, fetchMyWorkoutLogs, getCurrentUser, getUserProfile } from '../api';
+import { WorkoutCategory, WorkoutLog, WorkoutVisibility } from '../types';
+import { CARDIO_REFERENCE_BODYWEIGHT_KG, CATEGORY_META } from '../constants/workoutPresets';
 import { formatWorkoutLogError } from '../utils/workoutLogUpdate';
+import { ChevronDown, Dumbbell, Globe, History, Lock, Plus, RotateCcw, Send, Users, WifiOff } from 'lucide-react';
 import {
-  Plus,
-  Trash2,
-  Send,
-  X,
-  Dumbbell,
-  Timer,
-  Check,
-  History,
-  RotateCcw,
-  ChevronDown,
-  ChevronUp,
-  Globe,
-  Users,
-  Lock,
-} from 'lucide-react';
+  draftCategories, DraftExercise, exerciseKey, historyByExercise, MAX_WORKOUT_EXERCISES,
+  patchDraftExercise, toRecordedExercise, validateDraftExercise,
+} from '../utils/workoutDraft';
+import { useWorkoutDraft } from './workout/useWorkoutDraft';
+import ExerciseEditor from './workout/ExerciseEditor';
+import ExercisePicker from './workout/ExercisePicker';
+import HistoryPicker from './workout/HistoryPicker';
+import WorkoutSheet from './workout/WorkoutSheet';
+import './workout/workout.css';
 
-import { AnimatePresence } from 'motion/react';
-import confetti from 'canvas-confetti';
+interface WorkoutLoggerProps { onSuccess: () => void; }
+const visibilityOptions: { value: WorkoutVisibility; label: string; icon: typeof Globe }[] = [
+  { value: 'public', label: '全员公开', icon: Globe },
+  { value: 'friends', label: '好友小队', icon: Users },
+  { value: 'private', label: '仅自己', icon: Lock },
+];
 
-interface WorkoutLoggerProps {
-  onSuccess: () => void;
+export default function WorkoutLogger(props: WorkoutLoggerProps) {
+  const user = getCurrentUser();
+  if (!user?.uid) return <p className="card p-6 text-center">请先登录，再记录训练。</p>;
+  // Remount the entire editing session on account changes; never carry one account's draft to another.
+  return <WorkoutSession key={user.uid} owner={user.uid} {...props} />;
 }
 
-
-export default function WorkoutLogger({ onSuccess }: WorkoutLoggerProps) {
-  // Multi-category selection
-  const [selectedCategories, setSelectedCategories] = useState<WorkoutCategory[]>([
-    WorkoutCategory.Chest,
-  ]);
-  // Active category tab for preset exercise selection
-  const [activePresetCategory, setActivePresetCategory] = useState<WorkoutCategory>(
-    WorkoutCategory.Chest
-  );
-  // Collapsible state for preset exercises section (default collapsed)
-  const [isPresetsExpanded, setIsPresetsExpanded] = useState(false);
-
-  const [exercises, setExercises] = useState<Exercise[]>([]);
-  const [note, setNote] = useState('');
-  const [visibility, setVisibility] = useState<WorkoutVisibility>('public');
+function WorkoutSession({ owner, onSuccess }: WorkoutLoggerProps & { owner: string }) {
+  const { draft, draftRef, update, commit, finish, reset, restored, storageWarning } = useWorkoutDraft(owner);
+  const [expandedId, setExpandedId] = useState(draft.exercises[0]?.id || '');
+  const [sheet, setSheet] = useState<'add' | 'history' | 'clear' | null>(null);
+  const [history, setHistory] = useState<WorkoutLog[]>([]);
+  const [historyState, setHistoryState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [historyAttempt, setHistoryAttempt] = useState(0);
+  const [userWeight, setUserWeight] = useState(CARDIO_REFERENCE_BODYWEIGHT_KG);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [toastMsg, setToastMsg] = useState('');
-  const [userWeight, setUserWeight] = useState<number>(CARDIO_REFERENCE_BODYWEIGHT_KG);
-  const mutationIdRef = useRef<string>(
-    Math.random().toString(36).slice(2, 11) + Date.now().toString(36)
-  );
+  const submittingRef = useRef(false);
+  const [submitError, setSubmitError] = useState('');
+  const [showErrors, setShowErrors] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [removed, setRemoved] = useState<{ exercise: DraftExercise; index: number } | null>(null);
+  const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
+  const historyMap = useMemo(() => historyByExercise(history), [history]);
+  const categories = draftCategories(draft);
+  const completeCount = draft.exercises.filter(ex => !Object.keys(validateDraftExercise(ex)).length).length;
+  const visibilityLabel = visibilityOptions.find(option => option.value === draft.visibility)!.label;
 
-
-  // History logs for selected categories
-  const [lastLogs, setLastLogs] = useState<Record<string, WorkoutLog>>({});
-  const [confirmReimport, setConfirmReimport] = useState(false);
-
-
-  const showToast = (msg: string) => {
-    setToastMsg(msg);
-    setTimeout(() => setToastMsg(''), 2500);
-  };
-
-  // Toggle category in multi-select
-  const handleToggleCategory = (cat: WorkoutCategory) => {
-    if (selectedCategories.includes(cat)) {
-      if (selectedCategories.length === 1) return;
-      const next = selectedCategories.filter((c) => c !== cat);
-      setSelectedCategories(next);
-      if (activePresetCategory === cat) {
-        setActivePresetCategory(next[0]);
-      }
-    } else {
-      setSelectedCategories([...selectedCategories, cat]);
-      setActivePresetCategory(cat);
-    }
-  };
-
-  // Load user bodyweight for accurate calorie estimations
   useEffect(() => {
-    const user = getCurrentUser();
-    if (!user) return;
-    getUserProfile(user.uid)
-      .then((p) => {
-        if (p && typeof p.bodyweightKg === 'number' && p.bodyweightKg > 0) {
-          setUserWeight(p.bodyweightKg);
-        }
-      })
-      .catch(() => undefined);
+    let active = true;
+    setHistoryState('loading');
+    void fetchMyWorkoutLogs(owner, 30).then(logs => {
+      if (!active || getCurrentUser()?.uid !== owner) return;
+      setHistory(logs.filter(log => log.userId === owner && log.exercises?.length).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+      setHistoryState('ready');
+    }).catch(() => { if (active) setHistoryState('error'); });
+    return () => { active = false; };
+  }, [owner, historyAttempt]);
+
+  useEffect(() => {
+    let active = true;
+    void getUserProfile(owner).then(profile => {
+      if (active && profile?.bodyweightKg && profile.bodyweightKg > 0) setUserWeight(profile.bodyweightKg);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [owner]);
+
+  useEffect(() => {
+    const onOnline = () => setOffline(false);
+    const onOffline = () => setOffline(true);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
   }, []);
 
-  // Query last workouts for selected categories
-  useEffect(() => {
-    const user = getCurrentUser();
-    if (!user || selectedCategories.length === 0) return;
-
-    let isMounted = true;
-    getLastWorkoutsByCategories(user.uid, selectedCategories)
-      .then((logsMap) => {
-        if (!isMounted) return;
-        setLastLogs(logsMap as Record<string, WorkoutLog>);
-      })
-      .catch(() => undefined);
-
-    return () => {
-      isMounted = false;
-    };
-  }, [selectedCategories]);
-
-  const addExercise = (type: 'strength' | 'cardio') => {
-    if (exercises.length >= 10) {
-      showToast('每次打卡最多添加 10 个动作');
-      return;
-    }
-    const defaultDuration = 30;
-    const defaultCal = type === 'cardio' ? estimateCardioCalories('', defaultDuration, userWeight) : 0;
-    setExercises([
-      ...exercises,
-      {
-        id: Math.random().toString(36).slice(2, 11),
-        name: '',
-        type,
-        ...(type === 'strength'
-          ? { weight: 0, sets: 0, reps: 0 }
-          : { duration: defaultDuration, distance: 0, calories: defaultCal, caloriesSource: 'estimated' }),
-      },
-    ]);
+  const changeExercise = (id: string, patch: Partial<DraftExercise>) => {
+    update(current => ({ ...current, exercises: current.exercises.map(ex => ex.id === id ? patchDraftExercise(ex, patch, userWeight) : ex) }));
+    setSubmitError('');
   };
-
-  const handleAddPresetExercise = (preset: PresetExercise) => {
-    if (exercises.length >= 10) {
-      showToast('每次打卡最多添加 10 个动作');
-      return;
-    }
-
-    const duration = preset.defaultDuration ?? 30;
-    const calculatedCalories =
-      preset.type === 'cardio'
-        ? estimateCardioCalories(preset.name, duration, userWeight)
-        : 0;
-
-    const newEx: Exercise = {
-      id: Math.random().toString(36).slice(2, 11),
-      name: preset.name,
-      type: preset.type,
-      ...(preset.type === 'strength'
-        ? {
-            weight: preset.defaultWeight ?? 0,
-            sets: preset.defaultSets ?? 4,
-            reps: preset.defaultReps ?? 10,
-          }
-        : {
-            duration,
-            distance: preset.defaultDistance ?? 0,
-            calories: calculatedCalories || preset.defaultCalories || 0,
-            caloriesSource: 'estimated',
-          }),
-    };
-
-    if (exercises.length === 1 && !exercises[0].name.trim()) {
-      setExercises([newEx]);
-    } else {
-      setExercises([...exercises, newEx]);
-    }
-
-    // Auto-detect and sync category if newly added preset stimulates extra groups
-    const newlyInferred = inferLogCategories('', selectedCategories, [newEx]);
-    if (newlyInferred.length > selectedCategories.length) {
-      setSelectedCategories(newlyInferred);
-    }
-
-    showToast(`已添加「${preset.name}」`);
+  const addExercises = (incoming: DraftExercise[]) => {
+    const keys = new Set(draftRef.current.exercises.map(exerciseKey));
+    const unique = incoming.filter(ex => { const key = exerciseKey(ex); if (keys.has(key)) return false; keys.add(key); return true; });
+    if (draftRef.current.exercises.length + unique.length > MAX_WORKOUT_EXERCISES) { setNotice('每次训练最多 10 个动作。'); return; }
+    update(current => ({ ...current, exercises: [...current.exercises, ...unique] }));
+    setSheet(null);
+    if (unique[0]) setExpandedId(unique[0].id);
+    setNotice(`已添加 ${unique.length} 个动作，请填写实际训练数据。`);
+    if (unique[0]) requestAnimationFrame(() => document.getElementById(`exercise-body-${unique[0].id}`)?.closest('section')?.scrollIntoView({ block: 'start' }));
   };
-
-  const handleToggleType = (id: string) => {
-    const target = exercises.find((e) => e.id === id);
-    if (!target) return;
-    const nextType = target.type === 'strength' ? 'cardio' : 'strength';
-    if (nextType === 'cardio') {
-      const dur = target.duration && target.duration > 0 ? target.duration : 30;
-      updateExercise(id, {
-        type: 'cardio',
-        duration: dur,
-        distance: 0,
-        calories: estimateCardioCalories(target.name, dur, userWeight),
-        caloriesSource: 'estimated',
-      });
-    } else {
-      updateExercise(id, {
-        type: 'strength',
-        weight: 0,
-        sets: 4,
-        reps: 10,
-      });
-    }
+  const removeExercise = (id: string) => {
+    const index = draftRef.current.exercises.findIndex(ex => ex.id === id);
+    if (index < 0) return;
+    setRemoved({ exercise: draftRef.current.exercises[index], index });
+    update(current => ({ ...current, exercises: current.exercises.filter(ex => ex.id !== id) }));
   };
-
-  const handleNameChange = (id: string, name: string) => {
-    const target = exercises.find((e) => e.id === id);
-    if (!target) return;
-    if (target.type === 'cardio' && target.duration && target.duration > 0) {
-      const newCalories = estimateCardioCalories(name, target.duration, userWeight);
-      updateExercise(id, { name, calories: newCalories, caloriesSource: 'estimated' });
-    } else {
-      updateExercise(id, { name });
-    }
-
-    if (name.trim().length >= 2) {
-      const newlyInferred = inferLogCategories('', selectedCategories, [{ name, type: target.type }]);
-      if (newlyInferred.length > selectedCategories.length) {
-        setSelectedCategories(newlyInferred);
-      }
-    }
-  };
-
-  const handleCardioDurationChange = (id: string, durationNum: number) => {
-    const target = exercises.find((e) => e.id === id);
-    if (!target) return;
-    const newCalories = durationNum > 0 ? estimateCardioCalories(target.name, durationNum, userWeight) : 0;
-    updateExercise(id, { duration: durationNum, calories: newCalories, caloriesSource: 'estimated' });
-  };
-
-  const handleImportData = (force = false) => {
-    const all: Exercise[] = [];
-    const seen = new Set<string>();
-
-    selectedCategories.forEach((c) => {
-      const log = lastLogs[c];
-      if (log && log.exercises) {
-        log.exercises.forEach((ex) => {
-          if (!seen.has(ex.name.trim())) {
-            seen.add(ex.name.trim());
-            all.push(ex);
-          }
-        });
-      }
+  const undoRemove = () => {
+    if (!removed) return;
+    if (draftRef.current.exercises.length >= MAX_WORKOUT_EXERCISES) { setNotice('已达到 10 项上限，请先移除一个动作再撤销。'); return; }
+    update(current => {
+      const next = [...current.exercises];
+      next.splice(Math.min(removed.index, next.length), 0, removed.exercise);
+      return { ...current, exercises: next };
     });
-
-    if (all.length === 0) {
-      showToast('未找到历史训练数据');
-      return;
-    }
-
-    if (!force && exercises.length > 0 && exercises.some((e) => e.name.trim())) {
-      if (!confirmReimport) {
-        setConfirmReimport(true);
-        setTimeout(() => setConfirmReimport(false), 3500);
-        return;
-      }
-    }
-
-    const imported: Exercise[] = all.slice(0, 10).map((ex) => ({
-      id: Math.random().toString(36).slice(2, 11),
-      name: ex.name,
-      type: ex.type || 'strength',
-      weight: ex.weight ?? 0,
-      sets: ex.sets ?? 0,
-      reps: ex.reps ?? 0,
-      duration: ex.duration ?? 0,
-      distance: ex.distance ?? 0,
-      calories: ex.calories ?? 0,
-      caloriesSource: ex.caloriesSource,
-    }));
-
-    setExercises(imported);
-    setConfirmReimport(false);
-    showToast(`已导入上次 ${imported.length} 个动作`);
+    setExpandedId(removed.exercise.id);
+    setRemoved(null);
   };
+  const moveExercise = (id: string, direction: -1 | 1) => update(current => {
+    const index = current.exercises.findIndex(ex => ex.id === id);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= current.exercises.length) return current;
+    const next = [...current.exercises];
+    [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+    return { ...current, exercises: next };
+  });
 
-
-  const handleRemoveExercise = (id: string) => {
-    if (deleteConfirm === id) {
-      setExercises(exercises.filter((e) => e.id !== id));
-      setDeleteConfirm(null);
-    } else {
-      setDeleteConfirm(id);
-      setTimeout(() => setDeleteConfirm(null), 3000);
-    }
-  };
-
-  const updateExercise = (id: string, updates: Partial<Exercise>) => {
-    setExercises(exercises.map((e) => (e.id === id ? { ...e, ...updates } : e)));
-  };
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (isSubmitting) return;
-
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (submittingRef.current) return;
     const user = getCurrentUser();
-    if (!user) {
-      showToast('请先登录');
-      return;
-    }
-
-    if (selectedCategories.length === 0) {
-      showToast('请至少选择一个训练部位');
-      return;
-    }
-
-    if (exercises.length === 0) {
-      showToast('请至少添加一个训练项目');
-      return;
-    }
-
-    if (exercises.length > 10) {
-      showToast('每次打卡最多支持 10 个项目');
-      return;
-    }
-
-    for (let i = 0; i < exercises.length; i++) {
-      const ex = exercises[i];
-      if (!ex.name.trim()) {
-        showToast(`请填写第 ${i + 1} 个项目的动作名称`);
-        return;
-      }
-      if (ex.type === 'strength') {
-        if (!ex.sets || ex.sets <= 0 || !ex.reps || ex.reps <= 0) {
-          showToast(`「${ex.name}」请填写有效的组数和次数`);
-          return;
-        }
-      } else if (ex.type === 'cardio') {
-        if (
-          (!ex.duration || ex.duration <= 0) &&
-          (!ex.distance || ex.distance <= 0) &&
-          (!ex.calories || ex.calories <= 0)
-        ) {
-          showToast(`「${ex.name}」请至少填写时长、距离或卡路里之一`);
-          return;
-        }
-      }
-    }
-
-
-    const finalCategories = inferLogCategories('', selectedCategories, exercises);
-
-    setIsSubmitting(true);
-    try {
-      await createWorkoutLog({
-        id: mutationIdRef.current,
-        userId: user.uid,
-        userName: user.displayName || 'Anonymous',
-        userPhoto: user.photoURL || '',
-        category: finalCategories.join(', '),
-        categories: finalCategories,
-        exercises,
-        note,
-        visibility,
-        likesCount: 0,
-        commentsCount: 0,
+    if (user?.uid !== owner) { setSubmitError('账号状态已变化，请重新进入打卡页。'); return; }
+    if (offline) { setSubmitError('当前离线，请联网后提交。训练内容仍保留在草稿中。'); return; }
+    const current = draftRef.current;
+    setShowErrors(true);
+    if (!current.exercises.length) { setSubmitError('先添加至少一个训练动作。'); return; }
+    const invalid = current.exercises.find(ex => Object.keys(validateDraftExercise(ex)).length > 0);
+    if (invalid) {
+      setExpandedId(invalid.id);
+      const field = Object.keys(validateDraftExercise(invalid))[0];
+      setSubmitError(`「${invalid.name || '未命名动作'}」还有未填写或不正确的数据。`);
+      requestAnimationFrame(() => {
+        const input = document.getElementById(`workout-${invalid.id}-${field}`);
+        input?.scrollIntoView({ block: 'center' });
+        input?.focus({ preventScroll: true });
       });
-
-
-      const userProfile = await getUserProfile(user.uid).catch(() => null);
-      if (userProfile) {
-        const currentPrs = userProfile.prs || {};
-        let prBroken = false;
-        exercises.forEach((ex) => {
-          if (ex.type === 'strength' && typeof ex.weight === 'number') {
-            const effectiveW = resolveEffectiveExerciseWeight(ex.name, ex.weight, userWeight);
-            if (currentPrs[ex.name] === undefined || effectiveW > currentPrs[ex.name]) {
-              prBroken = true;
-            }
-          }
-        });
-
-        if (prBroken) {
-          confetti({
-            particleCount: 150,
-            spread: 70,
-            origin: { y: 0.6 },
-            colors: ['#DFFF00', '#000000', '#F4F4F4'],
-          });
-        }
-      }
-
-      mutationIdRef.current = Math.random().toString(36).slice(2, 11) + Date.now().toString(36);
-      onSuccess();
+      return;
+    }
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    setSubmitError('');
+    // Persist the exact payload and mutation ID before writing. A timeout must not
+    // allow edits that would then be silently discarded by the server's ID deduplication.
+    const snapshot = current.pending ? current : commit({ ...current, pending: true });
+    let saved = false;
+    try {
+      const finalCategories = draftCategories(snapshot);
+      await createWorkoutLog({
+        id: snapshot.id, userId: owner, userName: user.displayName || 'FitGroup', userPhoto: user.photoURL || '',
+        category: finalCategories.join(', '), categories: finalCategories,
+        exercises: snapshot.exercises.map(toRecordedExercise), note: snapshot.note.trim(), visibility: snapshot.visibility,
+        likesCount: 0, commentsCount: 0,
+      });
+      finish();
+      saved = true;
     } catch (error) {
-      console.error('保存失败:', error);
-      showToast(formatWorkoutLogError(error));
+      const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
+      const rejected = /^(22|23|42|PGRST)/.test(code) && code !== '23505';
+      if (rejected) commit({ ...snapshot, pending: false });
+      setSubmitError(`${formatWorkoutLogError(error)} ${rejected ? '数据未保存，草稿仍在，可修改后重试。' : '本次内容已保留，请重试确认提交；不会重复创建记录。'}`);
+      requestAnimationFrame(() => {
+        const message = document.getElementById('workout-submit-error');
+        message?.scrollIntoView({ block: 'center' });
+        message?.focus({ preventScroll: true });
+      });
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
+    // Do not wait on a profile refresh after a successful write or report a navigation
+    // failure as a save failure. The completed draft is removed only after server success.
+    if (saved && getCurrentUser()?.uid === owner) onSuccess();
   };
 
-  const availableLastLogsList = selectedCategories
-    .map((c) => ({ category: c, log: lastLogs[c] }))
-    .filter(({ log }) => Boolean(log && log.exercises && log.exercises.length > 0));
-
-  const hasAnyLastLog = availableLastLogsList.length > 0;
-  const currentPresets = PRESET_EXERCISES_BY_CATEGORY[activePresetCategory] || [];
-
-  // Visibility label for status bar
-  const visLabel = visibility === 'public' ? '公开' : visibility === 'friends' ? '小队可见' : '仅自己';
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {toastMsg && (
-        <div
-          className="fixed left-4 right-4 z-50 bg-ink text-white px-4 py-3 text-sm font-medium shadow-lg"
-          style={{ top: 'calc(var(--safe-top) + 0.75rem)', borderRadius: 'var(--radius-md)', maxWidth: '28rem', marginLeft: 'auto', marginRight: 'auto' }}
-        >
-          {toastMsg}
+    <form className="workout-logger" onSubmit={handleSubmit} noValidate aria-label="记录训练">
+      <header className={`workout-intro ${draft.exercises.length ? 'has-entries' : ''}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div><p className="workout-kicker">YOUR NEXT REP</p><h1>今天，练点什么？</h1></div>
+          <span className="workout-intro-mark" aria-hidden="true"><Dumbbell size={25} /></span>
         </div>
-      )}
-
-      {/* ── Page title ── */}
-      <h1 className="text-2xl font-black text-ink uppercase tracking-tight">记录训练</h1>
-
-      {/* ── Import from last workout ── */}
-      {hasAnyLastLog && (
-        <button
-          type="button"
-          onClick={() => handleImportData()}
-          className={`w-full text-xs font-black uppercase py-2.5 px-4 flex items-center justify-center gap-2 border-2 transition-all cursor-pointer ${
-            confirmReimport
-              ? 'bg-red-500 text-white border-red-600 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
-              : 'bg-paper text-ink border-ink hover:bg-neon shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
-          }`}
-        >
-          {confirmReimport ? (
-            <><RotateCcw size={14} /> 将覆盖现有内容，点击确认</>
-          ) : (
-            <><History size={14} /> 沿用上次训练数据</>
-          )}
-        </button>
-      )}
-
-      {/* ── Category selector ── */}
-      <div className="card p-4 sm:p-5">
-        <label className="block text-xs font-black text-ink uppercase tracking-wider mb-2.5">
-          Target Muscle / 训练部位
-        </label>
-        <div className="grid grid-cols-3 gap-2">
-          {Object.values(WorkoutCategory).map((cat) => {
-            const meta = CATEGORY_META[cat];
-            const isSelected = selectedCategories.includes(cat);
-            return (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => handleToggleCategory(cat)}
-                className={`py-2.5 px-1 border-2 border-ink text-xs transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
-                  isSelected
-                    ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)] font-black'
-                    : 'bg-white text-ink hover:bg-neon font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
-                }`}
-              >
-                <span className="text-xs font-black uppercase tracking-tight">{meta.zh}</span>
-                <span className="text-[10px] opacity-70 font-semibold">{meta.en}</span>
-              </button>
-            );
-          })}
+        <div className="workout-save-state" role="status">
+          <span><span className="workout-status-dot" />{storageWarning ? '草稿保存受限' : draft.pending ? '等待确认提交' : draft.exercises.length || draft.note ? '草稿已保存在此设备' : '边练边记，随时回来继续'}</span>
+          {(draft.exercises.length > 0 || draft.note) && !draft.pending && <button type="button" onClick={() => setSheet('clear')}>清空</button>}
         </div>
-      </div>
+      </header>
 
-      {/* ── Exercise list (page body) ── */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <label className="text-sm font-black text-ink uppercase tracking-tight">
-            Exercises / 训练内容
-          </label>
-          <span className="text-xs font-black text-ink/70 bg-paper px-2 py-0.5 border-2 border-ink shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
-            {exercises.length}/10
-          </span>
+      {storageWarning && <p role="alert" className="workout-warning">{storageWarning}</p>}
+      {offline && <p className="workout-warning flex items-center gap-2"><WifiOff size={16} />离线可继续记草稿，联网后再提交。</p>}
+      {restored && !draft.pending && <p className="workout-helper">已恢复未完成的训练，继续修改即可。草稿不会自动发布。</p>}
+      {draft.pending && <p className="workout-warning">{isSubmitting ? '正在提交，请稍候…' : '上次提交尚未确认，内容暂时锁定。点击「重试提交」确认结果，避免重复打卡。'}</p>}
+
+      <fieldset disabled={isSubmitting || draft.pending} className="workout-fields">
+        <div className="workout-start-actions">
+          <button type="button" className="btn-neon flex items-center justify-center gap-2" onClick={() => setSheet('add')} disabled={draft.exercises.length >= 10}><Plus size={19} />添加动作</button>
+          <button type="button" className="btn-secondary flex items-center justify-center gap-2" onClick={() => setSheet('history')} disabled={!history.length}><History size={17} />沿用上次</button>
+        </div>
+        <div className="workout-history-status">
+          {historyState === 'loading' ? <span>正在读取最近训练，不影响新建记录…</span> : historyState === 'error' ? <><span>历史暂不可用，仍可添加新动作。</span><button type="button" onClick={() => setHistoryAttempt(value => value + 1)}>重试</button></> : <span>{history.length ? '从最近训练开始，少填一遍。' : '第一次来？从动作库选几个熟悉的动作。'}</span>}
         </div>
 
-        {exercises.map((ex, index) => (
-          <div
-            key={ex.id}
-            className={`card p-4 sm:p-5 relative ${
-              deleteConfirm === ex.id ? 'border-red-500 bg-red-50/50' : ''
-            }`}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-black uppercase bg-ink text-white px-2 py-0.5 italic">
-                #{index + 1} {ex.type === 'strength' ? '力量训练' : '有氧运动'}
-              </span>
-              <div className="flex items-center gap-1.5">
-                {deleteConfirm === ex.id && (
-                  <span className="text-[10px] font-black text-red-600 uppercase">确认删除？</span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => handleRemoveExercise(ex.id)}
-                  className={`p-1.5 border-2 border-ink transition-colors cursor-pointer ${
-                    deleteConfirm === ex.id
-                      ? 'bg-red-500 text-white'
-                      : 'bg-paper text-ink hover:bg-red-500 hover:text-white'
-                  }`}
-                  title="删除"
-                  style={{ minWidth: 32, minHeight: 32 }}
-                >
-                  {deleteConfirm === ex.id ? <Check size={14} /> : <X size={14} />}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2.5 mb-3.5">
-              <button
-                type="button"
-                className={`p-2 border-2 border-ink cursor-pointer select-none transition-all ${
-                  ex.type === 'strength'
-                    ? 'bg-neon text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
-                    : 'bg-white text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
-                }`}
-                onClick={() => handleToggleType(ex.id)}
-                title="切换力量/有氧"
-                style={{ minWidth: 40, minHeight: 40 }}
-              >
-                {ex.type === 'strength' ? <Dumbbell size={18} /> : <Timer size={18} />}
-              </button>
-              <input
-                type="text"
-                placeholder={ex.type === 'strength' ? '动作名称（如 杠铃卧推）' : '项目名称（如 跑步机跑步）'}
-                value={ex.name}
-                onChange={(e) => handleNameChange(ex.id, e.target.value)}
-                className="flex-1 text-base font-black text-ink border-b-2 border-ink focus:border-neon outline-none py-1.5 bg-transparent placeholder:text-ink/30 uppercase"
-                required
-              />
-            </div>
-
-            {ex.type === 'strength' ? (
-              <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[10px] font-black text-ink uppercase">重量 (kg)</label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const currentWeight = typeof ex.weight === 'number' ? ex.weight : (parseFloat(String(ex.weight)) || 0);
-                        updateExercise(ex.id, { weight: currentWeight === 0 ? -10 : -currentWeight });
-                      }}
-                      className={`text-[9px] font-black px-1 py-0.2 border border-ink transition-colors cursor-pointer ${
-                        typeof ex.weight === 'number' && ex.weight < 0 ? 'bg-ink text-neon' : 'bg-paper text-ink/70 hover:bg-neon'
-                      }`}
-                      title="切换辅助负重"
-                    >
-                      {typeof ex.weight === 'number' && ex.weight < 0 ? '辅助' : '负重'}
-                    </button>
-                  </div>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={ex.weight === undefined || ex.weight === null ? '' : ex.weight}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val === '' || val === '-') {
-                        updateExercise(ex.id, { weight: val as any });
-                      } else {
-                        const num = parseFloat(val);
-                        updateExercise(ex.id, { weight: isNaN(num) ? 0 : num });
-                      }
-                    }}
-                    placeholder="0"
-                    className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-ink uppercase block mb-1">组数</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={ex.sets || ''}
-                    onChange={(e) =>
-                      updateExercise(ex.id, { sets: Number(e.target.value) || 0 })
-                    }
-                    placeholder="0"
-                    className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-ink uppercase block mb-1">次数</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={ex.reps || ''}
-                    onChange={(e) =>
-                      updateExercise(ex.id, { reps: Number(e.target.value) || 0 })
-                    }
-                    placeholder="0"
-                    className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                <div>
-                  <label className="text-[10px] font-black text-ink uppercase block mb-1">分钟</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={ex.duration || ''}
-                    onChange={(e) =>
-                      handleCardioDurationChange(ex.id, Number(e.target.value) || 0)
-                    }
-                    placeholder="30"
-                    className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-ink uppercase block mb-1 truncate">
-                    公里 {isCardioDistanceOptional(ex.name) && <span className="opacity-50">(选填)</span>}
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={ex.distance || ''}
-                    onChange={(e) =>
-                      updateExercise(ex.id, { distance: Number(e.target.value) || 0 })
-                    }
-                    placeholder={isCardioDistanceOptional(ex.name) ? '—' : '0'}
-                    className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                  />
-                </div>
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[10px] font-black text-ink uppercase">大卡</label>
-                    <span className="text-[8px] font-black bg-neon text-ink px-1 border border-ink/40" title="按时长自动估算">自动</span>
-                  </div>
-                  <input
-                    type="number"
-                    min="0"
-                    value={ex.calories || ''}
-                    onChange={(e) =>
-                      updateExercise(ex.id, { calories: Number(e.target.value) || 0, caloriesSource: 'reported' })
-                    }
-                    placeholder="0"
-                    className="w-full bg-paper border-2 border-ink p-2 text-center font-black text-base focus:bg-white outline-none"
-                  />
-                </div>
-              </div>
-            )}
+        <div className="workout-section-title"><h2><span>01</span>训练内容</h2><span>{draft.exercises.length} / 10 动作</span></div>
+        {!draft.exercises.length && (
+          <div className="workout-empty">
+            <div className="workout-empty-icon"><Plus size={28} /></div>
+            <h3>先选动作，再记数字。</h3>
+            <p>动作库支持多选；有历史记录的动作<br />可以一键沿用上次重量和组次。</p>
+            <button type="button" className="workout-text-button" onClick={() => setSheet('add')}>打开动作库 <Plus size={16} /></button>
           </div>
-        ))}
-
-        {/* Add exercise buttons */}
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => addExercise('strength')}
-            className="flex-1 btn-secondary py-3 text-xs font-black uppercase flex items-center justify-center gap-1.5"
-          >
-            <Plus size={16} /> 自定义力量
-          </button>
-          <button
-            type="button"
-            onClick={() => addExercise('cardio')}
-            className="flex-1 btn-secondary py-3 text-xs font-black uppercase flex items-center justify-center gap-1.5"
-          >
-            <Plus size={16} /> 自定义有氧
-          </button>
+        )}
+        <div className="workout-exercise-list">
+          {draft.exercises.map((ex, index) => <ExerciseEditor key={ex.id} exercise={ex} index={index} count={draft.exercises.length}
+            expanded={expandedId === ex.id} onToggle={() => setExpandedId(expandedId === ex.id ? '' : ex.id)}
+            errors={showErrors ? validateDraftExercise(ex) : {}} previous={historyMap.get(exerciseKey(ex))}
+            onChange={patch => changeExercise(ex.id, patch)} onDelete={() => removeExercise(ex.id)} onMove={direction => moveExercise(ex.id, direction)} />)}
         </div>
-      </div>
+        {removed && <div className="workout-undo" role="status"><span>已移除「{removed.exercise.name || '未命名动作'}」</span><button type="button" onClick={undoRemove}><RotateCcw size={14} />撤销</button></div>}
+        {draft.exercises.length > 0 && <button type="button" className="workout-add-more" onClick={() => setSheet('add')} disabled={draft.exercises.length >= 10}><Plus size={17} />{draft.exercises.length >= 10 ? '已达到 10 个动作上限' : '继续添加动作'}</button>}
+        {notice && <p className="workout-helper" role="status">{notice}</p>}
 
-      {/* ── Preset exercises (collapsible) ── */}
-      <div className="card overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setIsPresetsExpanded(!isPresetsExpanded)}
-          className="w-full p-4 flex items-center justify-between cursor-pointer hover:bg-paper transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <div className="bg-ink p-1">
-              <Dumbbell size={14} className="text-neon" />
-            </div>
-            <span className="text-xs font-black text-ink uppercase tracking-wider">常用动作快捷添加</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-black text-ink/50">
-              {isPresetsExpanded ? '点击折叠' : '点击展开'}
-            </span>
-            <div className="p-0.5 border-2 border-ink bg-paper">
-              {isPresetsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </div>
-          </div>
-        </button>
-
-        {isPresetsExpanded && (
-          <div className="px-4 pb-4 border-t-2 border-ink/10 pt-3 space-y-3">
-            {/* Category tabs */}
-            <div className="flex gap-1.5 overflow-x-auto pb-1.5 border-b border-ink/10">
-              {Object.values(WorkoutCategory).map((cat) => {
-                const isTabActive = activePresetCategory === cat;
-                const meta = CATEGORY_META[cat];
-                return (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setActivePresetCategory(cat)}
-                    className={`px-2.5 py-1 text-xs font-black uppercase shrink-0 border-2 border-ink cursor-pointer transition-all ${
-                      isTabActive
-                        ? 'bg-ink text-neon shadow-[1px_1px_0px_0px_rgba(223,255,0,1)]'
-                        : 'bg-paper text-ink/70 hover:bg-neon'
-                    }`}
-                  >
-                    {meta?.zh || cat}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Preset buttons */}
-            <div className="flex flex-wrap gap-2">
-              {currentPresets.map((preset) => {
-                const isAlreadyAdded = exercises.some((e) => e.name.trim() === preset.name);
-                return (
-                  <button
-                    key={preset.name}
-                    type="button"
-                    onClick={() => handleAddPresetExercise(preset)}
-                    className={`py-1.5 px-2.5 border-2 border-ink text-xs font-black uppercase transition-all cursor-pointer flex items-center gap-1.5 active:translate-x-[1px] active:translate-y-[1px] ${
-                      isAlreadyAdded
-                        ? 'bg-ink text-neon shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
-                        : 'bg-paper text-ink hover:bg-neon shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none'
-                    }`}
-                    title={`添加: ${preset.name}`}
-                  >
-                    {isAlreadyAdded ? <Check size={13} className="stroke-[3]" /> : <Plus size={13} />}
-                    <span>{preset.name}</span>
-                  </button>
-                );
+        <div className="workout-section-title"><h2><span>02</span>补充记录</h2><span>按需填写</span></div>
+        <details className="workout-details">
+          <summary><span>训练部位 <small>{draft.exercises.length ? categories.map(cat => CATEGORY_META[cat].zh).join(' / ') : '按动作自动识别'}</small></span><ChevronDown size={16} /></summary>
+          <div className="p-4"><p className="workout-helper mb-3">动作对应部位自动保留；如有遗漏，可手动补充。</p>
+            <div className="workout-category-options">
+              {Object.values(WorkoutCategory).map(cat => {
+                const automatic = draftCategories({ ...draft, categories: [] }).includes(cat) && draft.exercises.length > 0;
+                const selected = draft.categories.includes(cat) || automatic;
+                return <button type="button" key={cat} aria-pressed={selected} disabled={automatic} onClick={() => update(current => ({ ...current, categories: current.categories.includes(cat) ? current.categories.filter(value => value !== cat) : [...current.categories, cat] }))}>{CATEGORY_META[cat].zh}{automatic ? ' · 自动' : ''}</button>;
               })}
             </div>
           </div>
-        )}
-      </div>
-
-      {/* ── Note (optional) ── */}
-      <div className="card p-4 sm:p-5">
-        <label className="block text-xs font-black text-ink uppercase tracking-wider mb-2.5">
-          Notes / 训练心得 <span className="font-normal opacity-60">(选填)</span>
-        </label>
-        <textarea
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="今天状态如何？记录下来吧…"
-          className="w-full bg-paper border-2 border-ink p-3 font-bold text-ink min-h-[90px] outline-none focus:bg-white text-sm"
-        />
-      </div>
-
-      {/* ── Visibility ── */}
-      <div className="card p-4 sm:p-5">
-        <label className="block text-xs font-black text-ink uppercase tracking-wider mb-2.5">
-          Visibility / 可见范围
-        </label>
-        <div className="grid grid-cols-3 gap-2">
-          <button
-            type="button"
-            onClick={() => setVisibility('public')}
-            className={`py-2.5 text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center gap-1 border-2 border-ink ${
-              visibility === 'public'
-                ? 'bg-neon text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
-                : 'bg-paper text-ink/70 hover:bg-white'
-            }`}
-          >
-            <Globe size={16} />
-            <span>全员公开</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setVisibility('friends')}
-            className={`py-2.5 text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center gap-1 border-2 border-ink ${
-              visibility === 'friends'
-                ? 'bg-sky-200 text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
-                : 'bg-paper text-ink/70 hover:bg-white'
-            }`}
-          >
-            <Users size={16} />
-            <span>好友小队</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setVisibility('private')}
-            className={`py-2.5 text-xs font-black uppercase transition-all cursor-pointer flex flex-col items-center gap-1 border-2 border-ink ${
-              visibility === 'private'
-                ? 'bg-ink text-white shadow-[2px_2px_0px_0px_rgba(223,255,0,1)]'
-                : 'bg-paper text-ink/70 hover:bg-white'
-            }`}
-          >
-            <Lock size={16} />
-            <span>仅自己</span>
-          </button>
+        </details>
+        <details className="workout-details">
+          <summary><span>训练心得 <small>{draft.note ? `${draft.note.length} 字` : '选填'}</small></span><ChevronDown size={16} /></summary>
+          <div className="p-4"><label htmlFor="workout-note" className="workout-field-label">今天的状态、感受或小目标</label><textarea id="workout-note" value={draft.note} maxLength={500} rows={3} onChange={event => update(current => ({ ...current, note: event.target.value }))} placeholder="例如：最后一组还有余力，下次试试加重。" /><p className="workout-helper text-right mt-1">{draft.note.length} / 500</p></div>
+        </details>
+        <div className="workout-visibility">
+          <h2 className="text-sm font-black mb-3">谁能看到这次训练？</h2>
+          <div role="group" aria-label="可见范围">{visibilityOptions.map(({ value, label, icon: Icon }) => <button type="button" key={value} aria-pressed={draft.visibility === value} onClick={() => update(current => ({ ...current, visibility: value }))}><Icon size={16} />{label}</button>)}</div>
         </div>
-      </div>
+      </fieldset>
 
-      {/* ── Submit (A-Level CTA) ── */}
-      <button
-        type="submit"
-        disabled={isSubmitting}
-        className={`w-full btn-neon-lg ${
-          isSubmitting ? 'opacity-50' : ''
-        }`}
-      >
-        {isSubmitting ? (
-          '正在保存…'
-        ) : (
-          <><Send size={20} /> 发布打卡 · {visLabel}</>
-        )}
-      </button>
+      {submitError && <p id="workout-submit-error" tabIndex={-1} className="workout-submit-error" role="alert">{submitError}</p>}
+      <footer className="workout-submitbar">
+        <div><strong>{completeCount} / {draft.exercises.length} <span>项已填写</span></strong><small>{offline ? '离线草稿' : visibilityLabel}</small></div>
+        <button type="submit" className="btn-neon" disabled={isSubmitting || offline || !draft.exercises.length} aria-busy={isSubmitting}>
+          {isSubmitting ? '正在保存…' : draft.pending ? '重试提交' : '完成打卡'}{!isSubmitting && <Send size={17} />}
+        </button>
+      </footer>
+
+      {sheet === 'add' && <ExercisePicker existing={draft.exercises} history={history} onClose={() => setSheet(null)} onAdd={addExercises} />}
+      {sheet === 'history' && <HistoryPicker logs={history} currentCount={draft.exercises.length} onClose={() => setSheet(null)} onImport={(exercises, mode) => {
+        if (exercises.length + (mode === 'append' ? draftRef.current.exercises.length : 0) > 10) return;
+        update(current => ({ ...current, exercises: mode === 'append' ? [...current.exercises, ...exercises] : exercises }));
+        setExpandedId(exercises[0]?.id || ''); setRemoved(null); setShowErrors(false); setSheet(null); setNotice(`已${mode === 'append' ? '追加' : '沿用'} ${exercises.length} 个动作，请按今天的训练调整。`);
+      }} />}
+      {sheet === 'clear' && <WorkoutSheet title="清空本次草稿？" onClose={() => setSheet(null)} footer={<div className="grid grid-cols-2 gap-3"><button type="button" className="btn-secondary" onClick={() => setSheet(null)}>继续记录</button><button type="button" className="btn-primary" onClick={() => { reset(); setSheet(null); setRemoved(null); setExpandedId(''); setSubmitError(''); setNotice(''); setShowErrors(false); }}>确认清空</button></div>}><p className="text-sm leading-relaxed">只清空此设备上本次未提交的动作和心得，不影响已发布的历史记录。清空后无法恢复。</p></WorkoutSheet>}
     </form>
   );
 }

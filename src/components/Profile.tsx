@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
-import { getCurrentUser, updateUserProfileFn, submitFeedbackFn, fetchUserFeedbacksFn, getUserWorkoutLogs, subscribeToMyWorkoutLogs, fetchMyWorkoutLogs } from '../api';
+import { getCurrentUser, updateUserProfileFn, submitFeedbackFn, fetchUserFeedbacksFn, subscribeToMyWorkoutLogs, fetchMyWorkoutLogs } from '../api';
 import { supabase } from '../lib/supabase';
 import {
   LogOut,
@@ -23,9 +23,6 @@ import {
   FileQuestion,
   HelpCircle as QuestionIcon,
   Download,
-  FileText,
-  FileJson,
-  Copy,
   Activity,
   Dumbbell,
   Layers,
@@ -36,8 +33,7 @@ import { AnimatePresence } from 'motion/react';
 import { pushBackHandler } from '../backStack';
 import { useToast } from './Toast';
 import type { FeedbackType, UserFeedback, WorkoutLog } from '../types';
-import { generateExportData, formatExportAsJson, formatExportAsText } from '../utils/dataExport';
-import { exportTextFile } from '../native';
+import { ExportDataPage } from './ExportDataPage';
 import LogCard from './LogCard';
 import {
   getCachedMyLogs,
@@ -992,244 +988,6 @@ function SecurityPage({ user, onBack, onLogout }: { user: any; onBack: () => voi
             FitGroup 采用行级安全策略 (RLS) 与传输加密。私密动态和身体数据受最高级别权限隔离保护。
           </p>
         </div>
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================================
-   Export Data Page
-   ========================================================================= */
-
-function ExportDataPage({ user, onBack }: { user: any; onBack: () => void }) {
-  const [logs, setLogs] = useState<WorkoutLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState<'json' | 'text' | null>(null);
-  const [showAllLogs, setShowAllLogs] = useState(false);
-  const { showToast } = useToast();
-
-  const userId = user?.id || user?.uid;
-
-  useEffect(() => {
-    if (!userId) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    getUserWorkoutLogs(userId, 1000)
-      .then((data) => setLogs(data || []))
-      .catch((err) => console.warn('Failed to load logs for export:', err))
-      .finally(() => setLoading(false));
-  }, [userId]);
-
-  const exportData = useMemo(() => generateExportData(user, logs), [user, logs]);
-
-  const handleExportJson = async () => {
-    setExporting('json');
-    try {
-      const jsonContent = formatExportAsJson(exportData);
-      const today = new Date().toISOString().split('T')[0];
-      const filename = `fitgroup_export_${today}.json`;
-      await exportTextFile(filename, jsonContent, 'application/json');
-      showToast('JSON 文件已生成', 'success');
-    } catch (err: any) {
-      console.error('Export JSON failed:', err);
-      showToast('导出失败，请重试', 'error');
-    } finally {
-      setExporting(null);
-    }
-  };
-
-  const handleExportText = async () => {
-    setExporting('text');
-    try {
-      const textContent = formatExportAsText(exportData);
-      const today = new Date().toISOString().split('T')[0];
-      const filename = `fitgroup_report_${today}.txt`;
-      await exportTextFile(filename, textContent, 'text/plain');
-      showToast('文本报告已生成', 'success');
-    } catch (err: any) {
-      console.error('Export text failed:', err);
-      showToast('导出失败，请重试', 'error');
-    } finally {
-      setExporting(null);
-    }
-  };
-
-  const handleCopyText = async () => {
-    try {
-      const textContent = formatExportAsText(exportData);
-      await navigator.clipboard.writeText(textContent);
-      showToast('已复制到剪贴板', 'success');
-    } catch (err) {
-      showToast('复制失败', 'error');
-    }
-  };
-
-  const displayedLogs = showAllLogs ? exportData.workoutLogs : exportData.workoutLogs.slice(0, 5);
-
-  return (
-    <div key="export" className="space-y-4">
-      <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-ink/50 hover:text-ink transition-colors cursor-pointer py-1">
-        <ChevronLeft size={18} />
-        返回
-      </button>
-
-      <div className="card p-5 space-y-5">
-        <div>
-          <h2 className="text-lg font-bold text-ink flex items-center gap-2">
-            <Download size={18} /> 数据导出
-          </h2>
-          <p className="text-xs text-ink/40 mt-1">
-            导出个人档案、最大重量记录与训练历史。
-          </p>
-        </div>
-
-        {/* Actions */}
-        <div className="space-y-2 bg-paper p-3" style={{ borderRadius: 'var(--radius-sm)' }}>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              disabled={exporting !== null}
-              onClick={handleExportJson}
-              className="btn-primary py-2.5 text-xs flex items-center justify-center gap-1.5 disabled:opacity-40"
-            >
-              <FileJson size={14} />
-              {exporting === 'json' ? '生成中…' : 'JSON 备份'}
-            </button>
-            <button
-              type="button"
-              disabled={exporting !== null}
-              onClick={handleExportText}
-              className="btn-secondary py-2.5 text-xs flex items-center justify-center gap-1.5 disabled:opacity-40"
-            >
-              <FileText size={14} />
-              {exporting === 'text' ? '生成中…' : '文本报告'}
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={handleCopyText}
-            className="w-full py-2 text-xs text-ink/40 hover:text-ink transition-colors cursor-pointer flex items-center justify-center gap-1"
-          >
-            <Copy size={12} /> 复制文本到剪贴板
-          </button>
-        </div>
-
-        {loading ? (
-          <div className="text-center py-6 text-xs text-ink/30">整理数据中…</div>
-        ) : (
-          <>
-            {/* Profile summary */}
-            <div>
-              <h3 className="text-sm font-bold text-ink mb-2">个人档案</h3>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  ['性别', exportData.profile.sexZh],
-                  ['身高', exportData.profile.heightCm ? `${exportData.profile.heightCm} cm` : '未设置'],
-                  ['体重', exportData.profile.bodyweightKg ? `${exportData.profile.bodyweightKg} kg` : '未设置'],
-                  ['BMI', exportData.profile.bmi !== null ? `${exportData.profile.bmi}` : '—'],
-                  ['累计打卡', `${exportData.profile.totalWorkouts} 次`],
-                  ['连续天数', `${exportData.profile.streak} 天`],
-                ].map(([label, value]) => (
-                  <div key={label} className="p-2 bg-paper" style={{ borderRadius: 'var(--radius-sm)' }}>
-                    <span className="text-[10px] text-ink/30 block">{label}</span>
-                    <span className="text-sm font-semibold text-ink">{value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Dimension summaries */}
-            <div>
-              <h3 className="text-sm font-bold text-ink mb-2">各维度记录</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {Object.values(exportData.dimensionSummaries).map((dim) => {
-                  const isCardio = dim.category === 'Cardio';
-                  const prEntries = Object.entries(dim.prs);
-                  return (
-                    <div key={dim.category} className="p-3 bg-paper space-y-1.5" style={{ borderRadius: 'var(--radius-sm)' }}>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-ink">{dim.nameZh}</span>
-                        <span className="text-[10px] text-ink/30">{dim.workoutCount} 次</span>
-                      </div>
-                      {isCardio ? (
-                        <div className="text-xs text-ink/50">
-                          {dim.cardioMinutes || 0} 分钟 · ~{(dim.cardioCaloriesKcal || 0).toLocaleString()} kcal
-                          {(dim.cardioDistanceKm || 0) > 0 && ` · ${dim.cardioDistanceKm} km`}
-                        </div>
-                      ) : (
-                        <>
-                          <div className="text-xs text-ink/50">
-                            最大 {dim.maxWeightKg > 0 ? `${dim.maxWeightKg} kg` : '—'} · 总容量 {dim.totalVolumeKg.toLocaleString()} kg
-                          </div>
-                          {prEntries.length > 0 && (
-                            <div className="flex flex-wrap gap-1 pt-1">
-                              {prEntries.slice(0, 3).map(([name, w]) => (
-                                <span key={name} className="text-[10px] text-ink/40 bg-white px-1.5 py-0.5" style={{ borderRadius: 'var(--radius-sm)' }}>
-                                  {name}: {w}kg
-                                </span>
-                              ))}
-                              {prEntries.length > 3 && (
-                                <span className="text-[10px] text-ink/30">+{prEntries.length - 3}</span>
-                              )}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Training log entries */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-bold text-ink">训练记录 ({exportData.workoutLogs.length})</h3>
-                {exportData.workoutLogs.length > 5 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllLogs(!showAllLogs)}
-                    className="text-xs text-ink/40 hover:text-ink cursor-pointer"
-                  >
-                    {showAllLogs ? '收起' : `展开全部`}
-                  </button>
-                )}
-              </div>
-
-              {exportData.workoutLogs.length === 0 ? (
-                <div className="text-center py-4 text-xs text-ink/30">暂无记录</div>
-              ) : (
-                <div className="space-y-1.5 max-h-80 overflow-y-auto">
-                  {displayedLogs.map((log, idx) => (
-                    <div key={log.id || idx} className="p-2 bg-paper text-xs space-y-0.5" style={{ borderRadius: 'var(--radius-sm)' }}>
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-ink/60">{log.date} {log.time}</span>
-                        <span className="text-[10px] text-ink/40">{log.categories}</span>
-                      </div>
-                      {log.totalVolumeKg > 0 && (
-                        <div className="text-[11px] text-ink/40">
-                          总容量 {log.totalVolumeKg.toLocaleString()} kg · {log.totalSets} 组
-                        </div>
-                      )}
-                      {log.exercises.length > 0 && (
-                        <ul className="text-[11px] text-ink/50">
-                          {log.exercises.map((ex, eIdx) => (
-                            <li key={eIdx} className="truncate">• {ex}</li>
-                          ))}
-                        </ul>
-                      )}
-                      {log.note && (
-                        <p className="text-[10px] text-ink/30 italic">💬 {log.note}</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
-        )}
       </div>
     </div>
   );

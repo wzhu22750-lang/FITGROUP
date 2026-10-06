@@ -1,6 +1,7 @@
 import { WorkoutCategory, WorkoutLog } from '../types';
 import { resolveExerciseMuscles, findExerciseStandard, resolveEffectiveExerciseWeight, isPullUpExercise } from './workoutAnalytics';
 import { parseCategories, estimateCardioCalories, CATEGORY_META, CARDIO_REFERENCE_BODYWEIGHT_KG } from '../constants/workoutPresets';
+import { APP_NAME, APP_VERSION, EXPORT_SCHEMA_VERSION } from '../constants/appVersion';
 
 export interface UserProfileExport {
   displayName: string;
@@ -32,26 +33,54 @@ export interface DimensionSummaryExport {
   cardioDistanceKm?: number;
 }
 
-export interface WorkoutLogBriefExport {
+export interface ExportMetadata {
+  app: string;
+  appVersion: string;
+  exportSchemaVersion: number;
+  exportedAt: string;
+}
+
+/** A single workout log preserved in the backup, with derived display helpers. */
+export interface WorkoutLogExport {
   id: string;
-  date: string;
-  time: string;
-  categories: string;
-  totalVolumeKg: number;
-  totalSets: number;
-  exercises: string[];
+  userId: string;
+  userName: string;
+  /** Original ISO timestamp (UTC), kept verbatim for loss-free backup. */
+  timestamp: string;
+  /** Local (device timezone) calendar day, e.g. 2026-08-28. */
+  localDate: string;
+  /** Local (device timezone) wall-clock time, e.g. 18:30. */
+  localTime: string;
+  category: string;
+  /** All trained categories resolved from `categories` (preferred) or `category`. */
+  categories: WorkoutCategory[];
+  /** Raw exercises, kept verbatim so the backup can be restored. */
+  exercises: WorkoutLog['exercises'];
   note: string;
   visibility: string;
+  // Derived, human readable convenience values (not authoritative).
+  totalVolumeKg: number;
+  totalSets: number;
+  exerciseSummaries: string[];
+}
+
+export interface ExportSummaries {
+  dimensionSummaries: Record<WorkoutCategory, DimensionSummaryExport>;
+  totals: {
+    workoutLogs: number;
+    totalVolumeKg: number;
+    totalSets: number;
+  };
 }
 
 export interface FitGroupExportData {
-  app: string;
-  version: string;
-  exportedAt: string;
+  metadata: ExportMetadata;
   profile: UserProfileExport;
-  dimensionSummaries: Record<WorkoutCategory, DimensionSummaryExport>;
-  workoutLogs: WorkoutLogBriefExport[];
+  workoutLogs: WorkoutLogExport[];
+  summaries: ExportSummaries;
 }
+
+export type ExportContentKind = 'json' | 'text';
 
 function getBmiCategoryZh(bmi: number): string {
   if (bmi < 18.5) return '偏轻';
@@ -59,6 +88,8 @@ function getBmiCategoryZh(bmi: number): string {
   if (bmi < 28.0) return '偏重';
   return '过重';
 }
+
+const VALID_CATEGORIES = Object.values(WorkoutCategory);
 
 export function resolveExercisePrimaryCategory(
   exerciseName: string,
@@ -80,6 +111,57 @@ export function resolveExercisePrimaryCategory(
   return fallbackCategory;
 }
 
+/**
+ * Resolve every trained category for a log.
+ *
+ * Newer records store an explicit `categories` array (multi-category workouts
+ * such as Chest + Shoulders). Older records only have the `category` string.
+ * The explicit array always wins when it is valid and non-empty; otherwise we
+ * fall back to parsing the legacy string.
+ */
+export function resolveLogCategories(
+  log: Pick<WorkoutLog, 'category'> & { categories?: WorkoutCategory[] | null },
+): WorkoutCategory[] {
+  if (Array.isArray(log.categories)) {
+    const valid = log.categories.filter((c): c is WorkoutCategory =>
+      VALID_CATEGORIES.includes(c as WorkoutCategory),
+    );
+    if (valid.length > 0) {
+      return Array.from(new Set(valid));
+    }
+  }
+
+  return parseCategories(typeof log.category === 'string' ? log.category : '');
+}
+
+/** Format an ISO timestamp as a local calendar day. Invalid input degrades safely. */
+export function formatLocalDate(timestamp: string | undefined | null): string {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/** Format an ISO timestamp as a local wall-clock time (HH:mm). Returns '' on invalid input. */
+export function formatLocalTime(timestamp: string | undefined | null): string {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+}
+
+function formatLocalDateTime(timestamp: string | undefined | null): string {
+  const date = formatLocalDate(timestamp);
+  const time = formatLocalTime(timestamp);
+  if (!date && !time) return '时间未知';
+  return `${date} ${time}`.trim();
+}
+
 export function generateExportData(user: any, logs: WorkoutLog[]): FitGroupExportData {
   const heightCm = typeof user?.heightCm === 'number' && !isNaN(user.heightCm) ? user.heightCm : null;
   const bodyweightKg = typeof user?.bodyweightKg === 'number' && !isNaN(user.bodyweightKg) ? user.bodyweightKg : null;
@@ -93,6 +175,8 @@ export function generateExportData(user: any, logs: WorkoutLog[]): FitGroupExpor
     bmiCategoryZh = getBmiCategoryZh(bmi);
   }
 
+  const safeLogs = Array.isArray(logs) ? logs : [];
+
   const profile: UserProfileExport = {
     displayName: user?.displayName || 'FitGroup User',
     email: user?.email || '',
@@ -102,22 +186,16 @@ export function generateExportData(user: any, logs: WorkoutLog[]): FitGroupExpor
     sexZh,
     bmi,
     bmiCategoryZh,
-    totalWorkouts: typeof user?.totalWorkouts === 'number' ? user.totalWorkouts : logs.length,
+    totalWorkouts: typeof user?.totalWorkouts === 'number' ? user.totalWorkouts : safeLogs.length,
     streak: typeof user?.streak === 'number' ? user.streak : 0,
     exportDate: new Date().toISOString(),
   };
 
-  const categories = [
-    WorkoutCategory.Chest,
-    WorkoutCategory.Back,
-    WorkoutCategory.Legs,
-    WorkoutCategory.Shoulders,
-    WorkoutCategory.Others,
-    WorkoutCategory.Cardio,
-  ];
-
-  const dimensionSummaries: Record<WorkoutCategory, DimensionSummaryExport> = {} as any;
-  categories.forEach((cat) => {
+  const dimensionSummaries: Record<WorkoutCategory, DimensionSummaryExport> = {} as Record<
+    WorkoutCategory,
+    DimensionSummaryExport
+  >;
+  VALID_CATEGORIES.forEach((cat) => {
     const meta = CATEGORY_META[cat] || { zh: cat, en: cat };
     dimensionSummaries[cat] = {
       category: cat,
@@ -135,7 +213,7 @@ export function generateExportData(user: any, logs: WorkoutLog[]): FitGroupExpor
     };
   });
 
-  // Merge pre-existing PRs from user profile if available
+  // Merge pre-existing PRs from the user profile if available.
   if (user?.prs && typeof user.prs === 'object') {
     Object.entries(user.prs).forEach(([name, rawWeight]) => {
       const weight = Number(rawWeight);
@@ -150,20 +228,23 @@ export function generateExportData(user: any, logs: WorkoutLog[]): FitGroupExpor
     });
   }
 
-  // Sort logs in reverse chronological order (newest first)
-  const sortedLogs = [...logs].sort((a, b) => {
+  // Sort logs in reverse chronological order (newest first), with a stable
+  // secondary key so equal timestamps keep a deterministic order.
+  const sortedLogs = [...safeLogs].sort((a, b) => {
     const ta = new Date(a.timestamp).getTime();
     const tb = new Date(b.timestamp).getTime();
-    return (isNaN(tb) ? 0 : tb) - (isNaN(ta) ? 0 : ta);
+    const diff = (isNaN(tb) ? 0 : tb) - (isNaN(ta) ? 0 : ta);
+    if (diff !== 0) return diff;
+    return String(a.id).localeCompare(String(b.id));
   });
 
-  const workoutLogsBrief: WorkoutLogBriefExport[] = [];
+  const workoutLogs: WorkoutLogExport[] = [];
 
   sortedLogs.forEach((log) => {
-    const logCategories = parseCategories(typeof log.category === 'string' ? log.category : '');
+    const logCategories = resolveLogCategories(log);
     const fallbackCategory = logCategories[0] || WorkoutCategory.Others;
 
-    // Track distinct categories involved in this workout
+    // Track distinct categories involved in this workout.
     const touchedCategories = new Set<WorkoutCategory>();
     logCategories.forEach((c) => touchedCategories.add(c));
 
@@ -207,7 +288,7 @@ export function generateExportData(user: any, logs: WorkoutLog[]): FitGroupExpor
         dim.totalVolumeKg += vol;
         dim.totalSets += sets;
 
-        // Record PR
+        // Record PR.
         if (effectiveWeight > 0) {
           if (!dim.prs[cleanName] || effectiveWeight > dim.prs[cleanName]) {
             dim.prs[cleanName] = effectiveWeight;
@@ -234,32 +315,46 @@ export function generateExportData(user: any, logs: WorkoutLog[]): FitGroupExpor
       }
     });
 
-    const ts = log.timestamp || '';
-    const date = ts.split('T')[0] || '';
-    const time = ts.includes('T') ? ts.split('T')[1].slice(0, 5) : '';
-
-    const categoriesText = logCategories.map((c) => CATEGORY_META[c]?.zh || c).join(', ') || '综合';
-
-    workoutLogsBrief.push({
+    workoutLogs.push({
       id: log.id,
-      date,
-      time,
-      categories: categoriesText,
-      totalVolumeKg: workoutVolume,
-      totalSets: workoutSets,
-      exercises: exerciseSummaries,
+      userId: log.userId || '',
+      userName: log.userName || '',
+      timestamp: log.timestamp || '',
+      localDate: formatLocalDate(log.timestamp),
+      localTime: formatLocalTime(log.timestamp),
+      category: typeof log.category === 'string' ? log.category : '',
+      categories: logCategories,
+      exercises: Array.isArray(log.exercises) ? log.exercises : [],
       note: log.note || '',
       visibility: log.visibility || 'public',
+      totalVolumeKg: workoutVolume,
+      totalSets: workoutSets,
+      exerciseSummaries,
     });
   });
 
+  const totals = workoutLogs.reduce(
+    (acc, log) => {
+      acc.totalVolumeKg += log.totalVolumeKg;
+      acc.totalSets += log.totalSets;
+      return acc;
+    },
+    { workoutLogs: workoutLogs.length, totalVolumeKg: 0, totalSets: 0 },
+  );
+
   return {
-    app: 'FitGroup',
-    version: '1.2.0',
-    exportedAt: new Date().toISOString(),
+    metadata: {
+      app: APP_NAME,
+      appVersion: APP_VERSION,
+      exportSchemaVersion: EXPORT_SCHEMA_VERSION,
+      exportedAt: new Date().toISOString(),
+    },
     profile,
-    dimensionSummaries,
-    workoutLogs: workoutLogsBrief,
+    workoutLogs,
+    summaries: {
+      dimensionSummaries,
+      totals,
+    },
   };
 }
 
@@ -267,13 +362,49 @@ export function formatExportAsJson(data: FitGroupExportData): string {
   return JSON.stringify(data, null, 2);
 }
 
+/**
+ * Validate generated export content before it reaches the native layer.
+ * Returns the UTF-8 byte length (always > 0) or throws a descriptive error.
+ */
+export function validateExportContent(content: unknown, kind: ExportContentKind): number {
+  if (typeof content !== 'string' || content.length === 0) {
+    throw new Error('导出内容为空，已取消保存');
+  }
+
+  const bytes = new TextEncoder().encode(content).byteLength;
+  if (bytes === 0) {
+    throw new Error('导出内容为空，已取消保存');
+  }
+
+  if (kind === 'json') {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      throw new Error('导出的 JSON 内容无效');
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('导出的 JSON 内容无效');
+    }
+  }
+
+  return bytes;
+}
+
+function categoryNamesZh(categories: WorkoutCategory[]): string {
+  if (!categories || categories.length === 0) return '综合';
+  return categories.map((c) => CATEGORY_META[c]?.zh || c).join(' + ');
+}
+
 export function formatExportAsText(data: FitGroupExportData): string {
-  const { profile, dimensionSummaries, workoutLogs } = data;
+  const { metadata, profile, workoutLogs, summaries } = data;
+  const dimensionSummaries = summaries.dimensionSummaries;
   const lines: string[] = [];
 
   lines.push('==================================================');
   lines.push('FITGROUP 健身数据导出报告');
-  lines.push(`导出时间: ${new Date(data.exportedAt).toLocaleString()}`);
+  lines.push(`应用版本: ${metadata.appVersion} (schema v${metadata.exportSchemaVersion})`);
+  lines.push(`导出时间: ${formatLocalDateTime(metadata.exportedAt)}`);
   lines.push(`用户: ${profile.displayName} ${profile.email ? `(${profile.email})` : ''}`);
   lines.push('==================================================\n');
 
@@ -322,9 +453,10 @@ export function formatExportAsText(data: FitGroupExportData): string {
   } else {
     workoutLogs.forEach((log, idx) => {
       const volText = log.totalVolumeKg > 0 ? ` | 总容量: ${log.totalVolumeKg.toLocaleString()} kg (${log.totalSets}组)` : '';
-      lines.push(`\n[${idx + 1}] ${log.date} ${log.time} | 部位: ${log.categories}${volText}`);
-      if (log.exercises.length > 0) {
-        log.exercises.forEach((ex) => {
+      const timeText = log.localDate || log.localTime ? `${log.localDate} ${log.localTime}`.trim() : '时间未知';
+      lines.push(`\n[${idx + 1}] ${timeText} | 部位: ${categoryNamesZh(log.categories)}${volText}`);
+      if (log.exerciseSummaries.length > 0) {
+        log.exerciseSummaries.forEach((ex) => {
           lines.push(`    • ${ex}`);
         });
       }
