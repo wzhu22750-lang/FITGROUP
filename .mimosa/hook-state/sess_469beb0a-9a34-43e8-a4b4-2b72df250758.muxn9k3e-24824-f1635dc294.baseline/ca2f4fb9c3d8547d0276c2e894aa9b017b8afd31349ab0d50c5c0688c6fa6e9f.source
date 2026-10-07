@@ -1,0 +1,41 @@
+/// <reference path="../pb_data/types.d.ts" />
+migrate((db) => {
+  const collection = new Collection({
+    "id": "e3pq6g5zs9rhrw5",
+    "created": "2026-05-28 03:38:29.968Z",
+    "updated": "2026-05-28 03:38:29.968Z",
+    "name": "workoutLogs",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "system": false,
+        "id": "8kkbli2i",
+        "name": "userName",
+        "type": "text",
+        "required": true,
+        "presentable": false,
+        "unique": false,
+        "options": {
+          "min": null,
+          "max": null,
+          "pattern": ""
+        }
+      }
+    ],
+    "indexes": [],
+    "listRule": null,
+    "viewRule": null,
+    "createRule": null,
+    "updateRule": null,
+    "deleteRule": null,
+    "options": {}
+  });
+
+  return Dao(db).saveCollection(collection);
+}, (db) => {
+  const dao = new Dao(db);
+  const collection = dao.findCollectionByNameOrId("e3pq6g5zs9rhrw5");
+
+  return dao.deleteCollection(collection);
+})

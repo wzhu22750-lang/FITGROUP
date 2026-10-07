@@ -1,0 +1,1198 @@
+{
+  "schema_version": "mimosa-task-review/v2",
+  "run_id": "20261007T030358679Z-13786-54df22c59d12",
+  "run_status": "completed",
+  "errors": [],
+  "coverage": {
+    "schema_version": "mimosa-hook-coverage/v1",
+    "status": "complete",
+    "scope": "hook_observed_diff",
+    "baseline": {
+      "complete": true,
+      "captured_files": 145,
+      "candidate_limit": 5000,
+      "truncated": false,
+      "enumeration_error_count": 0,
+      "snapshot_error_count": 0,
+      "compensated_target_count": 12
+    },
+    "change_tracking": {
+      "touched_observed": 11,
+      "touched_retained": 11,
+      "truncated": false,
+      "bash_mutation": true,
+      "bash_discovered": 12,
+      "bash_discovery_limit": 80,
+      "bash_discovery_truncated": false
+    },
+    "candidates": {
+      "eligible_files": 12,
+      "selected_files": 12,
+      "limit": 20,
+      "truncated": false
+    },
+    "scanning": {
+      "required_files": 12,
+      "scanned_files": 12,
+      "skipped_files": 0,
+      "failed_files": 0,
+      "project_checks_required": 0,
+      "project_checks_completed": 0
+    },
+    "notification": {
+      "eligible_findings": 0,
+      "detailed_findings": 0,
+      "detail_limit": 3,
+      "truncated": false
+    },
+    "reason_counts": {},
+    "reasons": [],
+    "reasons_truncated": false
+  },
+  "generated_at": "2026-10-07T03:03:58.679Z",
+  "session_id": "sess_469beb0a-9a34-43e8-a4b4-2b72df250758",
+  "target": ".",
+  "revision": "e797139d5b02fe6064548136cabe8a1d50cb2b30",
+  "rules_version": "unavailable",
+  "diff_hash": "f3ed38d06a02d105e2b4fab6d2f312bcc11adede4368e832460be9807ef591d7",
+  "diff": {
+    "algorithm": "sha256",
+    "changed_file_count": 12,
+    "changed_files": [
+      {
+        "file": "scripts/verify-example-lifters.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 61
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "6b62d4cc9c3fbf5d3aae31293c81c3bbb79234d5990b513804e2873537082260"
+      },
+      {
+        "file": "src/components/Statistics.tsx",
+        "ranges": [
+          {
+            "start": 37,
+            "end": 37
+          },
+          {
+            "start": 43,
+            "end": 43
+          },
+          {
+            "start": 45,
+            "end": 45
+          },
+          {
+            "start": 48,
+            "end": 48
+          },
+          {
+            "start": 51,
+            "end": 51
+          },
+          {
+            "start": 57,
+            "end": 66
+          },
+          {
+            "start": 276,
+            "end": 276
+          },
+          {
+            "start": 322,
+            "end": 322
+          },
+          {
+            "start": 328,
+            "end": 334
+          },
+          {
+            "start": 338,
+            "end": 338
+          },
+          {
+            "start": 444,
+            "end": 457
+          },
+          {
+            "start": 467,
+            "end": 477
+          },
+          {
+            "start": 528,
+            "end": 536
+          },
+          {
+            "start": 566,
+            "end": 574
+          },
+          {
+            "start": 581,
+            "end": 583
+          },
+          {
+            "start": 756,
+            "end": 756
+          },
+          {
+            "start": 764,
+            "end": 764
+          },
+          {
+            "start": 771,
+            "end": 783
+          },
+          {
+            "start": 785,
+            "end": 793
+          },
+          {
+            "start": 903,
+            "end": 903
+          },
+          {
+            "start": 952,
+            "end": 1006
+          },
+          {
+            "start": 1009,
+            "end": 1010
+          },
+          {
+            "start": 1016,
+            "end": 1016
+          },
+          {
+            "start": 1035,
+            "end": 1036
+          },
+          {
+            "start": 1038,
+            "end": 1038
+          },
+          {
+            "start": 1043,
+            "end": 1043
+          },
+          {
+            "start": 1045,
+            "end": 1050
+          },
+          {
+            "start": 1053,
+            "end": 1055
+          },
+          {
+            "start": 1062,
+            "end": 1062
+          },
+          {
+            "start": 1066,
+            "end": 1066
+          },
+          {
+            "start": 1068,
+            "end": 1070
+          },
+          {
+            "start": 1073,
+            "end": 1073
+          },
+          {
+            "start": 1078,
+            "end": 1078
+          },
+          {
+            "start": 1157,
+            "end": 1157
+          },
+          {
+            "start": 1159,
+            "end": 1160
+          },
+          {
+            "start": 1166,
+            "end": 1175
+          },
+          {
+            "start": 1177,
+            "end": 1177
+          },
+          {
+            "start": 1182,
+            "end": 1185
+          },
+          {
+            "start": 1187,
+            "end": 1187
+          },
+          {
+            "start": 1192,
+            "end": 1192
+          },
+          {
+            "start": 1194,
+            "end": 1194
+          },
+          {
+            "start": 1199,
+            "end": 1199
+          },
+          {
+            "start": 1201,
+            "end": 1201
+          },
+          {
+            "start": 1209,
+            "end": 1209
+          },
+          {
+            "start": 1211,
+            "end": 1211
+          },
+          {
+            "start": 1219,
+            "end": 1219
+          },
+          {
+            "start": 1255,
+            "end": 1256
+          },
+          {
+            "start": 1264,
+            "end": 1264
+          },
+          {
+            "start": 1267,
+            "end": 1267
+          },
+          {
+            "start": 1273,
+            "end": 1277
+          },
+          {
+            "start": 1279,
+            "end": 1281
+          },
+          {
+            "start": 1284,
+            "end": 1284
+          }
+        ],
+        "before_hash": "586a0e33206951b52fa870282079eadaf486b92653f747c6615b519600673af2",
+        "after_hash": "3b0d332d883fe39b12bf407c312384502fcd2e298042fd7e6e5b34fb2f1918d4"
+      },
+      {
+        "file": "src/constants/exerciseDefinitions.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 1041
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "b7fa0e3af3adbca8ddad0ef7be0f819ea1aa8f2630f560e7840e4cc304313d32"
+      },
+      {
+        "file": "src/constants/muscleCoefficients.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 13
+          },
+          {
+            "start": 16,
+            "end": 38
+          },
+          {
+            "start": 41,
+            "end": 42
+          },
+          {
+            "start": 45,
+            "end": 52
+          },
+          {
+            "start": 55,
+            "end": 64
+          }
+        ],
+        "before_hash": "40f3fdaa72ea26f24559ab396d04bd23950ef0ba600f78edfaee96b61db15645",
+        "after_hash": "2cf98a57aacd777c622d5431b5c87aa5ac392e8aa2ae7760c387498e3f1300bb"
+      },
+      {
+        "file": "src/constants/muscleTaxonomy.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 202
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "bfce2f390f4fea10cea3deda0d1d76d07ae66aec7a727520e1e376119ac275d1"
+      },
+      {
+        "file": "src/constants/strengthStandards.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 18
+          },
+          {
+            "start": 20,
+            "end": 20
+          },
+          {
+            "start": 22,
+            "end": 22
+          },
+          {
+            "start": 24,
+            "end": 27
+          },
+          {
+            "start": 35,
+            "end": 37
+          },
+          {
+            "start": 39,
+            "end": 41
+          },
+          {
+            "start": 44,
+            "end": 44
+          },
+          {
+            "start": 46,
+            "end": 47
+          },
+          {
+            "start": 49,
+            "end": 49
+          },
+          {
+            "start": 51,
+            "end": 51
+          },
+          {
+            "start": 54,
+            "end": 54
+          },
+          {
+            "start": 59,
+            "end": 59
+          },
+          {
+            "start": 64,
+            "end": 64
+          },
+          {
+            "start": 66,
+            "end": 67
+          },
+          {
+            "start": 69,
+            "end": 71
+          },
+          {
+            "start": 74,
+            "end": 74
+          },
+          {
+            "start": 79,
+            "end": 79
+          },
+          {
+            "start": 84,
+            "end": 84
+          },
+          {
+            "start": 88,
+            "end": 90
+          },
+          {
+            "start": 93,
+            "end": 210
+          },
+          {
+            "start": 215,
+            "end": 219
+          },
+          {
+            "start": 223,
+            "end": 223
+          },
+          {
+            "start": 227,
+            "end": 227
+          },
+          {
+            "start": 229,
+            "end": 229
+          },
+          {
+            "start": 233,
+            "end": 233
+          },
+          {
+            "start": 235,
+            "end": 236
+          },
+          {
+            "start": 238,
+            "end": 270
+          },
+          {
+            "start": 272,
+            "end": 274
+          },
+          {
+            "start": 280,
+            "end": 283
+          },
+          {
+            "start": 285,
+            "end": 300
+          },
+          {
+            "start": 302,
+            "end": 313
+          },
+          {
+            "start": 315,
+            "end": 325
+          },
+          {
+            "start": 327,
+            "end": 336
+          },
+          {
+            "start": 338,
+            "end": 351
+          },
+          {
+            "start": 353,
+            "end": 355
+          },
+          {
+            "start": 357,
+            "end": 460
+          }
+        ],
+        "before_hash": "473025f8a6581090a36149049fa625698f6fd38c5bbdd86004c3ade3bfb13e0d",
+        "after_hash": "970b9bf2275443d265ab5d517b5fe347d655d1612562b19a8d2af630b1b6cdf7"
+      },
+      {
+        "file": "src/utils/dataExport.ts",
+        "ranges": [
+          {
+            "start": 2,
+            "end": 2
+          },
+          {
+            "start": 283,
+            "end": 285
+          },
+          {
+            "start": 287,
+            "end": 287
+          }
+        ],
+        "before_hash": "455701de4d82d3e37ad0941f7fa8e0c9779827f6e56c90ae7a2f3f68a7c455fc",
+        "after_hash": "5562fa1307908a17dfb59b531aa768d8b8893b5711ca87476035f51ce7185001"
+      },
+      {
+        "file": "src/utils/strengthAssessment.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 523
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "15a58e366f7e1c733b83770d594475dc2a0896f7d5d68ed18d3c146a3791d436"
+      },
+      {
+        "file": "src/utils/trainingCapacity.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 206
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "23cae0c3c92adeedff46efac589a580abf6d3ec6037ff59a6e5d71768f9a15d9"
+      },
+      {
+        "file": "src/utils/workoutAnalytics.ts",
+        "ranges": [
+          {
+            "start": 3,
+            "end": 13
+          },
+          {
+            "start": 32,
+            "end": 32
+          },
+          {
+            "start": 35,
+            "end": 35
+          },
+          {
+            "start": 37,
+            "end": 69
+          },
+          {
+            "start": 75,
+            "end": 86
+          },
+          {
+            "start": 93,
+            "end": 113
+          },
+          {
+            "start": 118,
+            "end": 119
+          },
+          {
+            "start": 133,
+            "end": 138
+          },
+          {
+            "start": 142,
+            "end": 143
+          },
+          {
+            "start": 145,
+            "end": 146
+          },
+          {
+            "start": 150,
+            "end": 151
+          },
+          {
+            "start": 161,
+            "end": 161
+          },
+          {
+            "start": 166,
+            "end": 166
+          },
+          {
+            "start": 170,
+            "end": 170
+          },
+          {
+            "start": 172,
+            "end": 180
+          },
+          {
+            "start": 451,
+            "end": 453
+          },
+          {
+            "start": 456,
+            "end": 459
+          },
+          {
+            "start": 474,
+            "end": 482
+          },
+          {
+            "start": 484,
+            "end": 487
+          },
+          {
+            "start": 492,
+            "end": 492
+          },
+          {
+            "start": 498,
+            "end": 498
+          },
+          {
+            "start": 511,
+            "end": 516
+          },
+          {
+            "start": 520,
+            "end": 520
+          },
+          {
+            "start": 522,
+            "end": 522
+          },
+          {
+            "start": 524,
+            "end": 524
+          },
+          {
+            "start": 554,
+            "end": 566
+          },
+          {
+            "start": 568,
+            "end": 571
+          },
+          {
+            "start": 575,
+            "end": 592
+          },
+          {
+            "start": 596,
+            "end": 598
+          },
+          {
+            "start": 600,
+            "end": 600
+          },
+          {
+            "start": 602,
+            "end": 605
+          },
+          {
+            "start": 607,
+            "end": 615
+          },
+          {
+            "start": 617,
+            "end": 622
+          },
+          {
+            "start": 624,
+            "end": 631
+          },
+          {
+            "start": 633,
+            "end": 652
+          },
+          {
+            "start": 654,
+            "end": 655
+          },
+          {
+            "start": 657,
+            "end": 658
+          },
+          {
+            "start": 660,
+            "end": 662
+          },
+          {
+            "start": 664,
+            "end": 665
+          },
+          {
+            "start": 667,
+            "end": 667
+          },
+          {
+            "start": 671,
+            "end": 672
+          },
+          {
+            "start": 674,
+            "end": 696
+          },
+          {
+            "start": 699,
+            "end": 699
+          },
+          {
+            "start": 705,
+            "end": 707
+          },
+          {
+            "start": 711,
+            "end": 711
+          },
+          {
+            "start": 714,
+            "end": 714
+          },
+          {
+            "start": 717,
+            "end": 717
+          },
+          {
+            "start": 720,
+            "end": 720
+          },
+          {
+            "start": 725,
+            "end": 725
+          },
+          {
+            "start": 730,
+            "end": 742
+          },
+          {
+            "start": 744,
+            "end": 756
+          },
+          {
+            "start": 759,
+            "end": 777
+          },
+          {
+            "start": 780,
+            "end": 786
+          },
+          {
+            "start": 803,
+            "end": 804
+          },
+          {
+            "start": 807,
+            "end": 808
+          },
+          {
+            "start": 819,
+            "end": 829
+          },
+          {
+            "start": 832,
+            "end": 834
+          },
+          {
+            "start": 836,
+            "end": 838
+          },
+          {
+            "start": 844,
+            "end": 844
+          },
+          {
+            "start": 849,
+            "end": 849
+          },
+          {
+            "start": 851,
+            "end": 854
+          },
+          {
+            "start": 857,
+            "end": 857
+          },
+          {
+            "start": 861,
+            "end": 882
+          },
+          {
+            "start": 884,
+            "end": 885
+          },
+          {
+            "start": 887,
+            "end": 895
+          },
+          {
+            "start": 898,
+            "end": 898
+          },
+          {
+            "start": 902,
+            "end": 908
+          },
+          {
+            "start": 910,
+            "end": 918
+          },
+          {
+            "start": 921,
+            "end": 921
+          },
+          {
+            "start": 923,
+            "end": 923
+          },
+          {
+            "start": 928,
+            "end": 928
+          },
+          {
+            "start": 932,
+            "end": 932
+          },
+          {
+            "start": 937,
+            "end": 944
+          },
+          {
+            "start": 949,
+            "end": 956
+          },
+          {
+            "start": 959,
+            "end": 959
+          },
+          {
+            "start": 962,
+            "end": 982
+          },
+          {
+            "start": 984,
+            "end": 1002
+          },
+          {
+            "start": 1004,
+            "end": 1019
+          },
+          {
+            "start": 1022,
+            "end": 1023
+          },
+          {
+            "start": 1026,
+            "end": 1044
+          },
+          {
+            "start": 1048,
+            "end": 1119
+          },
+          {
+            "start": 1124,
+            "end": 1147
+          },
+          {
+            "start": 1151,
+            "end": 1160
+          },
+          {
+            "start": 1162,
+            "end": 1189
+          },
+          {
+            "start": 1191,
+            "end": 1195
+          },
+          {
+            "start": 1199,
+            "end": 1199
+          },
+          {
+            "start": 1212,
+            "end": 1212
+          },
+          {
+            "start": 1222,
+            "end": 1226
+          },
+          {
+            "start": 1247,
+            "end": 1254
+          },
+          {
+            "start": 1257,
+            "end": 1260
+          },
+          {
+            "start": 1263,
+            "end": 1277
+          },
+          {
+            "start": 1280,
+            "end": 1281
+          },
+          {
+            "start": 1283,
+            "end": 1288
+          },
+          {
+            "start": 1297,
+            "end": 1304
+          },
+          {
+            "start": 1307,
+            "end": 1312
+          },
+          {
+            "start": 1315,
+            "end": 1315
+          },
+          {
+            "start": 1322,
+            "end": 1323
+          },
+          {
+            "start": 1328,
+            "end": 1331
+          },
+          {
+            "start": 1346,
+            "end": 1357
+          },
+          {
+            "start": 1361,
+            "end": 1361
+          },
+          {
+            "start": 1372,
+            "end": 1410
+          },
+          {
+            "start": 1414,
+            "end": 1414
+          },
+          {
+            "start": 1416,
+            "end": 1416
+          },
+          {
+            "start": 1419,
+            "end": 1419
+          },
+          {
+            "start": 1424,
+            "end": 1424
+          },
+          {
+            "start": 1426,
+            "end": 1430
+          },
+          {
+            "start": 1441,
+            "end": 1441
+          },
+          {
+            "start": 1451,
+            "end": 1455
+          },
+          {
+            "start": 1464,
+            "end": 1474
+          }
+        ],
+        "before_hash": "21455606735131f03b2107b7a079a57c7f5e021c0ea4e302cf749e804c22db40",
+        "after_hash": "3f464c18265c6b218bab6378e5b42d4ca121bce42fbe86fcf26e765565abd6a7"
+      },
+      {
+        "file": "tests/data-export.test.ts",
+        "ranges": [
+          {
+            "start": 132,
+            "end": 132
+          },
+          {
+            "start": 145,
+            "end": 145
+          },
+          {
+            "start": 157,
+            "end": 157
+          }
+        ],
+        "before_hash": "95634edc00a19814d77e3d5881ba122fa7530ce1a51458ac796099cf8d11ab9f",
+        "after_hash": "cd0c9676bd6f368d2a5dad5165c0810063838290662d83d77f3266c0a70573c1"
+      },
+      {
+        "file": "tests/workout-analytics.test.ts",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 7
+          },
+          {
+            "start": 24,
+            "end": 42
+          },
+          {
+            "start": 46,
+            "end": 49
+          },
+          {
+            "start": 52,
+            "end": 56
+          },
+          {
+            "start": 66,
+            "end": 105
+          },
+          {
+            "start": 107,
+            "end": 107
+          },
+          {
+            "start": 109,
+            "end": 128
+          },
+          {
+            "start": 131,
+            "end": 194
+          },
+          {
+            "start": 196,
+            "end": 196
+          },
+          {
+            "start": 198,
+            "end": 215
+          },
+          {
+            "start": 217,
+            "end": 219
+          },
+          {
+            "start": 221,
+            "end": 223
+          },
+          {
+            "start": 226,
+            "end": 226
+          },
+          {
+            "start": 228,
+            "end": 257
+          },
+          {
+            "start": 259,
+            "end": 265
+          },
+          {
+            "start": 267,
+            "end": 271
+          },
+          {
+            "start": 273,
+            "end": 275
+          },
+          {
+            "start": 278,
+            "end": 278
+          },
+          {
+            "start": 280,
+            "end": 284
+          },
+          {
+            "start": 287,
+            "end": 287
+          },
+          {
+            "start": 289,
+            "end": 316
+          },
+          {
+            "start": 318,
+            "end": 321
+          },
+          {
+            "start": 323,
+            "end": 338
+          },
+          {
+            "start": 340,
+            "end": 348
+          },
+          {
+            "start": 351,
+            "end": 351
+          },
+          {
+            "start": 353,
+            "end": 370
+          },
+          {
+            "start": 373,
+            "end": 373
+          },
+          {
+            "start": 375,
+            "end": 387
+          },
+          {
+            "start": 389,
+            "end": 399
+          },
+          {
+            "start": 402,
+            "end": 402
+          },
+          {
+            "start": 404,
+            "end": 435
+          },
+          {
+            "start": 437,
+            "end": 471
+          },
+          {
+            "start": 473,
+            "end": 482
+          },
+          {
+            "start": 485,
+            "end": 501
+          },
+          {
+            "start": 503,
+            "end": 503
+          },
+          {
+            "start": 505,
+            "end": 546
+          },
+          {
+            "start": 549,
+            "end": 549
+          }
+        ],
+        "before_hash": "fe8c30817e47850b100d71ce37bd2269d5a30428b83c3f2b975172de885a8015",
+        "after_hash": "38a5188f017fc4474c8c91fba2bd864b1c9f199369221494bdb76114cb1ad8e2"
+      }
+    ]
+  },
+  "timing": {
+    "started_at": "2026-10-07T03:03:57.701Z",
+    "completed_at": "2026-10-07T03:03:58.679Z",
+    "duration_ms": 978,
+    "measurement": "hook_wall_clock"
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "model_calls": 0,
+    "measurement": "known-zero"
+  },
+  "telemetry": {
+    "schemaVersion": "mimosa-gate-telemetry/v1",
+    "profile": "gate",
+    "operation": "Stop",
+    "outcome": "complete",
+    "latencyMs": 978,
+    "peakMemoryBytes": 239091712,
+    "memoryMeasurement": "max-observed-process-rss",
+    "scannedFiles": 12,
+    "cache": {
+      "hits": 0,
+      "misses": 0,
+      "measurement": "not-applicable"
+    },
+    "denyCount": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "total": 0,
+      "modelCalls": 0,
+      "measurement": "known-zero"
+    }
+  },
+  "finding_count": 0,
+  "rewake_finding_count": 0,
+  "evidence_boundary": {
+    "scan": "candidate",
+    "static_fix_verification": "observed_static_only",
+    "runtime_verification": "not_performed"
+  },
+  "finding_events": [],
+  "findings": [],
+  "artifacts": {
+    "immutable_report": ".mimosa/reports/task-review-sess_469beb0a-9a34-43e8-a4b4-2b72df250758-20261007T030358679Z-13786-54df22c59d12.json",
+    "latest_report": ".mimosa/reports/task-review-sess_469beb0a-9a34-43e8-a4b4-2b72df250758.json",
+    "history_summary": ".mimosa/history/run-20261007T030358679Z-13786-54df22c59d12.json"
+  }
+}

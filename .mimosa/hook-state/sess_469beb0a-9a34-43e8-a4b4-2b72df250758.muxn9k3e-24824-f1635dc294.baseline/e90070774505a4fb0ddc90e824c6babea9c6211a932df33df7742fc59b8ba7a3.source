@@ -1,0 +1,41 @@
+/// <reference path="../pb_data/types.d.ts" />
+migrate((db) => {
+  const collection = new Collection({
+    "id": "v5v37iozzso0nsh",
+    "created": "2026-05-28 03:38:30.116Z",
+    "updated": "2026-05-28 03:38:30.116Z",
+    "name": "photos",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "system": false,
+        "id": "py6qknq6",
+        "name": "userId",
+        "type": "text",
+        "required": false,
+        "presentable": false,
+        "unique": false,
+        "options": {
+          "min": null,
+          "max": null,
+          "pattern": ""
+        }
+      }
+    ],
+    "indexes": [],
+    "listRule": null,
+    "viewRule": null,
+    "createRule": null,
+    "updateRule": null,
+    "deleteRule": null,
+    "options": {}
+  });
+
+  return Dao(db).saveCollection(collection);
+}, (db) => {
+  const dao = new Dao(db);
+  const collection = dao.findCollectionByNameOrId("v5v37iozzso0nsh");
+
+  return dao.deleteCollection(collection);
+})

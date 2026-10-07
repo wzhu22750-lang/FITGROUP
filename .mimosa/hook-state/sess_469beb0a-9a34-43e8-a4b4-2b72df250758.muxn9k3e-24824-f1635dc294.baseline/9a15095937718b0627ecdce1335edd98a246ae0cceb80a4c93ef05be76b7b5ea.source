@@ -1,0 +1,220 @@
+/// <reference path="../pb_data/types.d.ts" />
+migrate((db) => {
+  const dao = new Dao(db)
+
+  const users = dao.findCollectionByNameOrId("_pb_users_auth_")
+  users.schema.addField(new SchemaField({
+    "system": false,
+    "id": "fg_displayname",
+    "name": "displayName",
+    "type": "text",
+    "required": false,
+    "presentable": true,
+    "unique": false,
+    "options": { "min": null, "max": 50, "pattern": "" }
+  }))
+  users.schema.addField(new SchemaField({
+    "system": false,
+    "id": "fg_photourl",
+    "name": "photoURL",
+    "type": "url",
+    "required": false,
+    "presentable": false,
+    "unique": false,
+    "options": { "exceptDomains": null, "onlyDomains": null }
+  }))
+  users.schema.addField(new SchemaField({
+    "system": false,
+    "id": "fg_phone",
+    "name": "phone",
+    "type": "text",
+    "required": false,
+    "presentable": false,
+    "unique": false,
+    "options": { "min": null, "max": 20, "pattern": "" }
+  }))
+  users.schema.addField(new SchemaField({
+    "system": false,
+    "id": "fg_streak",
+    "name": "streak",
+    "type": "number",
+    "required": false,
+    "presentable": false,
+    "unique": false,
+    "options": { "min": 0, "max": null, "noDecimal": true }
+  }))
+  users.schema.addField(new SchemaField({
+    "system": false,
+    "id": "fg_lastwo",
+    "name": "lastWorkoutDate",
+    "type": "date",
+    "required": false,
+    "presentable": false,
+    "unique": false,
+    "options": { "min": "", "max": "" }
+  }))
+  users.schema.addField(new SchemaField({
+    "system": false,
+    "id": "fg_totalwo",
+    "name": "totalWorkouts",
+    "type": "number",
+    "required": false,
+    "presentable": false,
+    "unique": false,
+    "options": { "min": 0, "max": null, "noDecimal": true }
+  }))
+  users.schema.addField(new SchemaField({
+    "system": false,
+    "id": "fg_prs",
+    "name": "prs",
+    "type": "json",
+    "required": false,
+    "presentable": false,
+    "unique": false,
+    "options": { "maxSize": 2000000 }
+  }))
+  dao.saveCollection(users)
+
+  const logs = dao.findCollectionByNameOrId("yh3y2skakjneui4")
+  logs.schema.removeField("sw1n0gev")
+  logs.schema.addField(new SchemaField({
+    "system": false, "id": "wl_userid", "name": "userId", "type": "text",
+    "required": false, "presentable": false, "unique": false,
+    "options": { "min": null, "max": null, "pattern": "" }
+  }))
+  logs.schema.addField(new SchemaField({
+    "system": false, "id": "wl_username", "name": "userName", "type": "text",
+    "required": false, "presentable": true, "unique": false,
+    "options": { "min": null, "max": 80, "pattern": "" }
+  }))
+  logs.schema.addField(new SchemaField({
+    "system": false, "id": "wl_userphoto", "name": "userPhoto", "type": "url",
+    "required": false, "presentable": false, "unique": false,
+    "options": { "exceptDomains": null, "onlyDomains": null }
+  }))
+  logs.schema.addField(new SchemaField({
+    "system": false, "id": "wl_ts", "name": "timestamp", "type": "date",
+    "required": false, "presentable": false, "unique": false,
+    "options": { "min": "", "max": "" }
+  }))
+  logs.schema.addField(new SchemaField({
+    "system": false, "id": "wl_cat", "name": "category", "type": "select",
+    "required": false, "presentable": true, "unique": false,
+    "options": { "maxSelect": 1, "values": ["Shoulders", "Chest", "Back", "Legs", "Cardio", "Others"] }
+  }))
+  logs.schema.addField(new SchemaField({
+    "system": false, "id": "wl_ex", "name": "exercises", "type": "json",
+    "required": false, "presentable": false, "unique": false,
+    "options": { "maxSize": 2000000 }
+  }))
+  logs.schema.addField(new SchemaField({
+    "system": false, "id": "wl_photo", "name": "photoUrl", "type": "url",
+    "required": false, "presentable": false, "unique": false,
+    "options": { "exceptDomains": null, "onlyDomains": null }
+  }))
+  logs.schema.addField(new SchemaField({
+    "system": false, "id": "wl_note", "name": "note", "type": "text",
+    "required": false, "presentable": false, "unique": false,
+    "options": { "min": null, "max": 500, "pattern": "" }
+  }))
+  logs.schema.addField(new SchemaField({
+    "system": false, "id": "wl_likes", "name": "likesCount", "type": "number",
+    "required": false, "presentable": false, "unique": false,
+    "options": { "min": 0, "max": null, "noDecimal": true }
+  }))
+  logs.schema.addField(new SchemaField({
+    "system": false, "id": "wl_comments", "name": "commentsCount", "type": "number",
+    "required": false, "presentable": false, "unique": false,
+    "options": { "min": 0, "max": null, "noDecimal": true }
+  }))
+  logs.listRule = ""
+  logs.viewRule = ""
+  logs.createRule = ""
+  logs.updateRule = ""
+  logs.deleteRule = ""
+  dao.saveCollection(logs)
+
+  const likes = dao.findCollectionByNameOrId("qox00zkcmhohxm7")
+  likes.schema.removeField("y8jqmakb")
+  likes.schema.addField(new SchemaField({
+    "system": false, "id": "lk_log", "name": "workoutLogId", "type": "text",
+    "required": false, "presentable": false, "unique": false,
+    "options": { "min": null, "max": null, "pattern": "" }
+  }))
+  likes.schema.addField(new SchemaField({
+    "system": false, "id": "lk_user", "name": "userId", "type": "text",
+    "required": false, "presentable": false, "unique": false,
+    "options": { "min": null, "max": null, "pattern": "" }
+  }))
+  likes.listRule = ""
+  likes.viewRule = ""
+  likes.createRule = ""
+  likes.updateRule = ""
+  likes.deleteRule = ""
+  dao.saveCollection(likes)
+
+  const comments = dao.findCollectionByNameOrId("doud7n6hber2rh1")
+  comments.schema.removeField("oxd5n9c4")
+  comments.schema.addField(new SchemaField({
+    "system": false, "id": "cm_log", "name": "workoutLogId", "type": "text",
+    "required": false, "presentable": false, "unique": false,
+    "options": { "min": null, "max": null, "pattern": "" }
+  }))
+  comments.schema.addField(new SchemaField({
+    "system": false, "id": "cm_user", "name": "userId", "type": "text",
+    "required": false, "presentable": false, "unique": false,
+    "options": { "min": null, "max": null, "pattern": "" }
+  }))
+  comments.schema.addField(new SchemaField({
+    "system": false, "id": "cm_name", "name": "userName", "type": "text",
+    "required": false, "presentable": true, "unique": false,
+    "options": { "min": null, "max": 80, "pattern": "" }
+  }))
+  comments.schema.addField(new SchemaField({
+    "system": false, "id": "cm_photo", "name": "userPhoto", "type": "url",
+    "required": false, "presentable": false, "unique": false,
+    "options": { "exceptDomains": null, "onlyDomains": null }
+  }))
+  comments.schema.addField(new SchemaField({
+    "system": false, "id": "cm_content", "name": "content", "type": "text",
+    "required": false, "presentable": false, "unique": false,
+    "options": { "min": null, "max": 500, "pattern": "" }
+  }))
+  comments.listRule = ""
+  comments.viewRule = ""
+  comments.createRule = ""
+  comments.updateRule = ""
+  comments.deleteRule = ""
+  dao.saveCollection(comments)
+
+  const photos = dao.findCollectionByNameOrId("v5v37iozzso0nsh")
+  photos.schema.addField(new SchemaField({
+    "system": false, "id": "ph_file", "name": "file", "type": "file",
+    "required": false, "presentable": false, "unique": false,
+    "options": {
+      "mimeTypes": ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic"],
+      "thumbs": [],
+      "maxSelect": 1,
+      "maxSize": 10485760,
+      "protected": false
+    }
+  }))
+  photos.listRule = ""
+  photos.viewRule = ""
+  photos.createRule = ""
+  photos.updateRule = ""
+  photos.deleteRule = ""
+  dao.saveCollection(photos)
+
+  users.listRule = ""
+  users.viewRule = ""
+  users.createRule = ""
+  dao.saveCollection(users)
+}, (db) => {
+  const dao = new Dao(db)
+  const users = dao.findCollectionByNameOrId("_pb_users_auth_")
+  ;["fg_displayname", "fg_photourl", "fg_phone", "fg_streak", "fg_lastwo", "fg_totalwo", "fg_prs"].forEach((id) => {
+    users.schema.removeField(id)
+  })
+  dao.saveCollection(users)
+})

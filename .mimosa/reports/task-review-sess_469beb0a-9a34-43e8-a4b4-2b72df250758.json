@@ -1,0 +1,239 @@
+{
+  "schema_version": "mimosa-task-review/v2",
+  "run_id": "20261007T034442225Z-20220-db6d3bb39efb",
+  "run_status": "completed",
+  "errors": [],
+  "coverage": {
+    "schema_version": "mimosa-hook-coverage/v1",
+    "status": "complete",
+    "scope": "hook_observed_diff",
+    "baseline": {
+      "complete": true,
+      "captured_files": 145,
+      "candidate_limit": 5000,
+      "truncated": false,
+      "enumeration_error_count": 0,
+      "snapshot_error_count": 0,
+      "compensated_target_count": 7
+    },
+    "change_tracking": {
+      "touched_observed": 7,
+      "touched_retained": 7,
+      "truncated": false,
+      "bash_mutation": true,
+      "bash_discovered": 7,
+      "bash_discovery_limit": 80,
+      "bash_discovery_truncated": false
+    },
+    "candidates": {
+      "eligible_files": 7,
+      "selected_files": 7,
+      "limit": 20,
+      "truncated": false
+    },
+    "scanning": {
+      "required_files": 7,
+      "scanned_files": 7,
+      "skipped_files": 0,
+      "failed_files": 0,
+      "project_checks_required": 0,
+      "project_checks_completed": 0
+    },
+    "notification": {
+      "eligible_findings": 0,
+      "detailed_findings": 0,
+      "detail_limit": 3,
+      "truncated": false
+    },
+    "reason_counts": {},
+    "reasons": [],
+    "reasons_truncated": false
+  },
+  "generated_at": "2026-10-07T03:44:42.225Z",
+  "session_id": "sess_469beb0a-9a34-43e8-a4b4-2b72df250758",
+  "target": ".",
+  "revision": "e797139d5b02fe6064548136cabe8a1d50cb2b30",
+  "rules_version": "unavailable",
+  "diff_hash": "3b8e25d9023157262c2ef7279b6b18bbe0fbeb8f2ff66b9700e6db9b4bebd5c0",
+  "diff": {
+    "algorithm": "sha256",
+    "changed_file_count": 7,
+    "changed_files": [
+      {
+        "file": "src/components/EditWorkoutModal.tsx",
+        "ranges": [
+          {
+            "start": 31,
+            "end": 39
+          },
+          {
+            "start": 502,
+            "end": 502
+          },
+          {
+            "start": 533,
+            "end": 551
+          }
+        ],
+        "before_hash": "8a5e27693937f9015f20224ba67195fbc59f631cbc99954d77cb3ced0d260117",
+        "after_hash": "751a505a316e9e34467fbd83acc70a7781ed65cf3c655c62147bb32bb8716eaa"
+      },
+      {
+        "file": "src/components/Statistics.tsx",
+        "ranges": [
+          {
+            "start": 788,
+            "end": 789
+          },
+          {
+            "start": 794,
+            "end": 794
+          }
+        ],
+        "before_hash": "3b0d332d883fe39b12bf407c312384502fcd2e298042fd7e6e5b34fb2f1918d4",
+        "after_hash": "1712c5cf56227d8e2f808bd35fc7a7eec170f641c35daa833cc05ccb1c59dea6"
+      },
+      {
+        "file": "src/components/workout/ExerciseEditor.tsx",
+        "ranges": [
+          {
+            "start": 5,
+            "end": 5
+          },
+          {
+            "start": 33,
+            "end": 60
+          },
+          {
+            "start": 109,
+            "end": 109
+          },
+          {
+            "start": 115,
+            "end": 115
+          }
+        ],
+        "before_hash": "e20e3fdf2ae95df582d49f2361bd17c06e8979b14dc381dbca0890cc8dedbd7b",
+        "after_hash": "b054acbc6ac971a6a48684bab11d72a7433b9683e41051f4b237fe7c67d37289"
+      },
+      {
+        "file": "src/utils/dataExport.ts",
+        "ranges": [
+          {
+            "start": 3,
+            "end": 3
+          },
+          {
+            "start": 307,
+            "end": 307
+          },
+          {
+            "start": 310,
+            "end": 315
+          }
+        ],
+        "before_hash": "5562fa1307908a17dfb59b531aa768d8b8893b5711ca87476035f51ce7185001",
+        "after_hash": "e72e059aefcab190eeef3abfbdc0225a2d2f6558cda7fb02f7203868a32e5f36"
+      },
+      {
+        "file": "src/utils/workoutAnalytics.ts",
+        "ranges": [
+          {
+            "start": 40,
+            "end": 40
+          },
+          {
+            "start": 165,
+            "end": 166
+          },
+          {
+            "start": 1084,
+            "end": 1084
+          },
+          {
+            "start": 1115,
+            "end": 1115
+          },
+          {
+            "start": 1139,
+            "end": 1139
+          }
+        ],
+        "before_hash": "3f464c18265c6b218bab6378e5b42d4ca121bce42fbe86fcf26e765565abd6a7",
+        "after_hash": "47cb37fb05467b4e8804c0f01f0b87a65a8fad24eea09a8bf16d5048e30a051e"
+      },
+      {
+        "file": "tests/data-export.test.ts",
+        "ranges": [
+          {
+            "start": 159,
+            "end": 160
+          }
+        ],
+        "before_hash": "cd0c9676bd6f368d2a5dad5165c0810063838290662d83d77f3266c0a70573c1",
+        "after_hash": "cfa25d32ae968c0b4458be5e1695f0a0b737c2c5231b188b11422fa9d99d3d2d"
+      },
+      {
+        "file": "tests/workout-analytics.test.ts",
+        "ranges": [
+          {
+            "start": 121,
+            "end": 127
+          }
+        ],
+        "before_hash": "38a5188f017fc4474c8c91fba2bd864b1c9f199369221494bdb76114cb1ad8e2",
+        "after_hash": "968df18b886776f7a609868265fcb2b2e5e31cf07a4eefe451290d9e4e592d66"
+      }
+    ]
+  },
+  "timing": {
+    "started_at": "2026-10-07T03:44:40.871Z",
+    "completed_at": "2026-10-07T03:44:42.225Z",
+    "duration_ms": 1354,
+    "measurement": "hook_wall_clock"
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "model_calls": 0,
+    "measurement": "known-zero"
+  },
+  "telemetry": {
+    "schemaVersion": "mimosa-gate-telemetry/v1",
+    "profile": "gate",
+    "operation": "Stop",
+    "outcome": "complete",
+    "latencyMs": 1354,
+    "peakMemoryBytes": 226115584,
+    "memoryMeasurement": "max-observed-process-rss",
+    "scannedFiles": 7,
+    "cache": {
+      "hits": 0,
+      "misses": 0,
+      "measurement": "not-applicable"
+    },
+    "denyCount": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "total": 0,
+      "modelCalls": 0,
+      "measurement": "known-zero"
+    }
+  },
+  "finding_count": 0,
+  "rewake_finding_count": 0,
+  "evidence_boundary": {
+    "scan": "candidate",
+    "static_fix_verification": "observed_static_only",
+    "runtime_verification": "not_performed"
+  },
+  "finding_events": [],
+  "findings": [],
+  "artifacts": {
+    "immutable_report": ".mimosa/reports/task-review-sess_469beb0a-9a34-43e8-a4b4-2b72df250758-20261007T034442225Z-20220-db6d3bb39efb.json",
+    "latest_report": ".mimosa/reports/task-review-sess_469beb0a-9a34-43e8-a4b4-2b72df250758.json",
+    "history_summary": ".mimosa/history/run-20261007T034442225Z-20220-db6d3bb39efb.json"
+  }
+}

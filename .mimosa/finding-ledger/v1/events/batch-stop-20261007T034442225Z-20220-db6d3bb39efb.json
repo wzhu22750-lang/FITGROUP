@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20261007T034442225Z-20220-db6d3bb39efb",
+  "runId": "20261007T034442225Z-20220-db6d3bb39efb",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "e797139d5b02fe6064548136cabe8a1d50cb2b30",
+  "diffHash": "3b8e25d9023157262c2ef7279b6b18bbe0fbeb8f2ff66b9700e6db9b4bebd5c0",
+  "rulesVersion": "unavailable",
+  "sessionHash": "084beaef76dd39206a2c96e3c07cf13d367eb17e91b27c1aea75f9be833d4411",
+  "reportRef": ".mimosa/reports/task-review-sess_469beb0a-9a34-43e8-a4b4-2b72df250758-20261007T034442225Z-20220-db6d3bb39efb.json",
+  "events": [],
+  "observedFindingIds": [
+    "mimosa-32329362ffc497832cee1937",
+    "mimosa-10e48235b43547d565a513b2"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "src/utils/workoutAnalytics.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/components/Statistics.tsx",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/components/workout/ExerciseEditor.tsx",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/components/EditWorkoutModal.tsx",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/utils/dataExport.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "tests/workout-analytics.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "tests/data-export.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-10-07T03:44:42.587Z"
+}

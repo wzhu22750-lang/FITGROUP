@@ -1,0 +1,151 @@
+apply plugin: 'com.android.application'
+import groovy.json.JsonSlurper
+
+def verifyApkPackagingGuards = { boolean isRelease ->
+    def configFile = file('src/main/assets/capacitor.config.json')
+    def publicDir = file('src/main/assets/public')
+    def indexHtml = file('src/main/assets/public/index.html')
+
+    // 1. Config file is strictly required on release paths
+    if (isRelease) {
+        if (!configFile.exists()) {
+            throw new GradleException("❌ [Production Guard] Required capacitor config missing: 'src/main/assets/capacitor.config.json' not found. Run 'npm run cap:sync' before building release APK.")
+        }
+
+        // 2. Parse config and enforce that server.url is absent on all release paths
+        def parsedConfig = new JsonSlurper().parse(configFile)
+        def remoteUrl = parsedConfig?.server?.url
+        if (remoteUrl != null && !remoteUrl.toString().trim().isEmpty()) {
+            throw new GradleException("❌ [Production Guard] Release APK must not contain remote server.url in capacitor.config.json (found '${remoteUrl}'). Production release builds must only use local assets. Remove remote configuration before building release APK.")
+        }
+    }
+
+    // Determine if remote mode is configured in debug
+    def hasRemote = false
+    if (configFile.exists()) {
+        try {
+            def parsed = new JsonSlurper().parse(configFile)
+            hasRemote = parsed?.server?.url != null && !parsed.server.url.toString().trim().isEmpty()
+        } catch (Exception ignored) {}
+    }
+
+    // 3. For release builds (and debug builds without remote URL), verify public assets and referenced files
+    if (isRelease || !hasRemote) {
+        if (!indexHtml.exists()) {
+            throw new GradleException("❌ [Production Guard] APK resources missing: 'src/main/assets/public/index.html' not found. Run 'npm run cap:sync' before building the APK.")
+        }
+
+        def htmlContent = indexHtml.text
+        // Extract locally referenced files from src="..." and href="..."
+        def assetPattern = ~/((?:src|href)=["'])([^"']+)["']/
+        def matcher = assetPattern.matcher(htmlContent)
+        def referencedAssets = [] as Set
+        while (matcher.find()) {
+            def ref = matcher.group(2)
+            if (ref && !ref.startsWith('http://') && !ref.startsWith('https://') && !ref.startsWith('//') && !ref.startsWith('data:') && !ref.startsWith('#')) {
+                def cleanPath = ref.startsWith('/') ? ref.substring(1) : ref
+                cleanPath = cleanPath.split('[?#]')[0]
+                if (!cleanPath.isEmpty()) {
+                    referencedAssets.add(cleanPath)
+                }
+            }
+        }
+
+        for (String assetPath : referencedAssets) {
+            def assetFile = new File(publicDir, assetPath)
+            if (!assetFile.exists()) {
+                throw new GradleException("❌ [Production Guard] Referenced asset file missing: 'src/main/assets/public/${assetPath}'. Run 'npm run cap:sync' before building.")
+            }
+        }
+
+        def assetsDir = file('src/main/assets/public/assets')
+        if (!assetsDir.exists() || !assetsDir.isDirectory() || (assetsDir.list()?.length ?: 0) == 0) {
+            throw new GradleException("❌ [Production Guard] Bundled assets directory 'src/main/assets/public/assets' is missing or empty. Run 'npm run cap:sync' before building.")
+        }
+    }
+
+    logger.lifecycle("✅ [Production Guard] Packaging guards verified successfully (release: ${isRelease}).")
+}
+
+android {
+    namespace = "com.fitgroup.app"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.fitgroup.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 3
+        versionName "1.0.2"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+    applicationVariants.all { variant ->
+        if (variant.buildType.name == 'release') {
+            def releaseGuardTask = tasks.register("checkReleaseGuard${variant.name.capitalize()}") {
+                description = "Enforces production packaging guards for ${variant.name} release variant"
+                doLast {
+                    verifyApkPackagingGuards(true)
+                }
+            }
+            variant.preBuildProvider.configure { dependsOn releaseGuardTask }
+            tasks.matching { it.name.startsWith("merge${variant.name.capitalize()}Assets") }.configureEach {
+                dependsOn releaseGuardTask
+            }
+            tasks.matching { it.name.startsWith("package${variant.name.capitalize()}") }.configureEach {
+                dependsOn releaseGuardTask
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+// Production Guard: Ensure APK web assets and configuration comply with production release requirements
+tasks.register('checkApkResources') {
+    description = 'Guards APK build by verifying local assets and production configurations'
+    doLast {
+        def isRelease = gradle.startParameter.taskNames.empty || gradle.startParameter.taskNames.any {
+            it.toLowerCase().contains('release') || it.toLowerCase().contains('bundle') || it.toLowerCase() == 'build' || it.toLowerCase() == 'assemble' || it.toLowerCase().contains('checkapkresources')
+        }
+        verifyApkPackagingGuards(isRelease)
+    }
+}
+
+preBuild.dependsOn 'checkApkResources'
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

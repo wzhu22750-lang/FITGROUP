@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-10-07T03:43:08.606Z",
+  "sessionId": "sess_469beb0a-9a34-43e8-a4b4-2b72df250758",
+  "event": "PostToolUse",
+  "toolName": "Edit",
+  "file": "src/utils/workoutAnalytics.ts",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 20,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}

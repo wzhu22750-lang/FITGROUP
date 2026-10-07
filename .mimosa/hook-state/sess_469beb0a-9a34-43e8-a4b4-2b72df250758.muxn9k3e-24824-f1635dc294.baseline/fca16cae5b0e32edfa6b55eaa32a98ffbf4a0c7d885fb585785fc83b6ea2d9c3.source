@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Read(//Users/kuangqie/orca/workspaces/健身打卡/**)",
+      "Bash(rm -f main-2/.DS_Store)",
+      "Bash(curl -s https://gen-lang-client-0285368146.web.app/)"
+    ]
+  }
+}

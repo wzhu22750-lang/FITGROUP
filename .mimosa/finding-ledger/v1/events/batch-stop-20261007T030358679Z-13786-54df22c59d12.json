@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20261007T030358679Z-13786-54df22c59d12",
+  "runId": "20261007T030358679Z-13786-54df22c59d12",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "e797139d5b02fe6064548136cabe8a1d50cb2b30",
+  "diffHash": "f3ed38d06a02d105e2b4fab6d2f312bcc11adede4368e832460be9807ef591d7",
+  "rulesVersion": "unavailable",
+  "sessionHash": "084beaef76dd39206a2c96e3c07cf13d367eb17e91b27c1aea75f9be833d4411",
+  "reportRef": ".mimosa/reports/task-review-sess_469beb0a-9a34-43e8-a4b4-2b72df250758-20261007T030358679Z-13786-54df22c59d12.json",
+  "events": [],
+  "observedFindingIds": [],
+  "verifiedFiles": [
+    {
+      "file": "src/constants/exerciseDefinitions.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/constants/strengthStandards.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/constants/muscleCoefficients.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/utils/strengthAssessment.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/utils/trainingCapacity.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/utils/workoutAnalytics.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/components/Statistics.tsx",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/utils/dataExport.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "tests/workout-analytics.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "src/constants/muscleTaxonomy.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "scripts/verify-example-lifters.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "tests/data-export.test.ts",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-10-07T03:03:58.958Z"
+}
