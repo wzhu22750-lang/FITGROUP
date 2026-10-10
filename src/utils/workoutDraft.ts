@@ -1,3 +1,4 @@
+import { isLocalWorkoutTime } from './workoutTime';
 import { Exercise, WorkoutCategory, WorkoutLog, WorkoutVisibility } from '../types';
 import { estimateCardioCalories, inferLogCategories, PresetExercise } from '../constants/workoutPresets';
 
@@ -25,6 +26,8 @@ export interface WorkoutDraft {
   categories: WorkoutCategory[];
   note: string;
   visibility: WorkoutVisibility;
+  /** null means use submission time; a local minute value means a manual check-in time. */
+  workoutTime: string | null;
   updatedAt: number;
   /** Freeze the submitted payload after an uncertain response; retries reuse its ID. */
   pending: boolean;
@@ -36,7 +39,7 @@ export const draftStorageKey = (owner: string) => `fitgroup:workout-draft:v1:${o
 export const exerciseKey = (ex: { name: string; type: string }) => `${ex.type}:${ex.name.trim().toLocaleLowerCase()}`;
 
 export function createDraft(owner: string): WorkoutDraft {
-  return { version: 1, owner, id: newDraftId(), exercises: [], categories: [], note: '', visibility: 'public', updatedAt: Date.now(), pending: false };
+  return { version: 1, owner, id: newDraftId(), exercises: [], categories: [], note: '', visibility: 'public', workoutTime: null, updatedAt: Date.now(), pending: false };
 }
 
 export function createDraftExercise(preset: Pick<PresetExercise, 'name' | 'type'> & Partial<PresetExercise>): DraftExercise {
@@ -147,6 +150,9 @@ export function decodeDraft(raw: string | null, owner: string): WorkoutDraft | n
     if (!Array.isArray(value.exercises) || value.exercises.length > MAX_WORKOUT_EXERCISES || !Array.isArray(value.categories)) return null;
     if (!['public', 'private', 'friends'].includes(value.visibility) || typeof value.note !== 'string' || value.note.length > 500 || typeof value.pending !== 'boolean') return null;
     if (!Number.isFinite(value.updatedAt)) return null;
+    // Existing v1 drafts predate the optional training time selector.
+    if (value.workoutTime === undefined) value.workoutTime = null;
+    if (value.workoutTime !== null && (typeof value.workoutTime !== 'string' || !isLocalWorkoutTime(value.workoutTime))) return null;
     const ids = new Set<string>();
     for (const ex of value.exercises) {
       if (!ex || typeof ex.id !== 'string' || !ex.id || ex.id.length > 64 || ids.has(ex.id)) return null;

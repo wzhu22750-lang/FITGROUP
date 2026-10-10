@@ -724,6 +724,14 @@ export const createWorkoutLog = async (logData: Record<string, unknown>) => {
 
   const logId = typeof logData.id === 'string' && logData.id ? logData.id : newId('log');
   const exercises = sanitizeExercisesForDb(logData.exercises);
+  let trainingTimestamp: string | undefined;
+  if (logData.timestamp !== undefined) {
+    const date = typeof logData.timestamp === 'string' ? new Date(logData.timestamp) : new Date(NaN);
+    if (!Number.isFinite(date.getTime()) || date.getTime() > Date.now()) {
+      throw new Error('请选择有效且不晚于当前时间的训练时间');
+    }
+    trainingTimestamp = date.toISOString();
+  }
 
   // A cached/auth-only name is not sufficient for a profile-dependent write.
   const profile = await requireProfileForWrite(user);
@@ -739,6 +747,7 @@ export const createWorkoutLog = async (logData: Record<string, unknown>) => {
 
   const { error } = await supabase.from('workout_logs').insert({
     id: logId,
+    ...(trainingTimestamp ? { created_at: trainingTimestamp } : {}),
     user_id: user.id,
     user_name: String(logData.userName || profile.displayName || 'FitGroup').slice(0, 50),
     user_photo: String(logData.userPhoto || profile.photoURL || ''),

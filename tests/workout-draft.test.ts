@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict';
+import { toLocalWorkoutTime, resolveWorkoutTimestamp } from '../src/utils/workoutTime';
 import { WorkoutCategory, type WorkoutLog } from '../src/types';
 import {
   createDraft, createDraftExercise, decodeDraft, describeExercise, draftCategories, draftStorageKey,
   fromRecordedExercise, historyByExercise, patchDraftExercise, toRecordedExercise, validateDraftExercise,
 } from '../src/utils/workoutDraft';
+
+const now = new Date(2026, 5, 12, 12, 30, 45);
+const yesterday = new Date(2026, 5, 11, 19, 0);
+assert.equal(toLocalWorkoutTime(yesterday), '2026-06-11T19:00');
+assert.equal(resolveWorkoutTimestamp('2026-06-11T19:00', now), yesterday.toISOString(), 'Backdated local time converts to the correct UTC instant');
+assert.equal(resolveWorkoutTimestamp(null, now), now.toISOString(), 'Automatic time uses submission time');
+for (const value of ['', 'invalid', '2026-02-30T19:00', '2026-06-11T25:00', '2026-06-13T19:00']) {
+  assert.throws(() => resolveWorkoutTimestamp(value, now));
+}
 
 const strength = createDraftExercise({ name: '杠铃平板卧推', type: 'strength', defaultWeight: 60 });
 assert.equal(strength.weight, '', 'Do not prescribe a made-up working weight from presets');
@@ -47,6 +57,11 @@ assert.ok(describeExercise(assistedRecord).includes('辅助 20 kg'));
 const draft = { ...createDraft('user-a'), exercises: [valid, manual], categories: [WorkoutCategory.Back], note: '训练草稿', visibility: 'private' as const };
 const decoded = decodeDraft(JSON.stringify(draft), 'user-a');
 assert.deepEqual(decoded, draft);
+assert.equal(decodeDraft(JSON.stringify({ ...draft, workoutTime: '2026-06-11T19:00', pending: true }), 'user-a')?.workoutTime, '2026-06-11T19:00', 'Retry restores the exact chosen time');
+const { workoutTime: _legacyTime, ...legacyDraft } = draft;
+assert.equal(decodeDraft(JSON.stringify(legacyDraft), 'user-a')?.workoutTime, null, 'Old drafts remain readable');
+assert.equal(decodeDraft(JSON.stringify({ ...draft, workoutTime: 'invalid' }), 'user-a'), null);
+assert.equal(decodeDraft(JSON.stringify({ ...draft, workoutTime: 123 }), 'user-a'), null);
 assert.ok(draftCategories(draft).includes(WorkoutCategory.Chest));
 assert.ok(draftCategories(draft).includes(WorkoutCategory.Back));
 assert.equal(decodeDraft(JSON.stringify(draft), 'user-b'), null);

@@ -82,6 +82,9 @@
 .workout-category-options button { min-height: 40px; border: 1px solid #999; padding: 8px; font-size: 11px; cursor: pointer; }
 .workout-category-options button[aria-pressed="true"] { background: #171717; color: var(--color-neon); border-color: #111; }
 .workout-category-options button:disabled { opacity: 1; cursor: default; }
+.workout-time-panel { display: grid; gap: 10px; padding: 16px; background: #fff; border: 2px solid #111; }
+.workout-time-panel input { display: block; width: 100%; min-width: 0; min-height: 48px; padding: 10px; background: #f7f7f7; border: 1px solid #888; border-bottom: 2px solid #111; border-radius: 0; font-size: 16px; font-weight: 600; color: #111; }
+.workout-time-panel input:focus { background: #fff; }
 .workout-visibility { padding: 16px; background: #fff; border: 2px solid #111; }
 .workout-visibility > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .workout-visibility button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 62px; font-size: 11px; font-weight: 750; cursor: pointer; border: 1px solid #bbb; }

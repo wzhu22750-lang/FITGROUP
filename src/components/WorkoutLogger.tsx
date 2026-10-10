@@ -8,6 +8,7 @@ import {
   draftCategories, DraftExercise, exerciseKey, historyByExercise, MAX_WORKOUT_EXERCISES,
   patchDraftExercise, toRecordedExercise, validateDraftExercise,
 } from '../utils/workoutDraft';
+import { resolveWorkoutTimestamp, toLocalWorkoutTime } from '../utils/workoutTime';
 import { useWorkoutDraft } from './workout/useWorkoutDraft';
 import ExerciseEditor from './workout/ExerciseEditor';
 import ExercisePicker from './workout/ExercisePicker';
@@ -137,12 +138,21 @@ function WorkoutSession({ owner, onSuccess }: WorkoutLoggerProps & { owner: stri
       });
       return;
     }
+    const workoutTime = current.workoutTime ?? toLocalWorkoutTime();
+    let timestamp: string;
+    try {
+      timestamp = resolveWorkoutTimestamp(workoutTime);
+    } catch (error) {
+      setSubmitError((error as Error).message);
+      document.getElementById('workout-time')?.focus();
+      return;
+    }
     submittingRef.current = true;
     setIsSubmitting(true);
     setSubmitError('');
     // Persist the exact payload and mutation ID before writing. A timeout must not
     // allow edits that would then be silently discarded by the server's ID deduplication.
-    const snapshot = current.pending ? current : commit({ ...current, pending: true });
+    const snapshot = current.pending && current.workoutTime !== null ? current : commit({ ...current, workoutTime, pending: true });
     let saved = false;
     try {
       const finalCategories = draftCategories(snapshot);
@@ -150,7 +160,7 @@ function WorkoutSession({ owner, onSuccess }: WorkoutLoggerProps & { owner: stri
         id: snapshot.id, userId: owner, userName: user.displayName || 'FitGroup', userPhoto: user.photoURL || '',
         category: finalCategories.join(', '), categories: finalCategories,
         exercises: snapshot.exercises.map(toRecordedExercise), note: snapshot.note.trim(), visibility: snapshot.visibility,
-        likesCount: 0, commentsCount: 0,
+        timestamp, likesCount: 0, commentsCount: 0,
       });
       finish();
       saved = true;
@@ -192,6 +202,14 @@ function WorkoutSession({ owner, onSuccess }: WorkoutLoggerProps & { owner: stri
       {draft.pending && <p className="workout-warning">{isSubmitting ? '正在提交，请稍候…' : '上次提交尚未确认，内容暂时锁定。点击「重试提交」确认结果，避免重复打卡。'}</p>}
 
       <fieldset disabled={isSubmitting || draft.pending} className="workout-fields">
+        <div className="workout-time-panel">
+          <div className="flex items-center justify-between gap-3">
+            <label htmlFor="workout-time" className="workout-field-label">训练日期与时间</label>
+            {draft.workoutTime !== null && <button type="button" className="workout-text-button" onClick={() => { update(current => ({ ...current, workoutTime: null })); setSubmitError(''); }}>恢复当前时间</button>}
+          </div>
+          <input id="workout-time" type="datetime-local" value={draft.workoutTime ?? toLocalWorkoutTime()} max={toLocalWorkoutTime()} aria-describedby="workout-time-hint" onChange={event => { update(current => ({ ...current, workoutTime: event.target.value })); setSubmitError(''); }} />
+          <p id="workout-time-hint" className="workout-helper">{draft.workoutTime === null ? '默认使用提交时的当前时间；忘记打卡也可以选择过去的时间补记。' : '按设备本地时间记录，训练统计将计入所选日期。'}</p>
+        </div>
         <div className="workout-start-actions">
           <button type="button" className="btn-neon flex items-center justify-center gap-2" onClick={() => setSheet('add')} disabled={draft.exercises.length >= 10}><Plus size={19} />添加动作</button>
           <button type="button" className="btn-secondary flex items-center justify-center gap-2" onClick={() => setSheet('history')} disabled={!history.length}><History size={17} />沿用上次</button>
