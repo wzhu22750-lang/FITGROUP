@@ -123,6 +123,16 @@ export const buildWorkoutLogUpdatePayload = (updates: Record<string, unknown>): 
     payload.note = updates.note.slice(0, 500);
   }
 
+  if ('timestamp' in updates) {
+    const date = typeof updates.timestamp === 'string' ? new Date(updates.timestamp) : new Date(NaN);
+    if (!Number.isFinite(date.getTime()) || date.getTime() > Date.now()) {
+      throw makeWorkoutLogError('请选择有效且不晚于当前时间的训练时间', {
+        code: 'WORKOUT_LOG_INVALID_TIME', phase: 'validation',
+      });
+    }
+    payload.created_at = date.toISOString();
+  }
+
   if ('photoUrl' in updates && typeof updates.photoUrl === 'string') {
     payload.photo_url = updates.photoUrl;
   }

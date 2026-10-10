@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { createWorkoutLog, fetchMyWorkoutLogs, getCurrentUser, getUserProfile } from '../api';
+import { updateWorkoutLog, createWorkoutLog, fetchMyWorkoutLogs, getCurrentUser, getUserProfile } from '../api';
 import { WorkoutCategory, WorkoutLog, WorkoutVisibility } from '../types';
 import { CARDIO_REFERENCE_BODYWEIGHT_KG, CATEGORY_META } from '../constants/workoutPresets';
 import { formatWorkoutLogError } from '../utils/workoutLogUpdate';
@@ -14,6 +14,7 @@ import ExerciseEditor from './workout/ExerciseEditor';
 import ExercisePicker from './workout/ExercisePicker';
 import HistoryPicker from './workout/HistoryPicker';
 import WorkoutSheet from './workout/WorkoutSheet';
+import WorkoutTimePicker from './workout/WorkoutTimePicker';
 import './workout/workout.css';
 
 interface WorkoutLoggerProps { onSuccess: () => void; }
@@ -30,8 +31,12 @@ export default function WorkoutLogger(props: WorkoutLoggerProps) {
   return <WorkoutSession key={user.uid} owner={user.uid} {...props} />;
 }
 
-function WorkoutSession({ owner, onSuccess }: WorkoutLoggerProps & { owner: string }) {
-  const { draft, draftRef, update, commit, finish, reset, restored, storageWarning } = useWorkoutDraft(owner);
+export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps & { owner: string; editing?: {
+  log: WorkoutLog;
+  onSuccess: (log: WorkoutLog) => void;
+  onBusy: (busy: boolean) => void;
+} }) {
+  const { draft, draftRef, update, commit, finish, reset, restored, storageWarning } = useWorkoutDraft(owner, editing?.log);
   const [expandedId, setExpandedId] = useState(draft.exercises[0]?.id || '');
   const [sheet, setSheet] = useState<'add' | 'history' | 'clear' | null>(null);
   const [history, setHistory] = useState<WorkoutLog[]>([]);
@@ -122,7 +127,7 @@ function WorkoutSession({ owner, onSuccess }: WorkoutLoggerProps & { owner: stri
     if (submittingRef.current) return;
     const user = getCurrentUser();
     if (user?.uid !== owner) { setSubmitError('账号状态已变化，请重新进入打卡页。'); return; }
-    if (offline) { setSubmitError('当前离线，请联网后提交。训练内容仍保留在草稿中。'); return; }
+    if (offline) { setSubmitError(editing ? '当前离线，请联网后保存。修改暂留在当前窗口，请勿关闭。' : '当前离线，请联网后提交。训练内容仍保留在草稿中。'); return; }
     const current = draftRef.current;
     setShowErrors(true);
     if (!current.exercises.length) { setSubmitError('先添加至少一个训练动作。'); return; }
@@ -149,26 +154,38 @@ function WorkoutSession({ owner, onSuccess }: WorkoutLoggerProps & { owner: stri
     }
     submittingRef.current = true;
     setIsSubmitting(true);
+    editing?.onBusy(true);
     setSubmitError('');
     // Persist the exact payload and mutation ID before writing. A timeout must not
     // allow edits that would then be silently discarded by the server's ID deduplication.
     const snapshot = current.pending && current.workoutTime !== null ? current : commit({ ...current, workoutTime, pending: true });
     let saved = false;
+    let updatedLog: WorkoutLog | undefined;
     try {
       const finalCategories = draftCategories(snapshot);
-      await createWorkoutLog({
+      const payload = {
         id: snapshot.id, userId: owner, userName: user.displayName || 'FitGroup', userPhoto: user.photoURL || '',
         category: finalCategories.join(', '), categories: finalCategories,
         exercises: snapshot.exercises.map(toRecordedExercise), note: snapshot.note.trim(), visibility: snapshot.visibility,
         timestamp, likesCount: 0, commentsCount: 0,
-      });
+      };
+      if (editing) {
+        // Preserve sub-minute precision unless the user actually changes the time.
+        const { timestamp: _timestamp, ...updates } = payload;
+        updatedLog = await updateWorkoutLog(editing.log.id, {
+          ...updates,
+          ...(snapshot.workoutTime !== toLocalWorkoutTime(new Date(editing.log.timestamp)) ? { timestamp } : {}),
+        });
+      } else {
+        await createWorkoutLog(payload);
+      }
       finish();
       saved = true;
     } catch (error) {
       const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
-      const rejected = /^(22|23|42|PGRST)/.test(code) && code !== '23505';
+      const rejected = (/^(22|23|42|PGRST)/.test(code) && code !== '23505') || /^WORKOUT_LOG_(INVALID|EMPTY)/.test(code);
       if (rejected) commit({ ...snapshot, pending: false });
-      setSubmitError(`${formatWorkoutLogError(error)} ${rejected ? '数据未保存，草稿仍在，可修改后重试。' : '本次内容已保留，请重试确认提交；不会重复创建记录。'}`);
+      setSubmitError(`${formatWorkoutLogError(error)} ${editing ? '修改暂留在当前窗口，请勿关闭，可重试保存。' : rejected ? '数据未保存，草稿仍在，可修改后重试。' : '本次内容已保留，请重试确认提交；不会重复创建记录。'}`);
       requestAnimationFrame(() => {
         const message = document.getElementById('workout-submit-error');
         message?.scrollIntoView({ block: 'center' });
@@ -177,39 +194,36 @@ function WorkoutSession({ owner, onSuccess }: WorkoutLoggerProps & { owner: stri
     } finally {
       submittingRef.current = false;
       setIsSubmitting(false);
+      editing?.onBusy(false);
     }
     // Do not wait on a profile refresh after a successful write or report a navigation
     // failure as a save failure. The completed draft is removed only after server success.
-    if (saved && getCurrentUser()?.uid === owner) onSuccess();
+    if (saved && getCurrentUser()?.uid === owner) {
+      if (editing && updatedLog) editing.onSuccess(updatedLog);
+      else onSuccess();
+    }
   };
 
   return (
-    <form className="workout-logger" onSubmit={handleSubmit} noValidate aria-label="记录训练">
+    <form className={`workout-logger${editing ? ' workout-logger-edit' : ''}`} onSubmit={handleSubmit} noValidate aria-label={editing ? '编辑训练' : '记录训练'}>
       <header className={`workout-intro ${draft.exercises.length ? 'has-entries' : ''}`}>
         <div className="flex items-start justify-between gap-3">
-          <div><p className="workout-kicker">YOUR NEXT REP</p><h1>今天，练点什么？</h1></div>
+          <div><p className="workout-kicker">YOUR NEXT REP</p><h1>{editing ? '调整这次训练。' : '今天，练点什么？'}</h1></div>
           <span className="workout-intro-mark" aria-hidden="true"><Dumbbell size={25} /></span>
         </div>
         <div className="workout-save-state" role="status">
-          <span><span className="workout-status-dot" />{storageWarning ? '草稿保存受限' : draft.pending ? '等待确认提交' : draft.exercises.length || draft.note ? '草稿已保存在此设备' : '边练边记，随时回来继续'}</span>
-          {(draft.exercises.length > 0 || draft.note) && !draft.pending && <button type="button" onClick={() => setSheet('clear')}>清空</button>}
+          <span><span className="workout-status-dot" />{editing ? '保存后更新原记录，不会重复打卡' : storageWarning ? '草稿保存受限' : draft.pending ? '等待确认提交' : draft.exercises.length || draft.note ? '草稿已保存在此设备' : '边练边记，随时回来继续'}</span>
+          {!editing && (draft.exercises.length > 0 || draft.note) && !draft.pending && <button type="button" onClick={() => setSheet('clear')}>清空</button>}
         </div>
       </header>
 
       {storageWarning && <p role="alert" className="workout-warning">{storageWarning}</p>}
-      {offline && <p className="workout-warning flex items-center gap-2"><WifiOff size={16} />离线可继续记草稿，联网后再提交。</p>}
+      {offline && <p className="workout-warning flex items-center gap-2"><WifiOff size={16} />{editing ? '当前离线，修改暂留在当前窗口，联网后再保存。' : '离线可继续记草稿，联网后再提交。'}</p>}
       {restored && !draft.pending && <p className="workout-helper">已恢复未完成的训练，继续修改即可。草稿不会自动发布。</p>}
       {draft.pending && <p className="workout-warning">{isSubmitting ? '正在提交，请稍候…' : '上次提交尚未确认，内容暂时锁定。点击「重试提交」确认结果，避免重复打卡。'}</p>}
 
       <fieldset disabled={isSubmitting || draft.pending} className="workout-fields">
-        <div className="workout-time-panel">
-          <div className="flex items-center justify-between gap-3">
-            <label htmlFor="workout-time" className="workout-field-label">训练日期与时间</label>
-            {draft.workoutTime !== null && <button type="button" className="workout-text-button" onClick={() => { update(current => ({ ...current, workoutTime: null })); setSubmitError(''); }}>恢复当前时间</button>}
-          </div>
-          <input id="workout-time" type="datetime-local" value={draft.workoutTime ?? toLocalWorkoutTime()} max={toLocalWorkoutTime()} aria-describedby="workout-time-hint" onChange={event => { update(current => ({ ...current, workoutTime: event.target.value })); setSubmitError(''); }} />
-          <p id="workout-time-hint" className="workout-helper">{draft.workoutTime === null ? '默认使用提交时的当前时间；忘记打卡也可以选择过去的时间补记。' : '按设备本地时间记录，训练统计将计入所选日期。'}</p>
-        </div>
+        <WorkoutTimePicker value={draft.workoutTime} disabled={isSubmitting || draft.pending} onChange={workoutTime => { update(current => ({ ...current, workoutTime })); setSubmitError(''); }} />
         <div className="workout-start-actions">
           <button type="button" className="btn-neon flex items-center justify-center gap-2" onClick={() => setSheet('add')} disabled={draft.exercises.length >= 10}><Plus size={19} />添加动作</button>
           <button type="button" className="btn-secondary flex items-center justify-center gap-2" onClick={() => setSheet('history')} disabled={!history.length}><History size={17} />沿用上次</button>
@@ -264,7 +278,7 @@ function WorkoutSession({ owner, onSuccess }: WorkoutLoggerProps & { owner: stri
       <footer className="workout-submitbar">
         <div><strong>{completeCount} / {draft.exercises.length} <span>项已填写</span></strong><small>{offline ? '离线草稿' : visibilityLabel}</small></div>
         <button type="submit" className="btn-neon" disabled={isSubmitting || offline || !draft.exercises.length} aria-busy={isSubmitting}>
-          {isSubmitting ? '正在保存…' : draft.pending ? '重试提交' : '完成打卡'}{!isSubmitting && <Send size={17} />}
+          {isSubmitting ? '正在保存…' : draft.pending ? '重试提交' : editing ? '保存修改' : '完成打卡'}{!isSubmitting && <Send size={17} />}
         </button>
       </footer>
 
@@ -272,7 +286,7 @@ function WorkoutSession({ owner, onSuccess }: WorkoutLoggerProps & { owner: stri
       {sheet === 'history' && <HistoryPicker logs={history} currentCount={draft.exercises.length} onClose={() => setSheet(null)} onImport={(exercises, mode) => {
         if (exercises.length + (mode === 'append' ? draftRef.current.exercises.length : 0) > 10) return;
         update(current => ({ ...current, exercises: mode === 'append' ? [...current.exercises, ...exercises] : exercises }));
-        setExpandedId(exercises[0]?.id || ''); setRemoved(null); setShowErrors(false); setSheet(null); setNotice(`已${mode === 'append' ? '追加' : '沿用'} ${exercises.length} 个动作，请按今天的训练调整。`);
+        setExpandedId(exercises[0]?.id || ''); setRemoved(null); setShowErrors(false); setSheet(null); setNotice(`已${mode === 'append' ? '追加' : '沿用'} ${exercises.length} 个动作，请按本次实际训练调整。`);
       }} />}
       {sheet === 'clear' && <WorkoutSheet title="清空本次草稿？" onClose={() => setSheet(null)} footer={<div className="grid grid-cols-2 gap-3"><button type="button" className="btn-secondary" onClick={() => setSheet(null)}>继续记录</button><button type="button" className="btn-primary" onClick={() => { reset(); setSheet(null); setRemoved(null); setExpandedId(''); setSubmitError(''); setNotice(''); setShowErrors(false); }}>确认清空</button></div>}><p className="text-sm leading-relaxed">只清空此设备上本次未提交的动作和心得，不影响已发布的历史记录。清空后无法恢复。</p></WorkoutSheet>}
     </form>

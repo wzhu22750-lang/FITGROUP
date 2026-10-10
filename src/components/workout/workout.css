@@ -83,8 +83,39 @@
 .workout-category-options button[aria-pressed="true"] { background: #171717; color: var(--color-neon); border-color: #111; }
 .workout-category-options button:disabled { opacity: 1; cursor: default; }
 .workout-time-panel { display: grid; gap: 10px; padding: 16px; background: #fff; border: 2px solid #111; }
-.workout-time-panel input { display: block; width: 100%; min-width: 0; min-height: 48px; padding: 10px; background: #f7f7f7; border: 1px solid #888; border-bottom: 2px solid #111; border-radius: 0; font-size: 16px; font-weight: 600; color: #111; }
-.workout-time-panel input:focus { background: #fff; }
+.workout-time-badge { font-size: 10px; font-weight: 800; padding: 4px 8px; background: #eff3d9; border: 1px solid #b1ba85; }
+.workout-time-trigger { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 76px; padding: 12px; text-align: left; background: #f7f7f2; border: 1px solid #bcbcb0; cursor: pointer; }
+.workout-time-trigger:hover { background: #eff3d9; }
+.workout-time-icon { display: grid; place-items: center; width: 38px; height: 42px; background: #171717; color: var(--color-neon); flex-shrink: 0; }
+.workout-time-value { flex: 1; min-width: 0; }
+.workout-time-value strong { display: block; font-size: 15px; font-weight: 850; font-variant-numeric: tabular-nums; }
+.workout-time-value small { display: block; margin-top: 5px; font-size: 10px; color: #626262; }
+.workout-time-clock { display: inline-flex; align-items: center; gap: 5px; font-size: 15px; font-weight: 850; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.workout-date-shortcuts { display: flex; align-items: center; gap: 8px; }
+.workout-date-shortcuts button { border: 1px solid #aaa; min-height: 44px; padding: 8px 16px; font-size: 13px; font-weight: 800; }
+.workout-date-shortcuts span { margin-left: auto; font-size: 10px; color: #626262; }
+.workout-calendar-header { display: flex; align-items: center; justify-content: space-between; padding-block: 12px; }
+.workout-calendar-header strong { font-size: 17px; font-weight: 900; }
+.workout-calendar-week, .workout-calendar-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; text-align: center; }
+.workout-calendar-week { padding-block: 8px; color: #777; font-size: 11px; }
+.workout-calendar-days button { position: relative; min-height: 44px; border: 1px solid transparent; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.workout-calendar-days button[data-today="true"]::after { content: ''; position: absolute; bottom: 3px; left: calc(50% - 2px); width: 4px; height: 4px; background: currentColor; }
+.workout-calendar-days button:disabled { opacity: .25; }
+.workout-calendar-days button:not(:disabled):hover { border-color: #888; }
+.workout-date-shortcuts button[aria-pressed="true"], .workout-calendar-days button[aria-pressed="true"], .workout-clock-options button[aria-pressed="true"] { background: var(--color-neon); border: 2px solid #111; box-shadow: 2px 2px 0 #111; color: #111; }
+.workout-clock-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #ddd; }
+.workout-clock-heading strong { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; }
+.workout-clock-heading > span { background: #171717; color: var(--color-neon); padding: 5px 12px; font-weight: 850; font-size: 20px; font-variant-numeric: tabular-nums; }
+.workout-clock-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+.workout-clock-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; max-height: 144px; padding: 4px 4px 4px 0; overflow-y: auto; overscroll-behavior: contain; margin-top: 6px; }
+.workout-clock-options button { min-height: 40px; border: 1px solid #ddd; font-size: 14px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.workout-time-summary { margin-top: 16px; padding: 12px; background: #f6f6f2; font-size: 12px; }
+.workout-time-summary strong { margin-left: 6px; font-variant-numeric: tabular-nums; }
+.workout-time-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.workout-time-footer button { min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; }
+.workout-logger-edit { padding-bottom: 0; }
+.workout-logger-edit .workout-submitbar { position: sticky; bottom: -16px; width: 100%; margin-top: 20px; max-width: none; z-index: 2; }
+.keyboard-open .workout-logger-edit .workout-submitbar { display: flex; }
 .workout-visibility { padding: 16px; background: #fff; border: 2px solid #111; }
 .workout-visibility > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .workout-visibility button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 62px; font-size: 11px; font-weight: 750; cursor: pointer; border: 1px solid #bbb; }

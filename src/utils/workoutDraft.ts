@@ -1,4 +1,4 @@
-import { isLocalWorkoutTime } from './workoutTime';
+import { isLocalWorkoutTime, toLocalWorkoutTime } from './workoutTime';
 import { Exercise, WorkoutCategory, WorkoutLog, WorkoutVisibility } from '../types';
 import { estimateCardioCalories, inferLogCategories, PresetExercise } from '../constants/workoutPresets';
 
@@ -40,6 +40,16 @@ export const exerciseKey = (ex: { name: string; type: string }) => `${ex.type}:$
 
 export function createDraft(owner: string): WorkoutDraft {
   return { version: 1, owner, id: newDraftId(), exercises: [], categories: [], note: '', visibility: 'public', workoutTime: null, updatedAt: Date.now(), pending: false };
+}
+
+export function createEditingDraft(owner: string, log: WorkoutLog): WorkoutDraft {
+  return {
+    ...createDraft(owner), id: log.id,
+    exercises: (log.exercises || []).map(ex => ({ ...fromRecordedExercise(ex), id: ex.id || newDraftId() })),
+    categories: inferLogCategories(log.category, log.categories, log.exercises),
+    note: log.note || '', visibility: log.visibility || 'public',
+    workoutTime: toLocalWorkoutTime(new Date(log.timestamp)),
+  };
 }
 
 export function createDraftExercise(preset: Pick<PresetExercise, 'name' | 'type'> & Partial<PresetExercise>): DraftExercise {

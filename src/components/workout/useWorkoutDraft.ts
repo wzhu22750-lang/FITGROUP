@@ -1,10 +1,13 @@
 import { useRef, useState } from 'react';
-import { createDraft, decodeDraft, draftStorageKey, WorkoutDraft } from '../../utils/workoutDraft';
+import type { WorkoutLog } from '../../types';
+import { createEditingDraft, createDraft, decodeDraft, draftStorageKey, WorkoutDraft } from '../../utils/workoutDraft';
 
 const completedDrafts = new Set<string>();
 
-export function useWorkoutDraft(owner: string) {
+export function useWorkoutDraft(owner: string, editingLog?: WorkoutLog) {
   const [initial] = useState(() => {
+    // Editing stays isolated from the user's unfinished new-workout draft.
+    if (editingLog) return { draft: createEditingDraft(owner, editingLog), restored: false, warning: '' };
     try {
       const raw = localStorage.getItem(draftStorageKey(owner));
       const restored = decodeDraft(raw, owner);
@@ -25,6 +28,7 @@ export function useWorkoutDraft(owner: string) {
     const updated = { ...next, updatedAt: Date.now() };
     draftRef.current = updated;
     setDraft(updated);
+    if (editingLog) return updated;
     try {
       localStorage.setItem(draftStorageKey(owner), JSON.stringify(updated));
       setStorageWarning('');
@@ -38,11 +42,12 @@ export function useWorkoutDraft(owner: string) {
     commit(change(draftRef.current));
   };
   const finish = () => {
+    if (editingLog) return;
     completedDrafts.add(draftRef.current.id);
     try { localStorage.removeItem(draftStorageKey(owner)); } catch { /* Server success must remain success. */ }
   };
   const reset = () => {
-    commit(createDraft(owner));
+    commit(editingLog ? createEditingDraft(owner, editingLog) : createDraft(owner));
     setRestored(false);
   };
   return { draft, draftRef, update, commit, finish, reset, restored, storageWarning };

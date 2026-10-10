@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { useWorkoutDraft } from '../src/components/workout/useWorkoutDraft';
+import type { WorkoutLog } from '../src/types';
 import { createDraftExercise, draftStorageKey } from '../src/utils/workoutDraft';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -13,7 +14,7 @@ Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
   removeItem: (key: string) => storage.delete(key),
 } });
 let session!: ReturnType<typeof useWorkoutDraft>;
-function Harness({ owner }: { owner: string }) { session = useWorkoutDraft(owner); return null; }
+function Harness({ owner, editingLog }: { owner: string; editingLog?: WorkoutLog }) { session = useWorkoutDraft(owner, editingLog); return null; }
 let tree!: ReactTestRenderer;
 try {
   await act(async () => { tree = create(<Harness owner="a" />); });
@@ -53,5 +54,18 @@ try {
   await act(async () => { session.reset(); });
   assert.equal(session.draft.note, '');
   assert.equal(session.draft.exercises.length, 0);
+  const existingDraft = storage.get(draftStorageKey('b'));
+  const editingLog: WorkoutLog = { id: 'edit-log', userId: 'b', userName: 'B', userPhoto: '', timestamp: '2025-01-01T11:00:12Z', category: 'Back', exercises: [{ id: 'existing-ex', name: '引体向上', type: 'strength', weight: -20, sets: 3, reps: 8 }], note: 'original', visibility: 'friends', likesCount: 2, commentsCount: 1 };
+  await act(async () => { tree.unmount(); tree = create(<Harness owner="b" editingLog={editingLog} />); });
+  assert.equal(session.draft.id, editingLog.id);
+  assert.equal(session.draft.exercises[0].id, 'existing-ex');
+  assert.equal(session.draft.exercises[0].weightMode, 'assisted');
+  assert.equal(session.draft.visibility, 'friends');
+  await act(async () => { session.update(draft => ({ ...draft, note: 'edited', workoutTime: '2025-01-02T19:00' })); });
+  assert.equal(storage.get(draftStorageKey('b')), existingDraft, 'Editing must not overwrite the new-workout draft');
+  session.finish();
+  assert.equal(storage.get(draftStorageKey('b')), existingDraft, 'Saving edits must not clear the new-workout draft');
+  await act(async () => { session.reset(); });
+  assert.equal(session.draft.note, 'original');
   console.log('PASS workout draft lifecycle: remount restore, immutable retry, account isolation, storage errors, successful cleanup and reset');
 } finally { await act(async () => tree?.unmount()); }

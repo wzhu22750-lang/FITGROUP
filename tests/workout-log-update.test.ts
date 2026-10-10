@@ -105,6 +105,22 @@ console.log('--- Testing workout log payload normalization ---');
   assert(payload.category === 'Back', 'category payload is normalized');
 }
 
+console.log('--- Testing training date edits ---');
+{
+  const timestamp = '2025-01-02T11:00:00.000Z';
+  assert(buildWorkoutLogUpdatePayload({ timestamp }).created_at === timestamp, 'selected training timestamp maps to created_at');
+  assert(!('created_at' in buildWorkoutLogUpdatePayload({ note: 'unchanged time' })), 'unmodified training time is preserved');
+  for (const timestamp of ['invalid', '', new Date(Date.now() + 86400000).toISOString(), 123]) {
+    let rejected = false;
+    try { buildWorkoutLogUpdatePayload({ timestamp }); } catch (error: any) { rejected = error.code === 'WORKOUT_LOG_INVALID_TIME'; }
+    assert(rejected, `invalid/future timestamp rejected: ${timestamp}`);
+  }
+  const { client, calls } = createFakeClient({ existing, updatedRows: [{ ...row, created_at: timestamp }] });
+  const updated = await executeWorkoutLogUpdate({ client, user, workoutLogId: 'log-1', updates: { timestamp } });
+  assert(updated.timestamp === timestamp, 'date edit returns the saved timestamp for immediate UI refresh');
+  assert(calls.some(call => call.operation === 'update' && (call.payload as any).created_at === timestamp), 'date edit reaches the database update payload');
+}
+
 console.log('--- Testing update execution and return-value contract ---');
 {
   const { client, calls } = createFakeClient({ existing, updatedRows: [row] });
