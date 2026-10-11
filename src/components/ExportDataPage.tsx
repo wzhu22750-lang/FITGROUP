@@ -136,6 +136,7 @@ export function ExportDataPage({ user, onBack, loadLogs = defaultLoadLogs, expor
   };
 
   const handleCopyText = async () => {
+    if (busy) return;
     try {
       const textContent = formatExportAsText(exportData);
       await navigator.clipboard.writeText(textContent);
@@ -248,8 +249,10 @@ export function ExportDataPage({ user, onBack, loadLogs = defaultLoadLogs, expor
 
           <button
             type="button"
+            data-testid="export-copy-text"
+            disabled={busy}
             onClick={handleCopyText}
-            className="w-full py-2 text-xs text-ink/40 hover:text-ink transition-colors cursor-pointer flex items-center justify-center gap-1"
+            className="w-full py-2 text-xs text-ink/40 hover:text-ink transition-colors cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40"
           >
             <Copy size={12} /> 复制文本到剪贴板
           </button>

@@ -553,4 +553,65 @@ console.log('--- 13. End-to-end sanity: example lifters (spec #50-H) ---');
   assert(u3Back.strengthScore > 0, 'User3 back strength populated by pull-ups');
 }
 
+console.log('--- 14. Fixed-clock current/baseline window boundaries ---');
+{
+  const fixedNow = Date.parse('2026-07-01T12:00:00.000Z');
+  const originalNow = Date.now;
+  Date.now = () => fixedNow;
+  try {
+    for (const days of [7, 28]) {
+      const cutoff = fixedNow - days * dayMs;
+      const baselineCutoff = cutoff - days * dayMs;
+      const benchAt = (id: string, time: number, weight = 50) => makeLog(
+        id, new Date(time).toISOString(),
+        [{ name: '杠铃平板卧推', weight, sets: 2, reps: 1 }], 'Chest'
+      );
+      const current = [benchAt('at-current-start', cutoff, 60), benchAt('at-now', fixedNow, 60)];
+      const baseline = [
+        benchAt('at-baseline-start', baselineCutoff),
+        benchAt('before-current-start', cutoff - 1),
+      ];
+      const historical = benchAt('before-baseline-start', baselineCutoff - 1, 100);
+      const future = benchAt('after-now', fixedNow + 1, 120);
+      const analyze = (logs: WorkoutLog[]) => calculateFullWorkoutAnalytics(logs, {}, days, null);
+      const clean = analyze(current);
+      const adjacent = analyze([...current, ...baseline]);
+      const all = analyze([...current, ...baseline, historical, future]);
+      const chest = all.categoryDetails[WorkoutCategory.Chest];
+      assert(chest.recentSets === 4, `${days}d: only current boundary logs count toward category sets (got ${chest.recentSets})`);
+      assert(chest.totalVolumeKg === 240, `${days}d: baseline/historical/future tonnage excluded (got ${chest.totalVolumeKg})`);
+      assert(all.recentWorkoutsCount === 2 && all.recentSetsCount === 4, `${days}d: recent workout/set totals include cutoff and now only`);
+      assert(JSON.stringify(all.volumeDistribution) === JSON.stringify(clean.volumeDistribution), `${days}d: baseline cannot inflate volume distribution`);
+      const baselineOnly = analyze(baseline).categoryDetails[WorkoutCategory.Chest];
+      assert(baselineOnly.recentSets === 0 && baselineOnly.totalVolumeKg === 0, `${days}d: baseline-only category has no current volume`);
+
+      const cleanChest = clean.categoryDetails[WorkoutCategory.Chest];
+      const adjacentChest = adjacent.categoryDetails[WorkoutCategory.Chest];
+      assert(cleanChest.progressionScore === 50, `${days}d: no adjacent baseline means neutral progression`);
+      assert(adjacentChest.progressionScore > 50, `${days}d: adjacent baseline compares lower load with current load`);
+      assert(chest.progressionScore === adjacentChest.progressionScore, `${days}d: progression excludes older PR and future performance (got ${chest.progressionScore} vs ${adjacentChest.progressionScore})`);
+      assert(analyze([...current, ...baseline, historical]).categoryDetails[WorkoutCategory.Chest].progressionScore === adjacentChest.progressionScore, `${days}d: older PR cannot replace adjacent baseline`);
+      const flatCurrent = [benchAt('flat-current', cutoff)];
+      const flat = analyze([...flatCurrent, ...baseline]).categoryDetails[WorkoutCategory.Chest];
+      const withFuture = analyze([...flatCurrent, ...baseline, future]).categoryDetails[WorkoutCategory.Chest];
+      assert(withFuture.progressionScore === flat.progressionScore, `${days}d: future performance cannot inflate current progression`);
+      for (const time of [baselineCutoff, cutoff - 1]) {
+        assert(analyze([...current, benchAt('baseline-boundary', time)]).categoryDetails[WorkoutCategory.Chest].progressionScore > 50, `${days}d: baseline boundary ${time} is included`);
+      }
+      const olderOnly = analyze([...current, historical]);
+      assert(olderOnly.categoryDetails[WorkoutCategory.Chest].progressionScore === 50, `${days}d: older history does not supply a baseline`);
+      const historicalPr = olderOnly.categorizedPrs.find((pr) => pr.name.includes('卧推'));
+      assert(historicalPr?.weight === 100, `${days}d: historical PR remains visible despite falling outside both windows`);
+      assert(olderOnly.categoryDetails[WorkoutCategory.Chest].strengthScore > cleanChest.strengthScore, `${days}d: historical strength assessment remains unchanged`);
+      const unknown = [{ name: '未收录胸部动作', weight: 10, sets: 3, reps: 2 }];
+      const unknownCurrent = makeLog('unknown-current', new Date(cutoff).toISOString(), unknown, 'Chest');
+      const unknownBaseline = makeLog('unknown-baseline', new Date(baselineCutoff).toISOString(), unknown, 'Chest');
+      const unknownResult = analyze([unknownCurrent, unknownBaseline]);
+      assert(unknownResult.recentSetsCount === 3 && unknownResult.categoryDetails[WorkoutCategory.Chest].totalVolumeKg === 60, `${days}d: fallback attribution also excludes baseline volume`);
+    }
+  } finally {
+    Date.now = originalNow;
+  }
+}
+
 console.log('\n🎉 ALL WORKOUT ANALYTICS V3 MODEL & BOUNDARY TESTS PASSED!\n');

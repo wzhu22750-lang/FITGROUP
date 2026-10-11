@@ -23,6 +23,7 @@ const WorkoutLogger = lazy(() => import('./components/WorkoutLogger'));
 const Statistics = lazy(() => import('./components/Statistics'));
 const Profile = lazy(() => import('./components/Profile'));
 const NotificationModal = lazy(() => import('./components/NotificationModal'));
+const WorkoutDetailModal = lazy(() => import('./components/WorkoutDetailModal'));
 const SplashAnimation = lazy(() => import('./components/SplashAnimation'));
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider } from './components/Toast';
@@ -33,6 +34,16 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'feed' | 'log' | 'stats' | 'profile'>('feed');
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [detailTarget, setDetailTarget] = useState<{ logId: string; accountId: string } | null>(null);
+  const accountId = user?.id || user?.uid || '';
+  const accountIdRef = useRef(accountId);
+  accountIdRef.current = accountId;
+  const closeDetail = useCallback(() => setDetailTarget(null), []);
+
+  useEffect(() => {
+    setDetailTarget(null);
+    setShowNotificationsModal(false);
+  }, [accountId]);
   const [showSplash, setShowSplash] = useState(() => {
     if (supabaseConfigError) return false;
     try {
@@ -287,15 +298,23 @@ export default function App() {
         {showNotificationsModal && (
           <Suspense fallback={null}>
             <NotificationModal
+              key={accountId}
               onClose={() => setShowNotificationsModal(false)}
-              onSelectLog={() => {
+              onSelectLog={(logId) => {
+                if (accountIdRef.current !== accountId) return;
                 setShowNotificationsModal(false);
-                setActiveTab('feed');
+                setDetailTarget({ logId, accountId });
               }}
             />
           </Suspense>
         )}
       </AnimatePresence>
+
+      {detailTarget && detailTarget.accountId === accountId && (
+        <Suspense fallback={null}>
+          <WorkoutDetailModal key={accountId} logId={detailTarget.logId} accountId={accountId} onClose={closeDetail} />
+        </Suspense>
+      )}
 
       {/* ── Bottom tab bar ── */}
       <nav aria-label="主导航" className="app-tabbar fixed bottom-0 left-0 right-0 bg-white border-t border-ink/20 px-3 pt-2 flex items-center justify-around gap-2 max-w-lg mx-auto z-40">

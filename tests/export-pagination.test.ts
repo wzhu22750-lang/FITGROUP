@@ -1,147 +1,132 @@
 import assert from 'node:assert/strict';
-import { fetchAllPages } from '../src/utils/pagination';
+import { fetchAllPages, fetchAllPagesById } from '../src/utils/pagination';
+import { supabase } from '../src/lib/supabase';
+import { fetchAllMyWorkoutLogsForExport } from '../src/api';
 
-function pass(msg: string) {
-  console.log(`✅ PASSED: ${msg}`);
-}
-
+// These tests are offline: all API queries are replaced with mutable in-memory rows.
 console.log('--- Testing Export Pagination ---');
+const id = (i: number) => `row-${String(i).padStart(5, '0')}`;
+const makeRow = (i: number) => ({
+  id: id(i), user_id: 'u1', user_name: 'Tester', user_photo: '',
+  created_at: new Date(Date.UTC(2020, 0, 1) + i * 1000).toISOString(),
+  category: 'Chest', exercises: [], note: '', photo_url: '',
+  likes_count: 0, comments_count: 0, visibility: 'public',
+});
+type Row = ReturnType<typeof makeRow>;
 
-// 1. fetchAllPages reads every page until a short page is returned
-{
-  const total = 1001;
-  const all = Array.from({ length: total }, (_, i) => i);
-  const calls: Array<[number, number]> = [];
-  const result = await fetchAllPages<number>(async (from, to) => {
-    calls.push([from, to]);
-    return all.slice(from, to + 1);
-  }, 400, {});
-
-  assert.equal(result.length, total, '1001 items read across pages');
-  assert.equal(calls.length, 3, 'three page requests (400 + 400 + 201)');
-  assert.deepEqual(calls[0], [0, 399]);
-  assert.deepEqual(calls[1], [400, 799]);
-  assert.deepEqual(calls[2], [800, 1199]);
-  pass('fetchAllPages reads >1 page completely (1001)');
+// Existing offset helper remains usable, but exports do not call it.
+assert.equal((await fetchAllPages(async (from, to) =>
+  Array.from({ length: 1001 }, (_, i) => i).slice(from, to + 1), 400)).length, 1001);
+for (const size of [0, -1, NaN, Infinity, -Infinity, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+  await assert.rejects(() => fetchAllPages(async () => [], size), /pageSize/);
+  await assert.rejects(() => fetchAllPagesById(async () => [], size), /pageSize/);
+  await assert.rejects(() => fetchAllMyWorkoutLogsForExport('u1', { pageSize: size }), /pageSize/);
 }
-
-// 2. Exactly 1000 records stop after the short final page
+assert.deepEqual(await fetchAllPagesById(async () => []), []);
+// The database can sort mixed-case text differently from JS code-unit order.
+// Trust its ORDER BY/lt contract; detect loops via repeated ids instead.
 {
-  const all = Array.from({ length: 1000 }, (_, i) => i);
-  let calls = 0;
-  const result = await fetchAllPages<number>(async (from, to) => {
-    calls += 1;
-    return all.slice(from, to + 1);
-  }, 400);
-  assert.equal(result.length, 1000);
-  assert.equal(calls, 3, '400 + 400 + 200');
-  pass('fetchAllPages handles an exact 1000 boundary');
+  const cursors: Array<string | undefined> = [];
+  const pages = [[{ id: 'log_B' }], [{ id: 'log_a' }], []];
+  const result = await fetchAllPagesById(async (cursor) => {
+    cursors.push(cursor);
+    return pages.shift()!;
+  }, 1);
+  assert.deepEqual(result.map(row => row.id), ['log_B', 'log_a']);
+  assert.deepEqual(cursors, [undefined, 'log_B', 'log_a']);
+  await assert.rejects(() => fetchAllPagesById(async () => [{ id: 'a' }, { id: 'a' }], 2), /游标/);
 }
+await assert.rejects(() => fetchAllPagesById(async () => { throw new Error('network down'); }), /network down/);
+await assert.rejects(() => fetchAllPagesById(async () => [{ id: 'same' }], 1), /游标/);
+await assert.rejects(() => fetchAllPagesById(async () => [{ id: 'z' }], 1, { maxPages: 1 }), /上限/);
+const controller = new AbortController();
+await assert.rejects(() => fetchAllPagesById(async () => {
+  controller.abort(new Error('cancelled during final page'));
+  return [];
+}, 400, { signal: controller.signal }), /cancelled/);
 
-// 3. Empty result
-{
-  const result = await fetchAllPages<number>(async () => [], 400);
-  assert.deepEqual(result, []);
-  pass('fetchAllPages handles an empty history');
-}
-
-// 4. Errors are propagated (never swallowed)
-{
-  await assert.rejects(
-    () => fetchAllPages<number>(async () => {
-      throw new Error('network down');
-    }, 400),
-    /network down/,
-    'fetch errors propagate',
-  );
-  pass('fetchAllPages propagates fetch errors');
-}
-
-// 5. Invalid page size is rejected
-{
-  await assert.rejects(() => fetchAllPages<number>(async () => [], 0), /pageSize/);
-  await assert.rejects(() => fetchAllPages<number>(async () => [], -1), /pageSize/);
-  pass('fetchAllPages rejects invalid page sizes');
-}
-
-// 6. API integration: fetchAllMyWorkoutLogsForExport reads full history + de-dupes
-{
-  const { supabase } = await import('../src/lib/supabase');
-  const { fetchAllMyWorkoutLogsForExport } = await import('../src/api');
-
-  const makeRow = (index: number, id = `row-${index}`) => ({
-    id,
-    user_id: 'u1',
-    user_name: 'Tester',
-    user_photo: '',
-    created_at: new Date(Date.UTC(2020, 0, 1) + index * 1000).toISOString(),
-    category: 'Chest',
-    exercises: [{ id: `e-${index}`, name: '杠铃卧推', type: 'strength', sets: 3, reps: 8, weight: 60 }],
-    note: '',
-    photo_url: '',
-    likes_count: 0,
-    comments_count: 0,
-    visibility: 'public',
-  });
-
-  const dataset = Array.from({ length: 1001 }, (_, i) => makeRow(i));
-  let rangeCalls = 0;
-  let lastRange: [number, number] = [0, 0];
-
+const originalFrom = supabase.from;
+/** A faithful keyset mock: applies filters, order, and limit on each request. */
+function installMock(initial: Row[], mutate?: (rows: Row[], call: number) => void, failure?: Error) {
+  const rows = [...initial];
+  const requests: Array<{ before?: string; limit: number }> = [];
   supabase.from = ((table: string) => {
     assert.equal(table, 'workout_logs');
-    const state = { from: 0, to: 0 };
+    const state = { before: undefined as string | undefined, limit: 0, cutoff: '', uid: '', signal: undefined as AbortSignal | undefined };
     const query: any = {
       select: () => query,
-      eq: () => query,
-      lte: () => query,
-      order: () => query,
-      range: (from: number, to: number) => {
-        state.from = from;
-        state.to = to;
-        rangeCalls += 1;
-        lastRange = [from, to];
-        return query;
+      eq: (column: string, value: string) => { assert.equal(column, 'user_id'); state.uid = value; return query; },
+      lte: (column: string, value: string) => { assert.equal(column, 'created_at'); state.cutoff = value; return query; },
+      lt: (column: string, value: string) => { assert.equal(column, 'id'); state.before = value; return query; },
+      order: (column: string, opts: { ascending: boolean }) => { assert.equal(column, 'id'); assert.equal(opts.ascending, false); return query; },
+      limit: (limit: number) => { state.limit = limit; return query; },
+      range: () => assert.fail('Export must never use offset pagination'),
+      abortSignal: (signal: AbortSignal) => { state.signal = signal; return query; },
+      then: (resolve: (value: unknown) => unknown, reject: (error: unknown) => unknown) => {
+        requests.push({ before: state.before, limit: state.limit });
+        mutate?.(rows, requests.length);
+        assert.ok(state.signal);
+        const data = rows.filter(r => r.user_id === state.uid && r.created_at <= state.cutoff &&
+          (state.before === undefined || r.id < state.before))
+          .sort((a, b) => b.id.localeCompare(a.id)).slice(0, state.limit).map(row => ({ ...row }));
+        return Promise.resolve({ data, error: failure ?? null }).then(resolve, reject);
       },
-      abortSignal: () => query,
-      then: (resolve: (value: { data: unknown[]; error: null }) => unknown) =>
-        Promise.resolve({ data: dataset.slice(state.from, state.to + 1), error: null }).then(resolve),
     };
     return query;
   }) as any;
-
-  const logs = await fetchAllMyWorkoutLogsForExport('u1', {
-    exportStartedAt: new Date(Date.UTC(2100, 0, 1)).toISOString(),
-  });
-  assert.equal(logs.length, 1001, 'API returns the complete 1001-record history');
-  assert.equal(rangeCalls, 3, 'API paginated three times');
-  assert.deepEqual(lastRange, [800, 1199]);
-  assert.deepEqual(logs[0].categories, ['Chest'], 'normalized categories are attached');
-
-  // De-dupe across a page boundary
-  const withDuplicate = [...Array.from({ length: 4 }, (_, i) => makeRow(i, i === 3 ? 'dup-0' : `dup-${i}`))];
-  supabase.from = (() => {
-    const state = { from: 0, to: 0 };
-    const query: any = {
-      select: () => query,
-      eq: () => query,
-      lte: () => query,
-      order: () => query,
-      range: (from: number, to: number) => {
-        state.from = from;
-        state.to = to;
-        return query;
-      },
-      abortSignal: () => query,
-      then: (resolve: (value: { data: unknown[]; error: null }) => unknown) =>
-        Promise.resolve({ data: withDuplicate.slice(state.from, state.to + 1), error: null }).then(resolve),
-    };
-    return query;
-  }) as any;
-
-  const deduped = await fetchAllMyWorkoutLogsForExport('u1', { pageSize: 2 });
-  assert.equal(deduped.length, 3, 'duplicate ids across pages are de-duplicated');
-  pass('fetchAllMyWorkoutLogsForExport: full history + dedupe');
+  return { requests, rows };
 }
+try {
+  for (const total of [0, 1000, 1001, 800]) {
+    const { requests } = installMock(Array.from({ length: total }, (_, i) => makeRow(i)));
+    const logs = await fetchAllMyWorkoutLogsForExport('u1');
+    assert.equal(logs.length, total);
+    assert.equal(requests.length, Math.floor(total / 400) + 1);
+    assert.equal(new Set(logs.map(log => log.id)).size, total);
+    if (total) {
+      assert.equal(logs[0].id, id(total - 1));
+      assert.deepEqual(logs[0].categories, ['Chest']);
+    }
+    if (total > 400) assert.equal(requests[1].before, id(total - 400));
+  }
 
-console.log('\n🎉 ALL EXPORT PAGINATION TESTS PASSED SUCCESSFULLY!\n');
+  // Delete a row in the already-read page: offset would skip an unread row.
+  installMock(Array.from({ length: 6 }, (_, i) => makeRow(i)), (rows, call) => {
+    if (call === 2) rows.splice(rows.findIndex(r => r.id === id(5)), 1);
+  });
+  assert.deepEqual((await fetchAllMyWorkoutLogsForExport('u1', { pageSize: 2 })).map(r => r.id),
+    [5, 4, 3, 2, 1, 0].map(id));
+
+  // Backfills and time edits do not move the immutable pagination cursor.
+  const { requests } = installMock([0, 2, 4, 6].map(makeRow), (rows, call) => {
+    if (call === 2) {
+      rows.push(makeRow(3), makeRow(7)); // below cursor included; above cursor not revisited
+      rows.find(r => r.id === id(2))!.created_at = '2025-01-01T00:00:00.000Z';
+      rows.find(r => r.id === id(6))!.created_at = '2010-01-01T00:00:00.000Z';
+    }
+  });
+  const edited = await fetchAllMyWorkoutLogsForExport('u1', { pageSize: 2, exportStartedAt: '2030-01-01T00:00:00.000Z' });
+  assert.deepEqual(edited.map(r => r.id), [2, 6, 4, 3, 0].map(id));
+  assert.deepEqual(requests.map(r => r.before), [undefined, id(4), id(2)]);
+  assert.equal(edited.find(r => r.id === id(6))!.timestamp, makeRow(6).created_at,
+    'Already-read rows are not refreshed: traversal is explicitly not a snapshot');
+
+  const tied = [makeRow(1), makeRow(2)];
+  tied[0].created_at = tied[1].created_at;
+  installMock(tied);
+  assert.deepEqual((await fetchAllMyWorkoutLogsForExport('u1', { pageSize: 1 })).map(r => r.id), [id(2), id(1)]);
+
+  installMock([], undefined, new Error('API export failed'));
+  await assert.rejects(() => fetchAllMyWorkoutLogsForExport('u1'), /API export failed/);
+  const cancel = new AbortController();
+  const { requests: cancelledRequests } = installMock([makeRow(1)], () => cancel.abort(new Error('API cancelled')));
+  await assert.rejects(() => fetchAllMyWorkoutLogsForExport('u1', { signal: cancel.signal }), /API cancelled/);
+  assert.equal(cancelledRequests.length, 1);
+  const pre = new AbortController();
+  pre.abort(new Error('pre-cancelled'));
+  await assert.rejects(() => fetchAllMyWorkoutLogsForExport('u1', { signal: pre.signal }), /pre-cancelled/);
+  assert.equal(cancelledRequests.length, 1);
+} finally {
+  supabase.from = originalFrom;
+}
+console.log('✅ Export keyset traversal, mutations, sorting, validation, errors and cancellation passed');

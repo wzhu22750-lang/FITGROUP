@@ -262,7 +262,6 @@ function LogCard({ log: initialLog, onLogUpdated }: LogCardProps) {
     } catch {
       setUserStats(null);
     }
-    setShowShareModal(true);
   };
 
   const handleEditSuccess = (updated: Partial<WorkoutLog>) => {

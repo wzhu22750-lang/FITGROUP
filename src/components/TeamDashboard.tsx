@@ -43,8 +43,10 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
   const currentUser = getCurrentUser();
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
-  const [dashboardData, setDashboardData] = useState<TeamDashboardData | null>(null);
-  const [teamLogs, setTeamLogs] = useState<WorkoutLog[]>([]);
+  const [storedDashboardData, setDashboardData] = useState<TeamDashboardData | null>(null);
+  const [dashboardGeneration, setDashboardGeneration] = useState(-1);
+  const [storedTeamLogs, setTeamLogs] = useState<WorkoutLog[]>([]);
+  const [logsGeneration, setLogsGeneration] = useState(-1);
   const [loadingTeams, setLoadingTeams] = useState(true);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
   const [teamsError, setTeamsError] = useState('');
@@ -53,6 +55,18 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
   const [copied, setCopied] = useState(false);
   const recentLogUpdates = useRef<Record<string, Partial<WorkoutLog> & OptimisticUpdateMetadata>>({});
   const isMounted = useRef(true);
+  const selection = useRef({ teamId: selectedTeamId, generation: 0 });
+  const dashboardRequest = useRef(0);
+  if (selection.current.teamId !== selectedTeamId) {
+    selection.current = { teamId: selectedTeamId, generation: selection.current.generation + 1 };
+  }
+  const selectionGeneration = selection.current.generation;
+  const isSelectionCurrent = useCallback(() => isMounted.current
+    && selection.current.teamId === selectedTeamId
+    && selection.current.generation === selectionGeneration, [selectedTeamId, selectionGeneration]);
+  // Hide prior selection data immediately, before subscription effects run.
+  const dashboardData = dashboardGeneration === selectionGeneration ? storedDashboardData : null;
+  const teamLogs = logsGeneration === selectionGeneration ? storedTeamLogs : [];
 
   useEffect(() => {
     isMounted.current = true;
@@ -123,6 +137,11 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
 
   // 2. Subscribe to selected team dashboard
   useEffect(() => {
+    let active = true;
+    dashboardRequest.current += 1;
+    setDashboardData(null);
+    setDashboardError('');
+    recentLogUpdates.current = {};
     if (!selectedTeamId) {
       setDashboardData(null);
       return;
@@ -132,21 +151,32 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
     const unsub = subscribeToTeamDashboard(
       selectedTeamId,
       (data) => {
+        if (!active || !isSelectionCurrent()) return;
+        dashboardRequest.current += 1;
+        setDashboardGeneration(selectionGeneration);
         setDashboardData(data);
         setDashboardError('');
         setLoadingDashboard(false);
       },
       (error) => {
+        if (!active || !isSelectionCurrent()) return;
         setDashboardError(error.message || '小队数据加载失败');
         setLoadingDashboard(false);
       }
     );
 
-    return () => unsub();
-  }, [selectedTeamId]);
+    return () => {
+      active = false;
+      dashboardRequest.current += 1;
+      unsub();
+    };
+  }, [selectedTeamId, selectionGeneration, isSelectionCurrent]);
 
   // 3. Subscribe to selected team's workout logs feed
   useEffect(() => {
+    let active = true;
+    setTeamLogs([]);
+    setTeamLogsError('');
     if (!selectedTeamId) {
       setTeamLogs([]);
       return;
@@ -155,19 +185,20 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
     const unsub = subscribeToTeamWorkoutLogs(
       selectedTeamId,
       (logs) => {
-        if (!isMounted.current) return;
+        if (!active || !isSelectionCurrent()) return;
         const reconciled = reconcileRecentUpdates(logs);
-        setTeamLogs((prev) => mergeLogsPreservingIdentity(prev, reconciled));
+        setLogsGeneration(selectionGeneration);
+        setTeamLogs((prev) => isSelectionCurrent() ? mergeLogsPreservingIdentity(prev, reconciled) : prev);
         setTeamLogsError('');
       },
       (error) => {
-        if (!isMounted.current) return;
+        if (!active || !isSelectionCurrent()) return;
         setTeamLogsError(error.message || '小队动态加载失败');
       },
     );
 
-    return () => unsub();
-  }, [selectedTeamId]);
+    return () => { active = false; unsub(); };
+  }, [selectedTeamId, selectionGeneration, isSelectionCurrent, reconcileRecentUpdates]);
 
   // Synchronize team logs & member cards when user updates nickname or avatar
   useEffect(() => {
@@ -225,6 +256,7 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
 
   const handleCardLogUpdated = useCallback(
     (updated?: Partial<WorkoutLog> & { id: string; _deleted?: boolean }) => {
+      if (!isSelectionCurrent()) return;
       if (updated?.id) {
         const nowMonotonic = getMonotonicTime();
         const nowWallClock = Date.now();
@@ -239,7 +271,7 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
         recentLogUpdates.current[updated.id] = merged;
 
         window.setTimeout(() => {
-          if (recentLogUpdates.current[updated.id]?._monotonicAt === nowMonotonic) {
+          if (isSelectionCurrent() && recentLogUpdates.current[updated.id]?._monotonicAt === nowMonotonic) {
             delete recentLogUpdates.current[updated.id];
           }
         }, 30_000);
@@ -247,6 +279,7 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
         const cleanMerged = stripUpdateMetadata(merged);
 
         setTeamLogs((prev) => {
+          if (!isSelectionCurrent()) return prev;
           if (merged._deleted || (merged.visibility && merged.visibility === 'private')) {
             return prev.filter((log) => log.id !== updated.id);
           }
@@ -255,14 +288,23 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
           );
         });
       }
+      if (!isSelectionCurrent()) return;
       onLogUpdated?.();
-      if (selectedTeamId) {
+      if (selectedTeamId && isSelectionCurrent()) {
+        const request = ++dashboardRequest.current;
+        const isCurrent = () => isSelectionCurrent() && dashboardRequest.current === request;
         void getTeamDashboard(selectedTeamId).then((data) => {
-          if (isMounted.current) setDashboardData(data);
+          if (isCurrent()) {
+            setDashboardGeneration(selectionGeneration);
+            setDashboardData(data);
+            setDashboardError('');
+          }
+        }).catch((error) => {
+          if (isCurrent()) setDashboardError(error.message || '小队数据加载失败');
         });
       }
     },
-    [onLogUpdated, selectedTeamId]
+    [onLogUpdated, selectedTeamId, selectionGeneration, isSelectionCurrent]
   );
 
   const handleCopyCode = async (code: string) => {
@@ -382,7 +424,7 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
     <div className="space-y-6">
       {dashboardError && (
         <div className="bg-amber-100 border-2 border-ink px-3 py-2 text-xs font-bold text-ink">
-          小队数据暂时无法刷新，当前仍显示上次成功加载的数据。{dashboardError}
+          小队数据暂时无法刷新，{dashboardData ? '当前仍显示上次成功加载的数据。' : '请稍后重试。'}{dashboardError}
         </div>
       )}
 

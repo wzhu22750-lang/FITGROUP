@@ -3,7 +3,7 @@ import { supabase } from './lib/supabase';
 import type { WorkoutLog, WorkoutVisibility, Team, TeamMember, TeamDashboardData, AppNotification, FeedbackType, UserFeedback } from './types';
 import { WorkoutCategory } from './types';
 import { parseCategories } from './constants/workoutPresets';
-import { fetchAllPages } from './utils/pagination';
+import { fetchAllPagesById, validatePageSize } from './utils/pagination';
 import { executeWorkoutLogUpdate, sanitizeExercisesForDb } from './utils/workoutLogUpdate';
 export { sanitizeExercisesForDb } from './utils/workoutLogUpdate';
 import { DEFAULT_MAX_TEAM_MEMBERS } from './constants/teamConfig';
@@ -896,6 +896,33 @@ class SharedFeedScheduler {
   private latestLogs = new Map<string, WorkoutLog[]>();
   private channels = new Map<string, any>();
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private pendingRefresh = new Map<string, (signal: AbortSignal) => Promise<WorkoutLog[]>>();
+
+  private clearRefresh(domainKey: string) {
+    this.pendingRefresh.delete(domainKey);
+    const timer = this.debounceTimers.get(domainKey);
+    if (timer) clearTimeout(timer);
+    this.debounceTimers.delete(domainKey);
+  }
+
+  /** Dispose all subscriptions and invalidate outstanding responses (e.g. account reset). */
+  reset() {
+    for (const key of new Set([...this.subscribers.keys(), ...this.inFlight.keys(), ...this.channels.keys(), ...this.debounceTimers.keys()])) {
+      this.clearRefresh(key);
+      this.nextVersion(key);
+      this.controllers.get(key)?.abort(new DOMException('Feed reset', 'AbortError'));
+      this.likeControllers.get(key)?.abort(new DOMException('Feed reset', 'AbortError'));
+      const channel = this.channels.get(key);
+      if (channel) void supabase.removeChannel(channel);
+    }
+    this.subscribers.clear();
+    this.channels.clear();
+    this.controllers.clear();
+    this.likeControllers.clear();
+    this.inFlight.clear();
+    this.latestLogs.clear();
+    this.latestCommittedVersion.clear();
+  }
 
   nextVersion(domainKey: string): number {
     const next = (this.latestVersion.get(domainKey) || 0) + 1;
@@ -914,6 +941,7 @@ class SharedFeedScheduler {
       return withCallerSignal(existing, options?.signal);
     }
 
+    if (options?.force) this.clearRefresh(domainKey);
     const version = this.nextVersion(domainKey);
     this.controllers.get(domainKey)?.abort(new DOMException('Read superseded', 'AbortError'));
     this.likeControllers.get(domainKey)?.abort(new Error('Likes superseded'));
@@ -961,6 +989,14 @@ class SharedFeedScheduler {
       } finally {
         if (this.inFlight.get(domainKey) === flight) {
           this.inFlight.delete(domainKey);
+          this.controllers.delete(domainKey);
+          const pending = this.pendingRefresh.get(domainKey);
+          this.pendingRefresh.delete(domainKey);
+          if (pending && this.subscribers.get(domainKey)?.size) {
+            void this.fetch(domainKey, pending).catch((err) => {
+              this.notifyError(domainKey, err instanceof Error ? err : new Error(String(err)));
+            });
+          }
         }
       }
     });
@@ -1011,10 +1047,22 @@ class SharedFeedScheduler {
     domainSubs.set(subId, { id: subId, callback, onError });
 
     const pull = () => {
+      // Ignore late callbacks from a removed channel, even after resubscription.
+      if (this.subscribers.get(domainKey) !== domainSubs) return;
+      if (this.inFlight.has(domainKey)) {
+        this.clearRefresh(domainKey);
+        this.pendingRefresh.set(domainKey, fetcher);
+        return;
+      }
       const existingTimer = this.debounceTimers.get(domainKey);
       if (existingTimer) clearTimeout(existingTimer);
       const timer = setTimeout(() => {
         this.debounceTimers.delete(domainKey);
+        if (this.subscribers.get(domainKey) !== domainSubs) return;
+        if (this.inFlight.has(domainKey)) {
+          this.pendingRefresh.set(domainKey, fetcher);
+          return;
+        }
         void this.fetch(domainKey, fetcher).catch((err) => {
           this.notifyError(domainKey, err instanceof Error ? err : new Error(String(err)));
         });
@@ -1034,7 +1082,7 @@ class SharedFeedScheduler {
 
     return () => {
       const currentSubs = this.subscribers.get(domainKey);
-      if (currentSubs) {
+      if (currentSubs === domainSubs) {
         currentSubs.delete(subId);
         if (currentSubs.size === 0) {
           this.subscribers.delete(domainKey);
@@ -1045,11 +1093,7 @@ class SharedFeedScheduler {
             this.channels.delete(domainKey);
           }
 
-          const timer = this.debounceTimers.get(domainKey);
-          if (timer) {
-            clearTimeout(timer);
-            this.debounceTimers.delete(domainKey);
-          }
+          this.clearRefresh(domainKey);
 
           this.nextVersion(domainKey);
           this.controllers.get(domainKey)?.abort(new DOMException('Feed disposed', 'AbortError'));
@@ -1585,7 +1629,7 @@ export const getUserWorkoutLogs = async (
 
 /**
  * Page size for full-history export reads. Kept below common provider caps so
- * `.range()` reliably returns complete pages.
+ * `.limit()` stays within the provider's row cap.
  */
 export const EXPORT_PAGE_SIZE = 400;
 
@@ -1593,33 +1637,36 @@ export const EXPORT_PAGE_SIZE = 400;
  * Read the user's *complete* workout history for export.
  *
  * Unlike `getUserWorkoutLogs` (a bounded feed read using `.limit()`), this
- * paginates with `.range()` until a short page is returned, pins the result set
- * to logs created at or before `exportStartedAt` so records added mid-export
- * cannot shift the offset window, orders by a stable `(created_at, id)` pair and
- * de-duplicates by id. It never truncates to a fixed count.
+ * traverses immutable ids descending with keyset pagination, then sorts the
+ * normalized result by timestamp/id descending. `exportStartedAt` is only a
+ * created_at filter, NOT a transaction snapshot: concurrent inserts below the
+ * cursor may be included, inserts above it may be missed, and edits/deletes can
+ * affect unread rows. Neither deletions nor time edits shift pagination windows.
  */
 export const fetchAllMyWorkoutLogsForExport = async (
   userId: string,
   options?: ReadRequestOptions & { exportStartedAt?: string; pageSize?: number },
 ): Promise<WorkoutLog[]> => {
+  const requestedPageSize = options?.pageSize ?? EXPORT_PAGE_SIZE;
+  validatePageSize(requestedPageSize);
   if (!userId) return [];
   const exportStartedAt = options?.exportStartedAt || new Date().toISOString();
-  const pageSize = Math.min(Math.max(Math.trunc(options?.pageSize ?? EXPORT_PAGE_SIZE), 1), 1000);
+  const pageSize = Math.min(requestedPageSize, 1000);
 
   return readRequest(
     'fetchAllMyWorkoutLogsForExport',
     async (signal) => {
-      const rows = await fetchAllPages<WorkoutLogRow>(
-        async (from, to) => {
-          const { data, error } = await supabase
+      const rows = await fetchAllPagesById<WorkoutLogRow>(
+        async (beforeId, limit) => {
+          let query = supabase
             .from('workout_logs')
             .select('*')
             .eq('user_id', userId)
             .lte('created_at', exportStartedAt)
-            .order('created_at', { ascending: false })
             .order('id', { ascending: false })
-            .range(from, to)
-            .abortSignal(signal);
+            .limit(limit);
+          if (beforeId !== undefined) query = query.lt('id', beforeId);
+          const { data, error } = await query.abortSignal(signal);
           if (error) throw error;
           return (data || []) as WorkoutLogRow[];
         },
@@ -1634,7 +1681,8 @@ export const fetchAllMyWorkoutLogsForExport = async (
           byId.set(log.id, log);
         }
       });
-      return Array.from(byId.values());
+      return Array.from(byId.values()).sort((a, b) =>
+        b.timestamp.localeCompare(a.timestamp) || b.id.localeCompare(a.id));
     },
     { ...options, timeoutMs: options?.timeoutMs ?? 60000 },
   );

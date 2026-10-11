@@ -17,6 +17,9 @@ import {
 } from '../src/api';
 import { supabase } from '../src/lib/supabase';
 
+// Fail closed if a fixture accidentally attempts any network I/O.
+globalThis.fetch = async () => { throw new Error('Unexpected network call in offline test'); };
+
 // Realtime transport is not the target of these deterministic read tests.
 supabase.removeChannel = async () => 'ok';
 supabase.channel = (() => {
@@ -506,4 +509,162 @@ console.log('--- Testing Central Fetch Deadlines & No Write Retries ---');
   console.log('✅ PASSED: Central fetch policy enforces no automatic write retries');
 }
 
+// Real scheduler + deferred transport: events are invalidations, not ordinary reads.
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+const fixtureLog = (note: string) => normalizeLog({
+  id: 'pending-log', user_id: 'u1', user_name: 'Tester', user_photo: '',
+  created_at: '2020-01-01T00:00:00.000Z', category: 'Chest', exercises: [],
+  note, photo_url: '', likes_count: 0, comments_count: 0, visibility: 'public',
+});
+function fixture(key: string) {
+  const requests: Array<ReturnType<typeof deferred<ReturnType<typeof normalizeLog>[]>>> = [];
+  const signals: AbortSignal[] = [];
+  const delivered: string[] = [];
+  const errors: string[] = [];
+  let event!: () => void;
+  const fetcher = (signal: AbortSignal) => {
+    signals.push(signal);
+    const request = deferred<ReturnType<typeof normalizeLog>[]>();
+    requests.push(request);
+    return request.promise; // intentionally ignores abort, to verify stale-response isolation
+  };
+  const unsubscribe = sharedFeedScheduler.subscribe(key, fetcher, pull => {
+    event = pull;
+    return {};
+  }, logs => delivered.push(logs[0]?.note ?? 'empty'), error => errors.push(error.message));
+  return { key, fetcher, requests, signals, delivered, errors, event: () => event(), unsubscribe };
+}
+{
+  const f = fixture('deferred-events');
+  await sleep(0);
+  const readA = sharedFeedScheduler.fetch(f.key, f.fetcher);
+  const readB = sharedFeedScheduler.fetch(f.key, f.fetcher);
+  for (let i = 0; i < 50; i++) f.event();
+  assert.equal(f.requests.length, 1, 'events never start a competing request');
+  f.requests[0].resolve([fixtureLog('old')]); // settles before the debounce window
+  assert.equal((await readA)[0].note, 'old');
+  assert.equal((await readB)[0].note, 'old');
+  await sleep(0);
+  assert.equal(f.requests.length, 2, 'all pending events trigger one trailing read');
+  f.requests[1].resolve([fixtureLog('fresh')]);
+  await sleep(150);
+  assert.equal(f.requests.length, 2, 'no leftover debounce timer starts a third request');
+  assert.equal(f.delivered.at(-1), 'fresh');
+  f.unsubscribe();
+}
+{
+  const f = fixture('deferred-long-flight');
+  await sleep(0);
+  f.event();
+  await sleep(150); // the old flight lasts longer than the debounce window
+  assert.equal(f.requests.length, 1);
+  f.requests[0].resolve([fixtureLog('old')]);
+  await sleep(0);
+  assert.equal(f.requests.length, 2);
+  f.requests[1].resolve([fixtureLog('new')]);
+  await sleep(0);
+  assert.equal(f.delivered.at(-1), 'new');
+  f.unsubscribe();
+}
+for (const disposal of ['unsubscribe', 'reset'] as const) {
+  const f = fixture(`deferred-${disposal}`);
+  await sleep(0);
+  f.event();
+  if (disposal === 'unsubscribe') f.unsubscribe(); else sharedFeedScheduler.reset();
+  assert.ok(f.signals[0].aborted);
+  f.event(); // late channel callback must not revive the domain
+  f.requests[0].resolve([fixtureLog('disposed')]);
+  await sleep(150);
+  assert.equal(f.requests.length, 1, `${disposal}: no trailing fetch without subscribers`);
+  assert.deepEqual(f.delivered, []);
+  f.unsubscribe();
+}
+for (const disposal of ['unsubscribe', 'reset'] as const) {
+  const f = fixture(`idle-timer-${disposal}`);
+  await sleep(0);
+  f.requests[0].resolve([]);
+  await sleep(0);
+  for (let i = 0; i < 20; i++) f.event();
+  if (disposal === 'unsubscribe') f.unsubscribe(); else sharedFeedScheduler.reset();
+  await sleep(150);
+  assert.equal(f.requests.length, 1, `${disposal}: clear idle debounce timer`);
+  f.unsubscribe();
+}
+{
+  const f = fixture('deferred-force');
+  await sleep(0);
+  f.event();
+  const replacement = sharedFeedScheduler.fetch(f.key, f.fetcher, { force: true });
+  await sleep(0);
+  assert.equal(f.requests.length, 2);
+  assert.ok(f.signals[0].aborted);
+  f.requests[0].resolve([fixtureLog('obsolete')]);
+  f.requests[1].resolve([fixtureLog('forced')]);
+  await replacement;
+  await sleep(150);
+  assert.equal(f.requests.length, 2, 'force consumes previous pending invalidation');
+  assert.equal(f.delivered.at(-1), 'forced');
+  assert.ok(!f.delivered.includes('obsolete'));
+  // An idle event schedules a debounce; force must clear that too.
+  f.event();
+  const again = sharedFeedScheduler.fetch(f.key, f.fetcher, { force: true });
+  await sleep(0);
+  f.requests[2].resolve([fixtureLog('forced-again')]);
+  await again;
+  await sleep(150);
+  assert.equal(f.requests.length, 3, 'force clears the old debounce timer');
+  f.unsubscribe();
+}
+{
+  const f = fixture('deferred-force-new-event');
+  await sleep(0);
+  f.event();
+  const replacement = sharedFeedScheduler.fetch(f.key, f.fetcher, { force: true });
+  await sleep(0);
+  f.event(); // this invalidation happened AFTER replacement started; retain it
+  f.requests[0].resolve([]);
+  f.requests[1].resolve([fixtureLog('replacement')]);
+  await replacement;
+  await sleep(0);
+  assert.equal(f.requests.length, 3);
+  f.requests[2].resolve([fixtureLog('after-replacement-event')]);
+  await sleep(0);
+  assert.equal(f.delivered.at(-1), 'after-replacement-event');
+  f.unsubscribe();
+}
+{
+  const f = fixture('deferred-error');
+  await sleep(0);
+  f.event();
+  f.requests[0].reject(new Error('old request failed'));
+  await sleep(0);
+  assert.equal(f.requests.length, 2, 'failure settlement also drains pending invalidation');
+  f.requests[1].resolve([fixtureLog('recovered')]);
+  await sleep(0);
+  assert.equal(f.delivered.at(-1), 'recovered');
+  assert.deepEqual(f.errors, ['old request failed']);
+  f.unsubscribe();
+}
+{
+  const old = fixture('deferred-reset-resubscribe');
+  await sleep(0);
+  old.event();
+  sharedFeedScheduler.reset();
+  const fresh = fixture(old.key);
+  await sleep(0);
+  old.event();
+  old.unsubscribe(); // must not remove the replacement domain's subscribers
+  old.requests[0].resolve([fixtureLog('stale-account')]);
+  fresh.requests[0].resolve([fixtureLog('new-account')]);
+  await sleep(150);
+  assert.equal(fresh.requests.length, 1);
+  assert.equal(fresh.delivered.at(-1), 'new-account');
+  fresh.unsubscribe();
+}
+console.log('✅ PASSED: Deferred realtime trailing refresh, singleflight, force and disposal regressions');
 console.log('\n🎉 ALL REQUEST INFRA & FEED SCHEDULER TESTS PASSED SUCCESSFULLY!');

@@ -874,10 +874,13 @@ export function calculateFullWorkoutAnalytics(
         ?? WorkoutCategory.Others;
       const tonnage = resolveExerciseTonnage(ex.name, typeof ex.weight === 'number' ? ex.weight : 0, sets, reps, bodyweightKg);
 
-      // Volume distribution + tonnage: primary-category attribution (sums to raw sets).
-      categorySets[primary] += sets;
-      categoryTonnage[primary] += tonnage;
-      touchedPrimaryCategories.add(primary);
+      // Current-window volume only; baseline contributes stimulus for comparison,
+      // never the displayed sets/tonnage or volume distribution.
+      if (isCurrent) {
+        categorySets[primary] += sets;
+        categoryTonnage[primary] += tonnage;
+        touchedPrimaryCategories.add(primary);
+      }
 
       // Effective-set stimulus accumulators (overlap allowed across muscles).
       const coefficients = definition?.stimulusCoefficients;
@@ -1173,8 +1176,8 @@ export function calculateFullWorkoutAnalytics(
     const ratioAccumulator = new Map<SubMuscleGroup, { weighted: number; weight: number }>();
     performancesByKey.forEach((candidates, key) => {
       const usable = candidates.filter((c) => !c.excludeFromScoring && c.estimated1RM > 0 && c.timestamp > 0);
-      const currentBest = Math.max(0, ...usable.filter((c) => c.timestamp >= cutoffTime).map((c) => c.estimated1RM));
-      const baselineBest = Math.max(0, ...usable.filter((c) => c.timestamp < cutoffTime).map((c) => c.estimated1RM));
+      const currentBest = Math.max(0, ...usable.filter((c) => c.timestamp >= cutoffTime && c.timestamp <= now).map((c) => c.estimated1RM));
+      const baselineBest = Math.max(0, ...usable.filter((c) => c.timestamp >= baselineCutoffTime && c.timestamp < cutoffTime).map((c) => c.estimated1RM));
       if (currentBest <= 0 || baselineBest <= 0) return;
       const ratio = currentBest / baselineBest;
       const definition = usable[0].definition;
