@@ -32,6 +32,11 @@ import {
   Activity,
   Zap,
   Sparkles,
+  Award,
+  Target,
+  Trophy,
+  Share2,
+  Calendar,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -102,6 +107,7 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showTeamSwitcher, setShowTeamSwitcher] = useState(false);
   const [leaveConfirm, setLeaveConfirm] = useState(false);
+  const [showWeeklySummaryModal, setShowWeeklySummaryModal] = useState(false);
 
   // 1. Subscribe to user's joined teams
   useEffect(() => {
@@ -558,6 +564,113 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
               </div>
             </div>
 
+            {/* 2.5 Weekly Team Challenge (每周小队出勤挑战) */}
+            {dashboardData.weeklyChallenge && (
+              <div className="bg-white border-2 border-ink p-3.5 sm:p-4 space-y-3 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <div className="bg-neon border border-ink p-1">
+                      <Target size={14} className="text-ink" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-ink uppercase tracking-tight flex items-center gap-1">
+                        <span>每周小队挑战</span>
+                        <span className="text-[10px] font-mono text-ink/50 font-bold">({dashboardData.weeklyChallenge.weekKey})</span>
+                      </h4>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-black text-ink">
+                      {dashboardData.weeklyChallenge.currentTeamActiveDays} / {dashboardData.weeklyChallenge.teamTargetActiveDays} 人天
+                    </span>
+                    <span className={`text-[10px] font-black px-1.5 py-0.5 border border-ink ${
+                      dashboardData.weeklyChallenge.completionRate >= 100 ? 'bg-neon text-ink' : 'bg-paper text-ink'
+                    }`}>
+                      {dashboardData.weeklyChallenge.completionRate}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* Challenge Progress Bar */}
+                <div className="space-y-1">
+                  <div className="w-full bg-paper border border-ink h-3 overflow-hidden relative">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(dashboardData.weeklyChallenge.completionRate, 100)}%` }}
+                      transition={{ duration: 0.8, ease: 'easeOut' }}
+                      className={`h-full ${dashboardData.weeklyChallenge.completionRate >= 100 ? 'bg-neon' : 'bg-ink'}`}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-ink/60 font-bold">
+                    <span>每人每周目标 3 天出勤 (按天排重防刷)</span>
+                    <span>
+                      {dashboardData.weeklyChallenge.completionRate >= 100
+                        ? '🎉 本周目标已达成！'
+                        : `还差 ${Math.max(0, dashboardData.weeklyChallenge.teamTargetActiveDays - dashboardData.weeklyChallenge.currentTeamActiveDays)} 人天`}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Member Weekly Contribution Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-1">
+                  {dashboardData.weeklyChallenge.membersProgress.map((mp) => (
+                    <div
+                      key={mp.userId}
+                      className={`p-2 border border-ink flex flex-col justify-between gap-1 text-left ${
+                        mp.isTargetMet ? 'bg-neon/20 border-ink' : 'bg-paper/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1 min-w-0">
+                        <span className="text-[11px] font-black text-ink truncate" title={mp.displayName}>
+                          {mp.displayName}
+                        </span>
+                        {mp.isTargetMet && (
+                          <span className="text-[9px] font-black bg-neon border border-ink px-1 leading-tight shrink-0">
+                            达标
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-1 text-[10px] text-ink/70 font-mono font-bold">
+                        <span>{mp.activeDaysCount}/{mp.targetDays} 天</span>
+                        <div className="flex gap-0.5">
+                          {[1, 2, 3].map((dot) => (
+                            <span
+                              key={dot}
+                              className={`w-1.5 h-1.5 border border-ink ${
+                                mp.activeDaysCount >= dot ? 'bg-ink' : 'bg-white'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Challenge Summary & MVP Footer */}
+                <div className="flex items-center justify-between pt-1 text-[11px] font-bold border-t border-ink/10">
+                  <div className="flex items-center gap-1 text-ink/75 truncate">
+                    {dashboardData.weeklyChallenge.mvpMember ? (
+                      <>
+                        <Trophy size={13} className="text-amber-500 shrink-0" />
+                        <span className="truncate">本周领跑：<strong>{dashboardData.weeklyChallenge.mvpMember.displayName}</strong> ({dashboardData.weeklyChallenge.mvpMember.activeDaysCount}天)</span>
+                      </>
+                    ) : (
+                      <span>本周刚开始，等你来抢第一棒！</span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowWeeklySummaryModal(true)}
+                    className="text-[10px] font-black text-ink flex items-center gap-1 hover:underline cursor-pointer shrink-0 ml-2"
+                  >
+                    <span>战报卡片</span>
+                    <Share2 size={11} />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* 3. Member Avatar Wall & List */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-[11px] font-black text-ink/60 uppercase">
@@ -683,7 +796,145 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
             }}
           />
         )}
+        {showWeeklySummaryModal && dashboardData?.weeklyChallenge && (
+          <WeeklySummaryModal
+            teamName={currentTeam.name}
+            challenge={dashboardData.weeklyChallenge}
+            onClose={() => setShowWeeklySummaryModal(false)}
+          />
+        )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function WeeklySummaryModal({
+  teamName,
+  challenge,
+  onClose,
+}: {
+  teamName: string;
+  challenge: NonNullable<TeamDashboardData['weeklyChallenge']>;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const generateReportText = () => {
+    const lines = [
+      `⚡ 【${teamName}】每周出勤战报 (${challenge.weekKey}) ⚡`,
+      `🎯 全队完成率: ${challenge.completionRate}% (${challenge.currentTeamActiveDays}/${challenge.teamTargetActiveDays} 人天)`,
+      challenge.mvpMember ? `🏆 本周领跑: ${challenge.mvpMember.displayName} (${challenge.mvpMember.activeDaysCount}天)` : '',
+      `👥 队员出勤榜:`,
+      ...challenge.membersProgress.map((m, i) => `  ${i + 1}. ${m.displayName}: ${m.activeDaysCount}/${m.targetDays}天 ${m.isTargetMet ? '✅ 达标' : ''}`),
+      `🔥 FITGROUP 好友共同训练，陪伴见证每一次成长！`,
+    ].filter(Boolean);
+    return lines.join('\n');
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(generateReportText());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white border-4 border-ink shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] w-full max-w-sm overflow-hidden"
+      >
+        <div className="bg-neon border-b-2 border-ink p-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Trophy size={20} className="text-ink" />
+            <h3 className="font-black text-sm uppercase tracking-tight text-ink">
+              小队本周战报 · {challenge.weekKey}
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-7 h-7 bg-white border-2 border-ink flex items-center justify-center font-black text-xs hover:bg-ink hover:text-white transition-colors cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4 max-h-[75vh] overflow-y-auto">
+          {/* Hero Stats */}
+          <div className="bg-paper border-2 border-ink p-3 text-center space-y-1">
+            <p className="text-[10px] font-black uppercase tracking-wider text-ink/60">{teamName}</p>
+            <p className="text-3xl font-black italic tracking-tight text-ink">
+              {challenge.completionRate}%
+            </p>
+            <p className="text-[11px] font-bold text-ink/80">
+              全队出勤 {challenge.currentTeamActiveDays} / {challenge.teamTargetActiveDays} 人天 · {challenge.activeMembersCount} 人参与
+            </p>
+          </div>
+
+          {/* MVP Card */}
+          {challenge.mvpMember && (
+            <div className="bg-amber-50 border-2 border-ink p-2.5 flex items-center gap-2.5">
+              <div className="w-8 h-8 bg-amber-300 border border-ink flex items-center justify-center shrink-0">
+                <Crown size={16} className="text-ink" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-black uppercase text-amber-800">本周出勤 MVP</p>
+                <p className="text-xs font-black text-ink truncate">{challenge.mvpMember.displayName}</p>
+              </div>
+              <span className="text-xs font-black font-mono bg-white border border-ink px-1.5 py-0.5">
+                {challenge.mvpMember.activeDaysCount} 天
+              </span>
+            </div>
+          )}
+
+          {/* Member Roster */}
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-black uppercase tracking-wider text-ink/50">出勤详细排行</p>
+            <div className="divide-y border border-ink">
+              {challenge.membersProgress.map((m, idx) => (
+                <div key={m.userId} className="p-2 flex items-center justify-between gap-2 text-xs bg-white">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-4 text-center font-black text-[10px] text-ink/40 font-mono">{idx + 1}</span>
+                    <span className="font-black text-ink truncate">{m.displayName}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="font-mono font-bold text-[11px] text-ink">{m.activeDaysCount} 天</span>
+                    {m.isTargetMet && (
+                      <span className="text-[9px] font-black bg-neon border border-ink px-1 py-0.2">
+                        达标
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-3 bg-paper border-t-2 border-ink flex gap-2">
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="flex-1 btn-neon text-xs py-2.5 flex items-center justify-center gap-1.5"
+          >
+            {copied ? <Check size={14} /> : <Share2 size={14} />}
+            <span>{copied ? '战报文本已复制' : '复制小队战报'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-secondary text-xs py-2.5 px-4"
+          >
+            关闭
+          </button>
+        </div>
+      </motion.div>
     </div>
   );
 }

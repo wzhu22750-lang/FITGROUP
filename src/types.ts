@@ -68,12 +68,36 @@ export interface TeamMember {
   todayWorkoutCount?: number;
 }
 
+export interface WeeklyChallengeMemberProgress {
+  userId: string;
+  displayName: string;
+  photoURL?: string;
+  activeDaysCount: number; // Distinct training calendar days this week
+  targetDays: number; // e.g. 3 days per week
+  isTargetMet: boolean;
+  activeDates: string[]; // e.g. ['2026-10-12', '2026-10-14']
+}
+
+export interface WeeklyTeamChallenge {
+  weekKey: string; // e.g. '2026-W41'
+  weekStartDate: string; // ISO date of Monday 00:00:00
+  weekEndDate: string; // ISO date of Sunday 23:59:59
+  memberTargetDays: number; // e.g. 3 days
+  teamTargetActiveDays: number; // memberCount * memberTargetDays
+  currentTeamActiveDays: number; // Sum of distinct active days across all members
+  completionRate: number; // Percentage (0-100)
+  membersProgress: WeeklyChallengeMemberProgress[];
+  mvpMember?: WeeklyChallengeMemberProgress;
+  activeMembersCount: number;
+}
+
 export interface TeamDashboardData {
   team: Team;
   members: TeamMember[];
   todayCheckinCount: number;
   totalMembers: number;
   attendanceRate: number; // Percentage (e.g. 75)
+  weeklyChallenge?: WeeklyTeamChallenge;
 }
 
 export type Sex = 'male' | 'female';

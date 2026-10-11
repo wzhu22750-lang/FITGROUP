@@ -142,10 +142,24 @@ export interface RadarDataPoint {
 
 export type LaggingStatus = 'none' | 'not_trained' | 'insufficient_data' | 'lagging';
 
+export type BalanceLevel = '极度均衡' | '均衡良好' | '局部偏强' | '偏科明显' | '覆盖不足' | '蓄势起步';
+
+export interface MuscleBalanceResult {
+  balanceScore: number;
+  balanceLevel: BalanceLevel;
+  coverageCount: number;
+  coverageRatio: number;
+  evidenceSufficient: boolean;
+  coveredCategories: WorkoutCategory[];
+}
+
 export interface WorkoutInsights {
   /** Balance across the five RESISTANCE categories only (cardio excluded). */
   balanceScore: number;
-  balanceLevel: '极度均衡' | '均衡良好' | '局部偏强' | '偏科明显' | '蓄势起步';
+  balanceLevel: BalanceLevel;
+  coverageCount: number;
+  coverageRatio: number;
+  evidenceSufficient: boolean;
   dominantCategory?: WorkoutCategory;
   laggingCategory?: WorkoutCategory;
   /** Why laggingCategory was chosen; UI distinguishes weak vs missing data. */
@@ -1025,17 +1039,26 @@ export function calculateFullWorkoutAnalytics(
     }
   });
 
-  // Legacy profile PRs: lowest-priority fallback, only where logs have no data.
+  // Legacy / historical profile PRs: fallback or higher all-time benchmark.
   const legacyByKey = new Map<string, PerformanceCandidate>();
   Object.entries(userPrs).forEach(([name, storedValue]) => {
     if (!Number.isFinite(storedValue)) return;
     const { definition, canonicalId } = resolveExerciseDefinition(name);
     if (!definition) return;
-    if (performancesByKey.has(canonicalId)) return; // log data wins
     const load = resolvePerformanceLoad(definition, name, storedValue, bodyweightKg);
     if (load.loadMode === 'bodyweight') return; // legacy reps are not interpretable
     const benchmarkValue = load.effectiveTotalLoad > 0 ? load.effectiveTotalLoad : load.benchmarkLoad;
     if (benchmarkValue <= 0) return;
+
+    // Check if logs already have an equal or better performance
+    const existingLogCandidates = performancesByKey.get(canonicalId);
+    const bestLogEstimated1RM = existingLogCandidates
+      ? Math.max(0, ...existingLogCandidates.filter((c) => !c.excludeFromScoring).map((c) => c.estimated1RM))
+      : 0;
+
+    // If log has an equal or better performance, log data wins
+    if (bestLogEstimated1RM >= benchmarkValue) return;
+
     legacyByKey.set(canonicalId, {
       canonicalKey: canonicalId,
       name: definition.name,
@@ -1073,10 +1096,12 @@ export function calculateFullWorkoutAnalytics(
   };
 
   performancesByKey.forEach((candidates, key) => {
+    // If legacy/all-time PR from profile has a higher load, it will represent this exercise in PRs & assessment
+    const hasHigherHistoricalPr = legacyByKey.has(key);
     const usable = candidates.filter((c) => !c.excludeFromScoring && c.estimated1RM > 0);
     const best = usable.reduce<PerformanceCandidate | null>((acc, c) => (!acc || c.estimated1RM > acc.estimated1RM ? c : acc), null);
     const bestAssessment = best ? assessCandidate(best) : null;
-    if (best && bestAssessment) {
+    if (best && bestAssessment && !hasHigherHistoricalPr) {
       assessmentByExercise.set(key, { assessment: bestAssessment, candidate: best });
       const benchmark = STRENGTH_BENCHMARKS[best.definition!.id];
       categorizedPrs.push({
@@ -1353,30 +1378,12 @@ export function calculateFullWorkoutAnalytics(
   });
 
   // ------------------------------------------------------------------
-  // Insights: resistance balance, cardio separate, eligibility-gated lagging
+  // Insights: muscle balance V4 (coverage + distribution + evidence sufficiency)
   // ------------------------------------------------------------------
+  const balanceResult = computeMuscleBalance(categoryDetails, recentLogs.length, Math.round(totalSetsAll));
+  const { balanceScore, balanceLevel, coverageCount, coverageRatio, evidenceSufficient } = balanceResult;
   const resistanceCategories = (Object.values(WorkoutCategory) as WorkoutCategory[]).filter((c) => c !== WorkoutCategory.Cardio);
-  const resistanceScores = resistanceCategories.map((c) => categoryDetails[c].trainingScore);
   const activeResistance = resistanceCategories.filter((c) => categoryDetails[c].trainingScore > 0);
-  const maxResistanceScore = Math.max(...resistanceScores, 0);
-  const activeScores = activeResistance.map((c) => categoryDetails[c].trainingScore);
-  const avgScore = activeScores.length > 0 ? activeScores.reduce((a, b) => a + b, 0) / activeScores.length : 0;
-  const stdDev = activeScores.length > 0
-    ? Math.sqrt(activeScores.reduce((acc, val) => acc + Math.pow(val - avgScore, 2), 0) / activeScores.length)
-    : 0;
-
-  let balanceScore = 100;
-  let balanceLevel: WorkoutInsights['balanceLevel'] = '极度均衡';
-  if (maxResistanceScore === 0) {
-    balanceScore = 0;
-    balanceLevel = '蓄势起步';
-  } else {
-    balanceScore = Math.max(20, Math.min(100, Math.round(100 - stdDev * 1.5)));
-    if (balanceScore >= 85) balanceLevel = '极度均衡';
-    else if (balanceScore >= 70) balanceLevel = '均衡良好';
-    else if (balanceScore >= 50) balanceLevel = '局部偏强';
-    else balanceLevel = '偏科明显';
-  }
 
   // Dominant: highest score among categories with real evidence.
   const MIN_EVIDENCE_SETS = 3;
@@ -1430,7 +1437,11 @@ export function calculateFullWorkoutAnalytics(
     highlights.push('记录你的第一次训练，即可激活六维健身能力图谱！');
   }
 
-  if (lagging && laggingStatus === 'lagging') {
+  if (coverageCount <= 1 && recentLogs.length >= 2) {
+    recommendations.push(
+      `覆盖提醒：近 ${safeDays} 天仅训练了单一抗阻部位（${dominant ? categoryDetails[dominant].zh : '局部'}），其他主要大肌群覆盖不足，建议增加全身综合训练。`
+    );
+  } else if (lagging && laggingStatus === 'lagging') {
     recommendations.push(
       `薄弱提醒：${categoryDetails[lagging].zh} (${categoryDetails[lagging].trainingScore}分) 相对滞后，建议增加针对性训练，提升全身均衡发展。`
     );
@@ -1457,6 +1468,9 @@ export function calculateFullWorkoutAnalytics(
     insights: {
       balanceScore,
       balanceLevel,
+      coverageCount,
+      coverageRatio,
+      evidenceSufficient,
       dominantCategory: dominant,
       laggingCategory: lagging,
       laggingStatus,
@@ -1468,6 +1482,121 @@ export function calculateFullWorkoutAnalytics(
     categorizedPrs: categorizedPrs.sort((a, b) => b.score - a.score),
     recentWorkoutsCount: recentLogs.length,
     recentSetsCount: Math.round(totalSetsAll),
+  };
+}
+
+/**
+ * Muscle balance V4:
+ * Decouples Coverage (which major muscle groups were trained),
+ * Distribution (dispersion among active groups), and
+ * Evidence sufficiency (sample size).
+ */
+export function computeMuscleBalance(
+  categoryDetails: Record<WorkoutCategory, CategoryScoreDetail>,
+  recentWorkoutsCount: number,
+  recentSetsCount: number
+): MuscleBalanceResult {
+  const resistanceCategories = (Object.values(WorkoutCategory) as WorkoutCategory[]).filter(
+    (c) => c !== WorkoutCategory.Cardio
+  );
+  const resistanceScores = resistanceCategories.map((c) => categoryDetails[c].trainingScore);
+  const maxScore = Math.max(...resistanceScores, 0);
+
+  // A category is covered if it has at least 2 primary sets
+  const coveredCategories = resistanceCategories.filter((c) => {
+    const detail = categoryDetails[c];
+    return detail.recentSets >= 2;
+  });
+  const coverageCount = coveredCategories.length;
+  const coverageRatio = coverageCount / 5;
+
+  // Not enough workouts or zero score
+  if (recentWorkoutsCount === 0 || maxScore === 0) {
+    return {
+      balanceScore: 0,
+      balanceLevel: '蓄势起步',
+      coverageCount: 0,
+      coverageRatio: 0,
+      evidenceSufficient: false,
+      coveredCategories: [],
+    };
+  }
+
+  // Insufficient sample size to evaluate whole-body balance (< 3 workouts or < 6 sets)
+  if (recentWorkoutsCount < 3 || recentSetsCount < 6) {
+    return {
+      balanceScore: Math.min(50, Math.round(coverageRatio * 60)),
+      balanceLevel: '蓄势起步',
+      coverageCount,
+      coverageRatio,
+      evidenceSufficient: false,
+      coveredCategories,
+    };
+  }
+
+  // Evidence is sufficient (>= 3 workouts and >= 6 sets)
+  if (coverageCount <= 1) {
+    // Only 1 resistance category covered -> Severe under-coverage
+    const singleScore = coveredCategories.length > 0 ? categoryDetails[coveredCategories[0]].trainingScore : maxScore;
+    const balanceScore = Math.min(35, Math.round(singleScore * 0.4));
+    return {
+      balanceScore,
+      balanceLevel: '覆盖不足',
+      coverageCount,
+      coverageRatio,
+      evidenceSufficient: true,
+      coveredCategories,
+    };
+  }
+
+  if (coverageCount === 2) {
+    // Only 2 resistance categories covered -> Still under-coverage (3 neglected)
+    const activeScores = coveredCategories.map((c) => categoryDetails[c].trainingScore);
+    const mean = activeScores.reduce((a, b) => a + b, 0) / activeScores.length;
+    const stdDev = Math.sqrt(activeScores.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / activeScores.length);
+    const cv = mean > 0 ? stdDev / mean : 0;
+    const pairBalance = Math.max(20, Math.round(100 - cv * 80));
+    const balanceScore = Math.min(50, Math.round(pairBalance * 0.5));
+    return {
+      balanceScore,
+      balanceLevel: '覆盖不足',
+      coverageCount,
+      coverageRatio,
+      evidenceSufficient: true,
+      coveredCategories,
+    };
+  }
+
+  // 3, 4, or 5 categories covered
+  const activeScores = coveredCategories.map((c) => categoryDetails[c].trainingScore);
+  const avgScore = activeScores.reduce((a, b) => a + b, 0) / activeScores.length;
+  const stdDev = Math.sqrt(activeScores.reduce((acc, val) => acc + Math.pow(val - avgScore, 2), 0) / activeScores.length);
+  const cv = avgScore > 0 ? stdDev / avgScore : 0;
+
+  // Base distribution score from CV
+  let distributionScore = Math.max(20, Math.min(100, Math.round(100 - cv * 90)));
+  // Coverage factor: 5 categories = 1.0, 4 categories = 0.88, 3 categories = 0.72
+  const coverageFactor = coverageCount === 5 ? 1.0 : coverageCount === 4 ? 0.88 : 0.72;
+  const balanceScore = Math.max(20, Math.min(100, Math.round(distributionScore * coverageFactor)));
+
+  let balanceLevel: BalanceLevel;
+  if (coverageCount < 4) {
+    // With only 3 categories covered, max level is '局部偏强'
+    balanceLevel = balanceScore >= 60 ? '局部偏强' : '偏科明显';
+  } else {
+    if (balanceScore >= 85) balanceLevel = '极度均衡';
+    else if (balanceScore >= 70) balanceLevel = '均衡良好';
+    else if (balanceScore >= 50) balanceLevel = '局部偏强';
+    else balanceLevel = '偏科明显';
+  }
+
+  return {
+    balanceScore,
+    balanceLevel,
+    coverageCount,
+    coverageRatio,
+    evidenceSufficient: true,
+    coveredCategories,
   };
 }
 

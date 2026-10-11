@@ -6,6 +6,7 @@ import { parseCategories } from './constants/workoutPresets';
 import { fetchAllPagesById, validatePageSize } from './utils/pagination';
 import { executeWorkoutLogUpdate, sanitizeExercisesForDb } from './utils/workoutLogUpdate';
 export { sanitizeExercisesForDb } from './utils/workoutLogUpdate';
+export { uploadWorkoutPhoto, uploadUserAvatar, compressImage } from './utils/imageUpload';
 import { DEFAULT_MAX_TEAM_MEMBERS } from './constants/teamConfig';
 import { updateCachedLogsProfile } from './utils/feedCache';
 import { readRequest, type ReadRequestOptions, withCallerSignal } from './utils/request';
@@ -1607,25 +1608,43 @@ export const getLastWorkoutByCategory = async (
 export const getUserWorkoutLogs = async (
   userId: string,
   maxCount = 100,
-  options?: ReadRequestOptions,
+  options?: ReadRequestOptions & { since?: string },
 ): Promise<WorkoutLog[]> => {
   if (!userId) return [];
   return readRequest(
-    'getUserWorkoutLogs',
+    `getUserWorkoutLogs:${userId}:${maxCount}:${options?.since || ''}`,
     async (signal) => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('workout_logs')
         .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(maxCount)
-        .abortSignal(signal);
+        .eq('user_id', userId);
+      if (options?.since) {
+        query = query.gte('created_at', options.since);
+      }
+      query = query.order('created_at', { ascending: false }).limit(maxCount);
+      const { data, error } = await query.abortSignal(signal);
       if (error) throw error;
       return ((data || []) as WorkoutLogRow[]).map(normalizeLog);
     },
     options,
   );
 };
+
+/**
+ * Accurately fetch user workout logs for training analytics and statistics.
+ * Default window is 90 days (12-13 weeks) to cover 4/8/12w trends,
+ * 28-day training capacity, and baseline progression without row truncation.
+ */
+export const getUserWorkoutLogsForAnalytics = async (
+  userId: string,
+  options?: ReadRequestOptions & { days?: number; maxCount?: number },
+): Promise<WorkoutLog[]> => {
+  const days = options?.days ?? 90;
+  const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
+  return getUserWorkoutLogs(userId, options?.maxCount ?? 1500, { ...options, since });
+};
+
+export const getUserWorkoutLogsForStats = getUserWorkoutLogsForAnalytics;
 
 /**
  * Page size for full-history export reads. Kept below common provider caps so
@@ -1692,7 +1711,7 @@ export const subscribeToUserWorkoutLogs = (
   userId: string,
   callback: (logs: WorkoutLog[]) => void,
   onError?: (error: Error) => void,
-  maxCount = 100,
+  maxCountOrOptions: number | { since?: string; maxCount?: number } = 500,
 ) => {
   if (!userId) {
     callback([]);
@@ -1701,6 +1720,13 @@ export const subscribeToUserWorkoutLogs = (
   let version = 0;
   let disposed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const resolvedMaxCount = typeof maxCountOrOptions === 'number'
+    ? maxCountOrOptions
+    : (maxCountOrOptions?.maxCount ?? 1000);
+  const resolvedSince = typeof maxCountOrOptions === 'object'
+    ? maxCountOrOptions?.since
+    : undefined;
 
   const pull = () => {
     if (timer) clearTimeout(timer);
@@ -1712,7 +1738,7 @@ export const subscribeToUserWorkoutLogs = (
 
   const execute = () => {
     const currentVersion = ++version;
-    void getUserWorkoutLogs(userId, maxCount)
+    void getUserWorkoutLogs(userId, resolvedMaxCount, { since: resolvedSince })
       .then((logs) => {
         if (!disposed && currentVersion === version) {
           callback(logs);
@@ -1763,7 +1789,7 @@ export const getLastWorkoutsByCategories = async (
 // Squads & Teams (好友小队)
 // ---------------------------------------------------------------------------
 
-function toLocalDateKey(isoOrDate: string | Date): string {
+export function toLocalDateKey(isoOrDate: string | Date): string {
   const d = new Date(isoOrDate);
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -1964,22 +1990,51 @@ export const getTeamDashboard = async (
       if (profileError) throw profileError;
       const profilesMap = new Map((profileRows || []).map((p: any) => [p.id, p]));
 
-      const todayStr = toLocalDateKey(new Date());
-      const thirtySixHoursAgo = new Date(Date.now() - 36 * 3600 * 1000).toISOString();
+      const now = new Date();
+      const todayStr = toLocalDateKey(now);
+
+      // Weekly challenge window: Monday 00:00:00 to Sunday 23:59:59 (ISO week)
+      const currentDay = now.getDay();
+      const diffToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+      const monday = new Date(now);
+      monday.setDate(now.getDate() + diffToMonday);
+      monday.setHours(0, 0, 0, 0);
+
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      sunday.setHours(23, 59, 59, 999);
+
+      const thirtySixHoursAgo = new Date(Date.now() - 36 * 3600 * 1000);
+      const queryStart = monday.getTime() < thirtySixHoursAgo.getTime() ? monday : thirtySixHoursAgo;
+
       const { data: recentLogs, error: recentLogsError } = memberUserIds.length > 0
         ? await supabase
             .from('workout_logs')
             .select('id, user_id, created_at')
             .in('user_id', memberUserIds)
-            .gte('created_at', thirtySixHoursAgo)
+            .gte('created_at', queryStart.toISOString())
             .abortSignal(signal)
         : { data: [], error: null };
       if (recentLogsError) throw recentLogsError;
 
       const todayLogsByUser = new Map<string, number>();
+      const weekActiveDatesByUser = new Map<string, Set<string>>();
+
       (recentLogs || []).forEach((l: any) => {
-        if (toLocalDateKey(l.created_at) === todayStr) {
+        const localDate = toLocalDateKey(l.created_at);
+        const logTime = new Date(l.created_at).getTime();
+
+        if (localDate === todayStr) {
           todayLogsByUser.set(l.user_id, (todayLogsByUser.get(l.user_id) || 0) + 1);
+        }
+
+        if (logTime >= monday.getTime() && logTime <= sunday.getTime()) {
+          let dates = weekActiveDatesByUser.get(l.user_id);
+          if (!dates) {
+            dates = new Set<string>();
+            weekActiveDatesByUser.set(l.user_id, dates);
+          }
+          dates.add(localDate);
         }
       });
 
@@ -2013,6 +2068,45 @@ export const getTeamDashboard = async (
       const totalMembers = members.length;
       const attendanceRate = totalMembers > 0 ? Math.round((checkedInCount / totalMembers) * 100) : 0;
 
+      // Weekly Team Challenge calculation (anti-brushing: distinct active days per member)
+      const memberTargetDays = 3;
+      const membersProgress = (memberRows || []).map((mr: any) => {
+        const prof = profilesMap.get(mr.user_id);
+        const activeDates = Array.from(weekActiveDatesByUser.get(mr.user_id) || []).sort();
+        const activeDaysCount = activeDates.length;
+        return {
+          userId: mr.user_id,
+          displayName: prof?.display_name || '队友',
+          photoURL: prof?.photo_url,
+          activeDaysCount,
+          targetDays: memberTargetDays,
+          isTargetMet: activeDaysCount >= memberTargetDays,
+          activeDates,
+        };
+      });
+
+      const teamTargetActiveDays = Math.max(1, (memberRows || []).length * memberTargetDays);
+      const currentTeamActiveDays = membersProgress.reduce((sum, m) => sum + m.activeDaysCount, 0);
+      const completionRate = Math.min(100, Math.round((currentTeamActiveDays / teamTargetActiveDays) * 100));
+      const sortedByActivity = [...membersProgress].sort((a, b) => b.activeDaysCount - a.activeDaysCount);
+      const mvpMember = sortedByActivity[0]?.activeDaysCount > 0 ? sortedByActivity[0] : undefined;
+      const activeMembersCount = membersProgress.filter((m) => m.activeDaysCount > 0).length;
+
+      const weekKey = `${monday.getFullYear()}-W${Math.ceil((((monday.getTime() - new Date(monday.getFullYear(), 0, 1).getTime()) / 86400000) + 1) / 7)}`;
+
+      const weeklyChallenge = {
+        weekKey,
+        weekStartDate: monday.toISOString(),
+        weekEndDate: sunday.toISOString(),
+        memberTargetDays,
+        teamTargetActiveDays,
+        currentTeamActiveDays,
+        completionRate,
+        membersProgress,
+        mvpMember,
+        activeMembersCount,
+      };
+
       const team: Team = {
         id: teamRow.id,
         name: teamRow.name,
@@ -2029,6 +2123,7 @@ export const getTeamDashboard = async (
         todayCheckinCount: checkedInCount,
         totalMembers,
         attendanceRate,
+        weeklyChallenge,
       };
     },
     options,

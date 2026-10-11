@@ -1,9 +1,9 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { updateWorkoutLog, createWorkoutLog, fetchMyWorkoutLogs, getCurrentUser, getUserProfile } from '../api';
+import { updateWorkoutLog, createWorkoutLog, fetchMyWorkoutLogs, getCurrentUser, getUserProfile, uploadWorkoutPhoto } from '../api';
 import { WorkoutCategory, WorkoutLog, WorkoutVisibility } from '../types';
 import { CARDIO_REFERENCE_BODYWEIGHT_KG, CATEGORY_META } from '../constants/workoutPresets';
 import { formatWorkoutLogError } from '../utils/workoutLogUpdate';
-import { ChevronDown, Dumbbell, Globe, History, Lock, Plus, RotateCcw, Send, Users, WifiOff } from 'lucide-react';
+import { ChevronDown, Dumbbell, Globe, History, Lock, Plus, RotateCcw, Send, Users, WifiOff, Camera, Image as ImageIcon, X as CloseIcon, Loader2 } from 'lucide-react';
 import {
   draftCategories, DraftExercise, exerciseKey, historyByExercise, MAX_WORKOUT_EXERCISES,
   patchDraftExercise, toRecordedExercise, validateDraftExercise,
@@ -50,6 +50,9 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
   const [notice, setNotice] = useState('');
   const [removed, setRemoved] = useState<{ exercise: DraftExercise; index: number } | null>(null);
   const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && !navigator.onLine);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const historyMap = useMemo(() => historyByExercise(history), [history]);
   const categories = draftCategories(draft);
   const completeCount = draft.exercises.filter(ex => !Object.keys(validateDraftExercise(ex)).length).length;
@@ -122,6 +125,28 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
     return { ...current, exercises: next };
   });
 
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoError('');
+    setIsUploadingPhoto(true);
+    try {
+      const url = await uploadWorkoutPhoto(file, owner, draftRef.current.id);
+      update(current => ({ ...current, photoUrl: url }));
+      setNotice('训练照片已上传并附在本次记录中。');
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : '照片上传失败，请重试');
+    } finally {
+      setIsUploadingPhoto(false);
+      if (photoInputRef.current) photoInputRef.current.value = '';
+    }
+  };
+
+  const handleRemovePhoto = () => {
+    update(current => ({ ...current, photoUrl: '' }));
+    setPhotoError('');
+  };
+
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (submittingRef.current) return;
@@ -167,6 +192,7 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
         id: snapshot.id, userId: owner, userName: user.displayName || 'FitGroup', userPhoto: user.photoURL || '',
         category: finalCategories.join(', '), categories: finalCategories,
         exercises: snapshot.exercises.map(toRecordedExercise), note: snapshot.note.trim(), visibility: snapshot.visibility,
+        photoUrl: snapshot.photoUrl || '',
         timestamp, likesCount: 0, commentsCount: 0,
       };
       if (editing) {
@@ -238,7 +264,24 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
             <div className="workout-empty-icon"><Plus size={28} /></div>
             <h3>先选动作，再记数字。</h3>
             <p>动作库支持多选；有历史记录的动作<br />可以一键沿用上次重量和组次。</p>
-            <button type="button" className="workout-text-button" onClick={() => setSheet('add')}>打开动作库 <Plus size={16} /></button>
+            <div className="flex flex-col sm:flex-row gap-2 mt-4 justify-center items-center w-full max-w-sm mx-auto">
+              <button
+                type="button"
+                className="btn-neon text-xs py-2.5 px-4 w-full flex items-center justify-center gap-1.5"
+                onClick={() => setSheet('add')}
+              >
+                <Plus size={16} /> 从动作库添加
+              </button>
+              {history.length > 0 && (
+                <button
+                  type="button"
+                  className="btn-secondary text-xs py-2.5 px-3 w-full flex items-center justify-center gap-1.5"
+                  onClick={() => setSheet('history')}
+                >
+                  <History size={15} /> 沿用上次训练
+                </button>
+              )}
+            </div>
           </div>
         )}
         <div className="workout-exercise-list">
@@ -267,6 +310,66 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
         <details className="workout-details">
           <summary><span>训练心得 <small>{draft.note ? `${draft.note.length} 字` : '选填'}</small></span><ChevronDown size={16} /></summary>
           <div className="p-4"><label htmlFor="workout-note" className="workout-field-label">今天的状态、感受或小目标</label><textarea id="workout-note" value={draft.note} maxLength={500} rows={3} onChange={event => update(current => ({ ...current, note: event.target.value }))} placeholder="例如：最后一组还有余力，下次试试加重。" /><p className="workout-helper text-right mt-1">{draft.note.length} / 500</p></div>
+        </details>
+        <details className="workout-details">
+          <summary><span>现场照片 <small>{draft.photoUrl ? '已附照片' : '选填'}</small></span><ChevronDown size={16} /></summary>
+          <div className="p-4 space-y-3">
+            <input
+              type="file"
+              ref={photoInputRef}
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={handlePhotoSelect}
+              disabled={isUploadingPhoto || isSubmitting}
+            />
+            {draft.photoUrl ? (
+              <div className="relative border-2 border-ink bg-paper p-1.5 inline-block shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                <img
+                  src={draft.photoUrl}
+                  alt="训练照片预览"
+                  className="w-32 h-32 object-cover border border-ink"
+                />
+                <button
+                  type="button"
+                  onClick={handleRemovePhoto}
+                  className="absolute -top-2 -right-2 bg-red-500 text-white border border-ink p-1 rounded-full hover:bg-red-600 transition-colors cursor-pointer"
+                  title="删除照片"
+                >
+                  <CloseIcon size={12} />
+                </button>
+              </div>
+            ) : (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  disabled={isUploadingPhoto || isSubmitting}
+                  className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isUploadingPhoto ? (
+                    <>
+                      <Loader2 size={15} className="animate-spin" />
+                      <span>正在压缩上传…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Camera size={15} />
+                      <span>拍照或选择相册照片</span>
+                    </>
+                  )}
+                </button>
+                <p className="text-[11px] text-ink/50 mt-1.5">
+                  支持 JPG / PNG / WebP，上传前自动压缩节省流量。
+                </p>
+              </div>
+            )}
+            {photoError && <p className="text-xs font-bold text-red-600">{photoError}</p>}
+            {draft.visibility === 'private' && (
+              <p className="text-[10px] text-ink/60 bg-paper p-2 border border-ink/20">
+                🔒 私密记录：照片仅用于生成个人战绩海报，不会在公开广场或小队展示。
+              </p>
+            )}
+          </div>
         </details>
         <div className="workout-visibility">
           <h2 className="text-sm font-black mb-3">谁能看到这次训练？</h2>
