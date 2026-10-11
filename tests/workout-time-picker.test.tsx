@@ -17,6 +17,9 @@ try {
   }); });
   assert.equal(tree.root.findAllByType('input').length, 0, 'Do not invoke Android native date/time controls');
   await act(async () => { tree.root.findByProps({ id: 'workout-time' }).props.onClick(); });
+  assert.equal(tree.root.findAllByProps({ className: 'workout-drum' }).length, 2, 'Hours and minutes use wheel selectors');
+  assert.equal(tree.root.findAllByProps({ className: 'workout-date-box' }).length, 30, 'Every selectable date is its own box');
+  assert.equal(tree.root.findAllByProps({ className: 'workout-clock-options' }).length, 0, 'The old scrolling button list is gone');
   await act(async () => { button('2025-06-10').props.onClick(); });
   const hours = tree.root.findByProps({ 'aria-label': '选择小时' });
   const minutes = tree.root.findByProps({ 'aria-label': '选择分钟' });
@@ -36,5 +39,5 @@ try {
   await act(async () => { button('使用当前时间').props.onClick(); });
   assert.equal(changes[2], null, 'Automatic submission time is explicitly restored');
   assert.equal(document.body.style.overflow, '', 'Dialog restores body scrolling');
-  console.log('PASS custom workout time picker: no native inputs, staged calendar/time selection, quick yesterday, automatic time, dialog cleanup');
+  console.log('PASS custom workout time picker: no native inputs, wheel hour/minute drums, box date cells, staged selection, quick yesterday, automatic time, dialog cleanup');
 } finally { await act(async () => tree?.unmount()); }

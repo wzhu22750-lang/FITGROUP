@@ -107,6 +107,18 @@ console.log('--- Testing workout log payload normalization ---');
 
 console.log('--- Testing training date edits ---');
 {
+  // workout_logs uses column-level grants (0001 + 0004 + 0012). Sending a column the
+  // authenticated role cannot write fails with 42501 ("RLS 权限错误") on save.
+  const grantedUpdateColumns = new Set(['created_at', 'user_name', 'user_photo', 'category', 'exercises', 'note', 'photo_url', 'visibility']);
+  const editPayload = buildWorkoutLogUpdatePayload({
+    id: 'log-1', userId: 'owner-1', userName: 'Tester', userPhoto: '', category: 'Back',
+    categories: ['Back'], exercises: row.exercises, note: 'edited', visibility: 'private',
+    timestamp: '2025-01-02T11:00:00.000Z', likesCount: 0, commentsCount: 0,
+  });
+  for (const column of Object.keys(editPayload)) {
+    assert(grantedUpdateColumns.has(column), `edit payload column "${column}" is granted to authenticated`);
+  }
+  assert(Object.keys(editPayload).includes('created_at'), 'chosen training time is part of the edit payload');
   const timestamp = '2025-01-02T11:00:00.000Z';
   assert(buildWorkoutLogUpdatePayload({ timestamp }).created_at === timestamp, 'selected training timestamp maps to created_at');
   assert(!('created_at' in buildWorkoutLogUpdatePayload({ note: 'unchanged time' })), 'unmodified training time is preserved');

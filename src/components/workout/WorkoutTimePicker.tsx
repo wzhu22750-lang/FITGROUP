@@ -5,22 +5,75 @@ import WorkoutSheet from './WorkoutSheet';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
+/** Must match --workout-drum-item in workout.css so index math stays exact. */
+const ITEM_HEIGHT = 44;
 
-function ClockOptions({ label, count, selected, onSelect }: {
-  label: string; count: number; selected: string; onSelect: (value: string) => void;
+/** requestAnimationFrame, with a timer fallback for non-DOM test environments. */
+const nextFrame = (callback: () => void) => {
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(callback);
+  else setTimeout(callback, 0);
+};
+
+/**
+ * Wheel (drum) selector: native scroll-snap does the physics, we only read the
+ * settled index. No Android/iOS native picker is involved.
+ */
+function Drum({ label, count, value, onChange }: {
+  label: string; count: number; value: string; onChange: (value: string) => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const settleRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Ignore scroll events produced by our own programmatic animations.
+  const lockUntilRef = useRef(0);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const scrollToValue = (next: string, behavior: ScrollBehavior) => {
+    const index = Number(next);
+    // The surrounding <dialog> has no layout until it opens, so an immediate
+    // scrollTo is silently dropped; wait for measurable height before centring.
+    const centre = (attempt: number) => {
+      const list = listRef.current;
+      if (!list) return;
+      if (list.clientHeight === 0 && attempt < 24) { nextFrame(() => centre(attempt + 1)); return; }
+      lockUntilRef.current = Date.now() + (behavior === 'smooth' && attempt === 0 ? 420 : 150);
+      list.scrollTo?.({ top: index * ITEM_HEIGHT, behavior: attempt === 0 ? behavior : 'auto' });
+    };
+    nextFrame(() => centre(0));
+  };
   useEffect(() => {
-    const list = ref.current;
-    const button = list?.querySelector<HTMLButtonElement>('[aria-pressed="true"]');
-    if (!list || !button) return;
-    list.scrollTop += button.getBoundingClientRect().top - list.getBoundingClientRect().top - (list.clientHeight - button.clientHeight) / 2;
-  }, [selected]);
-  return <div><p className="workout-helper">{label}</p>
-    <div ref={ref} className="workout-clock-options" role="group" aria-label={`选择${label}`}>
-      {Array.from({ length: count }, (_, i) => <button type="button" key={i} aria-pressed={selected === pad(i)} onClick={() => onSelect(pad(i))}>{pad(i)}</button>)}
+    scrollToValue(valueRef.current, 'auto');
+  }, []);
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || Math.abs(list.scrollTop - Number(value) * ITEM_HEIGHT) < 2) return;
+    scrollToValue(value, 'smooth');
+  }, [value]);
+  useEffect(() => () => clearTimeout(settleRef.current), []);
+  const handleScroll = () => {
+    if (Date.now() < lockUntilRef.current) return;
+    const list = listRef.current;
+    if (!list) return;
+    clearTimeout(settleRef.current);
+    settleRef.current = setTimeout(() => {
+      const index = Math.max(0, Math.min(count - 1, Math.round(list.scrollTop / ITEM_HEIGHT)));
+      const next = pad(index);
+      if (next !== valueRef.current) onChange(next);
+    }, 120);
+  };
+  return (
+    <div className="workout-drum-column">
+      <p className="workout-drum-label">{label}</p>
+      <div className="workout-drum-frame">
+        <div className="workout-drum-window" aria-hidden="true" />
+        <div ref={listRef} className="workout-drum" role="group" aria-label={`选择${label}`} onScroll={handleScroll}>
+          {Array.from({ length: count }, (_, i) => (
+            <button type="button" key={i} className="workout-drum-item" aria-pressed={value === pad(i)}
+              onClick={() => { scrollToValue(pad(i), 'smooth'); onChange(pad(i)); }}>{pad(i)}</button>
+          ))}
+        </div>
+      </div>
     </div>
-  </div>;
+  );
 }
 
 export default function WorkoutTimePicker({ value, disabled, onChange }: {
@@ -35,6 +88,7 @@ export default function WorkoutTimePicker({ value, disabled, onChange }: {
   const hour = selection.slice(11, 13);
   const minute = selection.slice(14, 16);
   const today = toLocalWorkoutTime().slice(0, 10);
+  const yesterdayDate = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return toLocalWorkoutTime(d).slice(0, 10); })();
   const monthKey = `${month.getFullYear()}-${pad(month.getMonth() + 1)}`;
   const leading = (month.getDay() + 6) % 7;
   const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
@@ -73,7 +127,7 @@ export default function WorkoutTimePicker({ value, disabled, onChange }: {
       }>
         <div className="workout-date-shortcuts" role="group" aria-label="快捷日期">
           <button type="button" aria-pressed={selectedDate === today} onClick={() => quickDate(0)}>今天</button>
-          <button type="button" aria-pressed={selectedDate === (() => { const d = new Date(); d.setDate(d.getDate() - 1); return toLocalWorkoutTime(d).slice(0, 10); })()} onClick={() => quickDate(-1)}>昨天</button>
+          <button type="button" aria-pressed={selectedDate === yesterdayDate} onClick={() => quickDate(-1)}>昨天</button>
           <span>训练统计计入所选日期</span>
         </div>
         <div className="workout-calendar-header">
@@ -83,16 +137,17 @@ export default function WorkoutTimePicker({ value, disabled, onChange }: {
         </div>
         <div className="workout-calendar-week" aria-hidden="true">{weekdays.map(day => <span key={day}>{day}</span>)}</div>
         <div className="workout-calendar-days" role="group" aria-label="选择训练日期">
-          {Array.from({ length: leading }, (_, i) => <span key={`blank-${i}`} />)}
+          {Array.from({ length: leading }, (_, i) => <span key={`blank-${i}`} className="workout-calendar-blank" />)}
           {Array.from({ length: days }, (_, i) => {
             const date = `${monthKey}-${pad(i + 1)}`;
-            return <button type="button" key={date} disabled={date > today} aria-label={`${date}${date === today ? '，今天' : ''}`} aria-pressed={date === selectedDate} data-today={date === today} onClick={() => setDate(date)}>{i + 1}</button>;
+            return <button type="button" key={date} className="workout-date-box" disabled={date > today} aria-label={`${date}${date === today ? '，今天' : ''}`} aria-pressed={date === selectedDate} data-today={date === today} onClick={() => setDate(date)}>{i + 1}</button>;
           })}
         </div>
-        <div className="workout-clock-heading"><strong><Clock3 size={16} />训练时间</strong><span>{hour} : {minute}</span></div>
+        <div className="workout-clock-heading"><strong><Clock3 size={16} />训练时间</strong><span aria-live="polite">{hour} : {minute}</span></div>
+        <p className="workout-helper">上下滚动选择，松手自动对准</p>
         <div className="workout-clock-columns">
-          <ClockOptions label="小时" count={24} selected={hour} onSelect={next => { setSelection(`${selectedDate}T${next}:${minute}`); setError(''); }} />
-          <ClockOptions label="分钟" count={60} selected={minute} onSelect={next => { setSelection(`${selectedDate}T${hour}:${next}`); setError(''); }} />
+          <Drum label="小时" count={24} value={hour} onChange={next => { setSelection(`${selectedDate}T${next}:${minute}`); setError(''); }} />
+          <Drum label="分钟" count={60} value={minute} onChange={next => { setSelection(`${selectedDate}T${hour}:${next}`); setError(''); }} />
         </div>
         <p className="workout-time-summary">已选 <strong>{selectedDate.replaceAll('-', ' / ')} · {hour}:{minute}</strong></p>
         {error && <p className="workout-submit-error" role="alert">{error}</p>}
