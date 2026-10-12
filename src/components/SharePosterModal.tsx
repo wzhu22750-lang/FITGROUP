@@ -63,6 +63,7 @@ export default function SharePosterModal({ log, userStats, onClose }: SharePoste
     setSharing(true);
     setError('');
     try {
+      if (posterRef.current.querySelector('[data-workout-photo-status]')) throw new Error('照片尚未就绪，读取成功后再分享');
       const dataUrl = await toPng(posterRef.current, {
         pixelRatio: 2,
         cacheBust: true,
@@ -72,7 +73,7 @@ export default function SharePosterModal({ log, userStats, onClose }: SharePoste
     } catch (err) {
       if ((err as { name?: string }).name === 'AbortError') return;
       console.error('Share poster failed:', err);
-      setError('系统分享失败，请长按海报截图保存');
+      setError(err instanceof Error && err.message === '照片尚未就绪，读取成功后再分享' ? err.message : '系统分享失败，请长按海报截图保存');
     } finally {
       setSharing(false);
     }

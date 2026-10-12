@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { trackUploadedPhoto } from './workoutPhotos';
 import { supabase } from '../lib/supabase';
 
 export interface ImageCompressionOptions {
@@ -108,7 +109,7 @@ export async function compressImage(
 
 /**
  * Upload a compressed training photo to Supabase Storage 'workouts' bucket.
- * Returns the public URL of the uploaded image.
+ * Returns a stable object reference, rendered only through authenticated download.
  */
 export async function uploadWorkoutPhoto(
   file: File | Blob,
@@ -127,7 +128,7 @@ export async function uploadWorkoutPhoto(
     .from('workouts')
     .upload(filePath, compressedBlob, {
       contentType: compressedBlob.type,
-      upsert: true,
+      upsert: false,
     });
 
   if (error) {
@@ -139,6 +140,7 @@ export async function uploadWorkoutPhoto(
     .from('workouts')
     .getPublicUrl(data.path);
 
+  trackUploadedPhoto(userId, publicUrlData.publicUrl);
   return publicUrlData.publicUrl;
 }
 

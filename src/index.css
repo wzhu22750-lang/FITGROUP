@@ -258,7 +258,7 @@
 }
 .log-action:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: none; }
 .stats-control {
-  min-height: 40px;
+  min-height: 44px;
   padding: 8px 10px;
   font-size: 12px;
   font-weight: 800;

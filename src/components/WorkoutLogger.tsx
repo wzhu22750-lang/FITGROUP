@@ -1,3 +1,5 @@
+import WorkoutPhoto from './WorkoutPhoto';
+import { cleanupWorkoutPhotos, trackUploadedPhoto, forgetUploadedPhoto } from '../utils/workoutPhotos';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { updateWorkoutLog, createWorkoutLog, fetchMyWorkoutLogs, getCurrentUser, getUserProfile, uploadWorkoutPhoto } from '../api';
 import { WorkoutCategory, WorkoutLog, WorkoutVisibility } from '../types';
@@ -125,6 +127,12 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
     return { ...current, exercises: next };
   });
 
+  useEffect(() => {
+    const cleanup = () => { if (!draftRef.current.pending) void cleanupWorkoutPhotos(owner, [draftRef.current.photoUrl || '']).catch(() => {}); };
+    cleanup(); window.addEventListener('online', cleanup);
+    return () => { window.removeEventListener('online', cleanup); };
+  }, [owner]);
+
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -132,7 +140,10 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
     setIsUploadingPhoto(true);
     try {
       const url = await uploadWorkoutPhoto(file, owner, draftRef.current.id);
+      const previous = draftRef.current.photoUrl;
+      if (previous && previous !== editing?.log.photoUrl) trackUploadedPhoto(owner, previous, true);
       update(current => ({ ...current, photoUrl: url }));
+      void cleanupWorkoutPhotos(owner, [url]).catch(() => {});
       setNotice('训练照片已上传并附在本次记录中。');
     } catch (err) {
       setPhotoError(err instanceof Error ? err.message : '照片上传失败，请重试');
@@ -143,7 +154,10 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
   };
 
   const handleRemovePhoto = () => {
+    const previous = draftRef.current.photoUrl;
+    if (previous && previous !== editing?.log.photoUrl) trackUploadedPhoto(owner, previous, true);
     update(current => ({ ...current, photoUrl: '' }));
+    void cleanupWorkoutPhotos(owner).catch(() => {});
     setPhotoError('');
   };
 
@@ -205,6 +219,9 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
       } else {
         await createWorkoutLog(payload);
       }
+      forgetUploadedPhoto(owner, snapshot.photoUrl || '');
+      if (editing?.log.photoUrl && editing.log.photoUrl !== snapshot.photoUrl) trackUploadedPhoto(owner, editing.log.photoUrl, true);
+      void cleanupWorkoutPhotos(owner, [snapshot.photoUrl || '']).catch(() => {});
       finish();
       saved = true;
     } catch (error) {
@@ -324,8 +341,8 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
             />
             {draft.photoUrl ? (
               <div className="relative border-2 border-ink bg-paper p-1.5 inline-block shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                <img
-                  src={draft.photoUrl}
+                <WorkoutPhoto
+                  reference={draft.photoUrl}
                   alt="训练照片预览"
                   className="w-32 h-32 object-cover border border-ink"
                 />
@@ -366,7 +383,7 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
             {photoError && <p className="text-xs font-bold text-red-600">{photoError}</p>}
             {draft.visibility === 'private' && (
               <p className="text-[10px] text-ink/60 bg-paper p-2 border border-ink/20">
-                🔒 私密记录：照片仅用于生成个人战绩海报，不会在公开广场或小队展示。
+                🔒 私密记录：照片读取遵循这条记录的可见范围；私密照片仅本人可读取。
               </p>
             )}
           </div>
@@ -391,7 +408,7 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
         update(current => ({ ...current, exercises: mode === 'append' ? [...current.exercises, ...exercises] : exercises }));
         setExpandedId(exercises[0]?.id || ''); setRemoved(null); setShowErrors(false); setSheet(null); setNotice(`已${mode === 'append' ? '追加' : '沿用'} ${exercises.length} 个动作，请按本次实际训练调整。`);
       }} />}
-      {sheet === 'clear' && <WorkoutSheet title="清空本次草稿？" onClose={() => setSheet(null)} footer={<div className="grid grid-cols-2 gap-3"><button type="button" className="btn-secondary" onClick={() => setSheet(null)}>继续记录</button><button type="button" className="btn-primary" onClick={() => { reset(); setSheet(null); setRemoved(null); setExpandedId(''); setSubmitError(''); setNotice(''); setShowErrors(false); }}>确认清空</button></div>}><p className="text-sm leading-relaxed">只清空此设备上本次未提交的动作和心得，不影响已发布的历史记录。清空后无法恢复。</p></WorkoutSheet>}
+      {sheet === 'clear' && <WorkoutSheet title="清空本次草稿？" onClose={() => setSheet(null)} footer={<div className="grid grid-cols-2 gap-3"><button type="button" className="btn-secondary" onClick={() => setSheet(null)}>继续记录</button><button type="button" className="btn-primary" onClick={() => { if (!draftRef.current.pending && draftRef.current.photoUrl && draftRef.current.photoUrl !== editing?.log.photoUrl) { trackUploadedPhoto(owner, draftRef.current.photoUrl, true); void cleanupWorkoutPhotos(owner).catch(() => {}); } reset(); setSheet(null); setRemoved(null); setExpandedId(''); setSubmitError(''); setNotice(''); setShowErrors(false); }}>确认清空</button></div>}><p className="text-sm leading-relaxed">只清空此设备上本次未提交的动作和心得，不影响已发布的历史记录。清空后无法恢复。</p></WorkoutSheet>}
     </form>
   );
 }

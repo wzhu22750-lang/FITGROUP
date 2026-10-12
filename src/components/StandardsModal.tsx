@@ -1,3 +1,4 @@
+import { useStatisticsDialog } from './useStatisticsDialog';
 import React, { useState } from 'react';
 import { Scale, X } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -20,11 +21,13 @@ export default function StandardsModal({ isOpen, onClose, bodyContext }: Standar
   const [modalTab, setModalTab] = useState<'rules' | 'tiers'>('rules');
   const [standardsTableMode, setStandardsTableMode] = useState<'personalized' | 'anchor'>('personalized');
 
+  useStatisticsDialog(isOpen, onClose);
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
       <motion.div
+        role="dialog" aria-modal="true" aria-labelledby="statistics-standards-title"
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
@@ -40,7 +43,8 @@ export default function StandardsModal({ isOpen, onClose, bodyContext }: Standar
           <button
             type="button"
             onClick={onClose}
-            className="font-black text-ink p-1 hover:bg-paper border-2 border-transparent hover:border-ink cursor-pointer"
+            aria-label="关闭弹窗"
+            className="font-black text-ink min-h-11 min-w-11 shrink-0 p-1 hover:bg-paper border-2 border-transparent hover:border-ink cursor-pointer"
           >
             <X size={18} />
           </button>
@@ -51,7 +55,7 @@ export default function StandardsModal({ isOpen, onClose, bodyContext }: Standar
           <button
             type="button"
             onClick={() => setModalTab('rules')}
-            className={`flex-1 py-1.5 text-xs font-black transition-all cursor-pointer ${
+            className={`flex-1 py-1.5 text-xs font-black transition-colors cursor-pointer ${
               modalTab === 'rules'
                 ? 'bg-ink text-neon'
                 : 'text-ink/60 hover:text-ink'
@@ -62,7 +66,7 @@ export default function StandardsModal({ isOpen, onClose, bodyContext }: Standar
           <button
             type="button"
             onClick={() => setModalTab('tiers')}
-            className={`flex-1 py-1.5 text-xs font-black transition-all cursor-pointer ${
+            className={`flex-1 py-1.5 text-xs font-black transition-colors cursor-pointer ${
               modalTab === 'tiers'
                 ? 'bg-ink text-neon'
                 : 'text-ink/60 hover:text-ink'
@@ -92,7 +96,7 @@ export default function StandardsModal({ isOpen, onClose, bodyContext }: Standar
                   有效容量：按动作的肌群刺激系数折算有效组数，对照每个肌群自身的目标区间（如中胸约 12 组/周）计分，超过上限不再加分。
                 </p>
                 <p className="text-[11px] text-ink/70">
-                  进步：对比本期与上一期的估算 1RM（e1RM）变化，只看力量是否提升——增加轻重量次数不会误判为进步。无历史数据时给中性分并标注低置信度。
+                  进步分沿用周期最佳 e1RM 对比；是否持续提高另看多日样本与估算可靠性。无上期记录时采用中性分，不代表已经确认进步。
                 </p>
                 <p className="text-[11px] text-ink/70">
                   稳定性：统计近 4 周每周有效组数，一周突击练完一个月的量，得分会显著低于平均分布。
@@ -151,7 +155,7 @@ export default function StandardsModal({ isOpen, onClose, bodyContext }: Standar
                   <button
                     type="button"
                     onClick={() => setStandardsTableMode('personalized')}
-                    className={`px-1.5 py-0.5 text-[9px] font-black cursor-pointer transition-all ${
+                    className={`px-1.5 py-0.5 text-[9px] font-black cursor-pointer transition-colors ${
                       standardsTableMode === 'personalized' ? 'bg-ink text-neon' : 'text-ink/60 hover:text-ink'
                     }`}
                   >
@@ -160,7 +164,7 @@ export default function StandardsModal({ isOpen, onClose, bodyContext }: Standar
                   <button
                     type="button"
                     onClick={() => setStandardsTableMode('anchor')}
-                    className={`px-1.5 py-0.5 text-[9px] font-black cursor-pointer transition-all ${
+                    className={`px-1.5 py-0.5 text-[9px] font-black cursor-pointer transition-colors ${
                       standardsTableMode === 'anchor' ? 'bg-ink text-neon' : 'text-ink/60 hover:text-ink'
                     }`}
                   >

@@ -1,3 +1,4 @@
+import { useStatisticsDialog } from './useStatisticsDialog';
 import React from 'react';
 import { X } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -25,6 +26,7 @@ const CONFIDENCE_STYLES: Record<string, string> = {
 };
 
 export default function SubMuscleModal({ category, detail, onClose }: SubMuscleModalProps) {
+  useStatisticsDialog(!!category && !!detail, onClose);
   if (!category || !detail) return null;
 
   const categoryExercises = getExerciseStimulusTable().filter(
@@ -34,10 +36,11 @@ export default function SubMuscleModal({ category, detail, onClose }: SubMuscleM
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
       <motion.div
+        role="dialog" aria-modal="true" aria-labelledby="statistics-muscle-title"
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="bg-white border-4 border-ink p-4 sm:p-5 max-w-lg w-full max-h-[88vh] overflow-y-auto shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]"
+        className="bg-white border-4 border-ink p-4 sm:p-5 max-w-lg w-full max-h-[88vh] overflow-y-auto overscroll-contain min-w-0 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]"
       >
         <div className="flex items-center justify-between pb-3 border-b-2 border-ink mb-3.5">
           <div className="flex items-center gap-2">
@@ -45,7 +48,7 @@ export default function SubMuscleModal({ category, detail, onClose }: SubMuscleM
               {CATEGORY_META[category].iconLabel}
             </div>
             <div>
-              <h4 className="font-black text-ink text-base uppercase flex items-center gap-1.5">
+              <h4 id="statistics-muscle-title" className="font-black text-ink text-base uppercase flex items-center gap-1.5">
                 {detail.zh}训练深度解析
                 <span className={`text-[9px] font-black px-1.5 py-0.2 border border-ink ${detail.tier.badgeBg} ${detail.tier.badgeText}`}>
                   {detail.tier.zh}
@@ -63,7 +66,8 @@ export default function SubMuscleModal({ category, detail, onClose }: SubMuscleM
           <button
             type="button"
             onClick={onClose}
-            className="font-black text-ink p-1 hover:bg-paper border-2 border-transparent hover:border-ink cursor-pointer"
+            aria-label="关闭弹窗"
+            className="font-black text-ink min-h-11 min-w-11 shrink-0 p-1 hover:bg-paper border-2 border-transparent hover:border-ink cursor-pointer"
           >
             <X size={18} />
           </button>

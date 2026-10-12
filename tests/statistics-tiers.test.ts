@@ -15,21 +15,21 @@ const statsCode = fs.readFileSync(path.join(root, 'src/components/Statistics.tsx
 
 // 1. Statistics requests complete paginated history.
 assert.ok(
-  statsCode.includes('subscribeToUserWorkoutLogs(\n      user.uid,') ||
-  statsCode.includes('subscribeToUserWorkoutLogs('),
-  'Statistics calls subscribeToUserWorkoutLogs',
+  statsCode.includes('subscribeToStatisticsData(\n      user.uid,') ||
+  statsCode.includes('subscribeToStatisticsData('),
+  'Statistics calls subscribeToStatisticsData',
 );
 assert.ok(
-  statsCode.includes("{ mode: 'statistics' }"),
+  statsCode.includes('snapshot.recentLogs'),
   'Statistics opts into complete paginated history',
 );
 console.log('✅ PASSED: Statistics uses paginated history without a 500-log cap');
 
 // 2. Verify 3-tier hierarchy structure in markup
-assert.ok(statsCode.includes('第二层'), 'Tier 2 header present in Statistics');
-assert.ok(statsCode.includes('第三层'), 'Tier 3 header present in Statistics');
+assert.ok(statsCode.includes('训练表现'), 'Tier 2 header present in Statistics');
+assert.ok(statsCode.includes('更多依据'), 'Tier 3 header present in Statistics');
 assert.ok(statsCode.includes('我最近练得怎么样？') || statsCode.includes('近期训练反馈'), 'Tier 1 feedback present');
-assert.ok(statsCode.includes('我哪些地方进步了？'), 'Tier 2 progression section present');
+assert.ok(statsCode.includes('近期状态与力量'), 'Tier 2 progression section present');
 assert.ok(statsCode.includes('详细分析'), 'Tier 3 deep analysis present');
 console.log('✅ PASSED: Statistics contains clear Tier 1, Tier 2, and Tier 3 hierarchy');
 

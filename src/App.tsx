@@ -312,7 +312,7 @@ export default function App() {
             )}
             {activeTab === 'stats' && (
               <div key="stats">
-                <Statistics />
+                <Statistics key={user?.uid || 'anonymous'} />
               </div>
             )}
               {activeTab === 'profile' && (

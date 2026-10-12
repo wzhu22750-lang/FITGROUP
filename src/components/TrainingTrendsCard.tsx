@@ -24,7 +24,7 @@ interface TrainingTrendsCardProps {
   recentSetsCount: number;
 }
 
-export default function TrainingTrendsCard({
+function TrainingTrendsCard({
   trends,
   selectedWeeks,
   onSelectWeeks,
@@ -175,9 +175,9 @@ export default function TrainingTrendsCard({
           </button>}
           {progression.length > 0 ? (
             progression.slice(0, showAllExercises ? progression.length : 6).map((item) => {
-              const isProgressed = item.status === 'progressed';
-              const isMaintained = item.status === 'maintained';
-              const isRegressed = item.status === 'regressed';
+              const isProgressed = item.verdict === 'clear_progress';
+              const isMaintained = item.verdict === 'stable';
+              const isRegressed = item.verdict === 'regressed';
               const isNew = item.status === 'new_exercise';
 
               return (
@@ -201,14 +201,14 @@ export default function TrainingTrendsCard({
                         : 'bg-white text-ink/50'
                     }`}>
                       {isProgressed
-                        ? `超负荷 +${item.changePercentage}%`
+                        ? `明显进步 +${item.changePercentage}%`
                         : isMaintained
                         ? '表现稳定'
                         : isRegressed
                         ? `回落 ${item.changePercentage}%`
                         : isNew
                         ? '上期无记录'
-                        : '暂无近期记录'}
+                        : item.verdict === 'possible_progress' ? '可能进步' : '证据不足'}
                     </span>
                   </div>
 
@@ -312,3 +312,5 @@ export default function TrainingTrendsCard({
     </div>
   );
 }
+
+export default React.memo(TrainingTrendsCard);

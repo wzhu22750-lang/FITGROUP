@@ -1,0 +1,127 @@
+{
+  "baselineCommit": "f60eafdc2f03ba78e45d9b081fe5f47fa18c3311",
+  "fixture": "5000 generated records, 120 within 90 days, 2 future records excluded by both versions",
+  "measurement": "mocked Supabase SDK read queries with 5ms latency per page; UTF-8 JSON response bytes before compression; Node process, not browser paint or physical Android",
+  "runs": [
+    {
+      "mode": "baseline",
+      "fixtureRows": 5000,
+      "simulatedPageLatencyMs": 5,
+      "cold": {
+        "requests": 16,
+        "bytes": 1089663,
+        "firstMs": 232.92,
+        "fullMs": 234.27
+      },
+      "warm": {
+        "requests": 16,
+        "bytes": 1089663,
+        "firstMs": 200.76,
+        "fullMs": 202.1
+      },
+      "socialRequests": 16,
+      "analysisRows": 4998,
+      "calculationMedianMs": 115.06
+    },
+    {
+      "mode": "baseline",
+      "fixtureRows": 5000,
+      "simulatedPageLatencyMs": 5,
+      "cold": {
+        "requests": 16,
+        "bytes": 1089663,
+        "firstMs": 231.71,
+        "fullMs": 233.08
+      },
+      "warm": {
+        "requests": 16,
+        "bytes": 1089663,
+        "firstMs": 207.04,
+        "fullMs": 208.39
+      },
+      "socialRequests": 16,
+      "analysisRows": 4998,
+      "calculationMedianMs": 114.84
+    },
+    {
+      "mode": "baseline",
+      "fixtureRows": 5000,
+      "simulatedPageLatencyMs": 5,
+      "cold": {
+        "requests": 16,
+        "bytes": 1089663,
+        "firstMs": 230.76,
+        "fullMs": 232.16
+      },
+      "warm": {
+        "requests": 16,
+        "bytes": 1089663,
+        "firstMs": 208.97,
+        "fullMs": 209.06
+      },
+      "socialRequests": 16,
+      "analysisRows": 4998,
+      "calculationMedianMs": 115.78
+    },
+    {
+      "mode": "optimized",
+      "fixtureRows": 5000,
+      "simulatedPageLatencyMs": 5,
+      "cold": {
+        "requests": 16,
+        "bytes": 934725,
+        "firstMs": 35.27,
+        "fullMs": 169.92
+      },
+      "warm": {
+        "requests": 0,
+        "bytes": 0,
+        "firstMs": 0.01,
+        "fullMs": 1.33
+      },
+      "socialRequests": 0,
+      "analysisRows": 120,
+      "calculationMedianMs": 6.99
+    },
+    {
+      "mode": "optimized",
+      "fixtureRows": 5000,
+      "simulatedPageLatencyMs": 5,
+      "cold": {
+        "requests": 16,
+        "bytes": 934725,
+        "firstMs": 34.61,
+        "fullMs": 173.9
+      },
+      "warm": {
+        "requests": 0,
+        "bytes": 0,
+        "firstMs": 0.01,
+        "fullMs": 1.32
+      },
+      "socialRequests": 0,
+      "analysisRows": 120,
+      "calculationMedianMs": 7.05
+    },
+    {
+      "mode": "optimized",
+      "fixtureRows": 5000,
+      "simulatedPageLatencyMs": 5,
+      "cold": {
+        "requests": 16,
+        "bytes": 934725,
+        "firstMs": 34.6,
+        "fullMs": 172.72
+      },
+      "warm": {
+        "requests": 0,
+        "bytes": 0,
+        "firstMs": 0.01,
+        "fullMs": 1.33
+      },
+      "socialRequests": 0,
+      "analysisRows": 120,
+      "calculationMedianMs": 6.95
+    }
+  ]
+}

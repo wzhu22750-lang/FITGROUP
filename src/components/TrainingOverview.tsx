@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Check, Flame } from 'lucide-react';
 import type { WorkoutLog } from '../types';
 import { recentTrainingDays } from '../utils/trainingPresentation';
@@ -12,7 +13,7 @@ interface TrainingOverviewProps {
   referenceDate?: Date;
 }
 
-export default function TrainingOverview({ logs, ready, streak, totalWorkouts, recentSets, balance, referenceDate }: TrainingOverviewProps) {
+function TrainingOverview({ logs, ready, streak, totalWorkouts, recentSets, balance, referenceDate }: TrainingOverviewProps) {
   const days = recentTrainingDays(logs, referenceDate);
   const sessions = days.reduce((sum, day) => sum + day.count, 0);
   const activeDays = days.filter(day => day.count > 0).length;
@@ -48,3 +49,5 @@ export default function TrainingOverview({ logs, ready, streak, totalWorkouts, r
     </section>
   );
 }
+
+export default memo(TrainingOverview);

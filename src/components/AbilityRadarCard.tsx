@@ -52,7 +52,7 @@ const FIXED_RADAR_ORDER: WorkoutCategory[] = [
   WorkoutCategory.Cardio,
 ];
 
-export default function AbilityRadarCard({
+function AbilityRadarCard({
   radarMode,
   setRadarMode,
   chartView,
@@ -122,7 +122,7 @@ export default function AbilityRadarCard({
           <button
             type="button"
             onClick={onOpenStandards}
-            className="stats-control flex items-center gap-1 shrink-0"
+            className="stats-control min-h-11 flex items-center gap-1 shrink-0"
           >
             <HelpCircle size={12} className="shrink-0" />
             <span>标准</span>
@@ -135,18 +135,20 @@ export default function AbilityRadarCard({
         <button
           type="button"
           onClick={() => setRadarMode('composite')}
-          className="stats-control flex-1 text-center"
+          className="stats-control flex-1 min-w-0 text-center"
+          style={{ whiteSpace: 'normal', minHeight: 44 }}
           aria-pressed={radarMode === 'composite'}
         >
-          训练能力指数 (近28天)
+          近期训练状态
         </button>
         <button
           type="button"
           onClick={() => setRadarMode('strength')}
-          className="stats-control flex-1 text-center"
+          className="stats-control flex-1 min-w-0 text-center"
+          style={{ whiteSpace: 'normal', minHeight: 44 }}
           aria-pressed={radarMode === 'strength'}
         >
-          极限力量水平 (基准PR)
+          历史力量
         </button>
       </div>
 
@@ -359,3 +361,5 @@ export default function AbilityRadarCard({
     </div>
   );
 }
+
+export default React.memo(AbilityRadarCard);

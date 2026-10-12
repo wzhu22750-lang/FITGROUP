@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, lazy, Suspense, useCallback } from 'react';
 import TrainingOverview from './TrainingOverview';
-import AbilityRadarCard from './AbilityRadarCard';
+const AbilityRadarCard = lazy(() => import('./AbilityRadarCard'));
 import TrainingTrendsCard from './TrainingTrendsCard';
 import PersonalRecordsSection from './PersonalRecordsSection';
 import StructuredInsightsSection from './StructuredInsightsSection';
@@ -11,7 +11,8 @@ import {
   getCurrentUser,
   subscribeToUserProfile,
   subscribeToLeaderboard,
-  subscribeToUserWorkoutLogs,
+  subscribeToStatisticsData,
+  statisticsDataStore,
 } from '../api';
 import { UserProfile, WorkoutCategory, WorkoutLog } from '../types';
 import {
@@ -33,17 +34,19 @@ import {
   computeExerciseProgression,
   generateDeterministicTrainingInsights,
 } from '../utils/progressAnalytics';
+import { getStatisticsAnalysisLogs, getStatisticsAnalytics, type StatisticsSnapshot } from '../utils/statisticsData';
 import { summarizeWorkoutHistory } from '../utils/trainingPresentation';
 import { CATEGORY_META } from '../constants/workoutPresets';
 
 export default function Statistics() {
   const cached = getCurrentUser();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(cached as any);
+  const [statisticsSnapshot, setStatisticsSnapshot] = useState<StatisticsSnapshot | null>(null);
+  const [abilityOpen, setAbilityOpen] = useState(false);
   const [workoutLogs, setWorkoutLogs] = useState<WorkoutLog[]>([]);
   const [groupStats, setGroupStats] = useState<any[]>([]);
   const [workoutLogsError, setWorkoutLogsError] = useState('');
   const [logsReady, setLogsReady] = useState(false);
-  const [loading, setLoading] = useState(!cached);
 
   // Toggle radar view: Training Capacity Index (28-day volume+freq+progression+consistency) vs Pure Strength PR
   const [radarMode, setRadarMode] = useState<'composite' | 'strength'>('composite');
@@ -60,6 +63,9 @@ export default function Statistics() {
 
   // Collapsible detailed analysis section (Tier 3)
   const [isTier3Open, setIsTier3Open] = useState(false);
+  const openStandards = useCallback(() => setShowStandardsModal(true), []);
+  const closeStandards = useCallback(() => setShowStandardsModal(false), []);
+  const closeMuscle = useCallback(() => setSelectedCategoryForModal(null), []);
 
   useEffect(() => {
     const isPreview = typeof window !== 'undefined' && typeof window.location?.search === 'string' && window.location.search.includes('preview=stats');
@@ -228,36 +234,36 @@ export default function Statistics() {
         { id: 'g-4', displayName: '深蹲小李', totalWorkouts: 35 },
       ]);
       setLogsReady(true);
-      setLoading(false);
+
       return;
     }
 
     const user = getCurrentUser();
     if (!user) {
-      setLoading(false);
+
       return;
     }
 
     // 1. Real-time listener for current user's profile and stats
     const unsubProfile = subscribeToUserProfile(user.uid, (profile) => {
       setUserProfile(profile as any);
-      setLoading(false);
+
     });
 
     // 2. Complete recent window and historical PR evidence, read in pages.
-    const unsubLogs = subscribeToUserWorkoutLogs(
+    const unsubLogs = subscribeToStatisticsData(
       user.uid,
-      (logs) => {
-        setWorkoutLogs(logs);
+      (snapshot) => {
+        setStatisticsSnapshot(snapshot);
+        setWorkoutLogs(snapshot.recentLogs);
         setLogsReady(true);
         setWorkoutLogsError('');
-        setLoading(false);
+
       },
       (error) => {
         setWorkoutLogsError(error.message || '个人训练记录加载失败');
-        setLoading(false);
+
       },
-      { mode: 'statistics' },
     );
 
     // 3. Real-time listener for group leaderboard
@@ -290,25 +296,6 @@ export default function Statistics() {
           displayName: nextName !== undefined ? nextName : prev.displayName,
           photoURL: nextPhoto !== undefined ? nextPhoto : prev.photoURL,
         };
-      });
-
-      setWorkoutLogs((prev) => {
-        let changed = false;
-        const next = prev.map((log) => {
-          if (log.userId === detail.userId) {
-            const updated = {
-              ...log,
-              userName: nextName !== undefined ? nextName : log.userName,
-              userPhoto: nextPhoto !== undefined ? nextPhoto : log.userPhoto,
-            };
-            if (updated.userName !== log.userName || updated.userPhoto !== log.userPhoto) {
-              changed = true;
-              return updated;
-            }
-          }
-          return log;
-        });
-        return changed ? next : prev;
       });
 
       setGroupStats((prev) => {
@@ -344,14 +331,16 @@ export default function Statistics() {
   }, [userProfile?.sex, userProfile?.bodyweightKg]);
 
   // All modules use the same clock snapshot; only compute 7-day data on demand.
-  const referenceDate = useMemo(() => new Date(), [workoutLogs]);
-  const historySummary = useMemo(() => summarizeWorkoutHistory(workoutLogs, referenceDate), [workoutLogs, referenceDate]);
-  const analytics28d = useMemo(() => calculateFullWorkoutAnalytics(
-    workoutLogs, userProfile?.prs || {}, 28, bodyContext, referenceDate,
-  ), [workoutLogs, userProfile?.prs, bodyContext, referenceDate]);
-  const analytics = useMemo(() => volumeTimeframe === 28 ? analytics28d : calculateFullWorkoutAnalytics(
-    workoutLogs, userProfile?.prs || {}, 7, bodyContext, referenceDate,
-  ), [analytics28d, volumeTimeframe, workoutLogs, userProfile?.prs, bodyContext, referenceDate]);
+  const referenceDate = useMemo(() => new Date(statisticsSnapshot?.updatedAt || Date.now()), [statisticsSnapshot?.updatedAt, workoutLogs]);
+  const analysisLogs = useMemo(() => statisticsSnapshot ? getStatisticsAnalysisLogs(statisticsSnapshot, bodyContext) : workoutLogs, [statisticsSnapshot, bodyContext, workoutLogs]);
+  const historyReady = statisticsSnapshot?.historyReady ?? logsReady;
+  const historySummary = useMemo(() => summarizeWorkoutHistory(statisticsSnapshot?.logs ?? workoutLogs, referenceDate), [statisticsSnapshot?.logs, workoutLogs, referenceDate]);
+  const analytics28d = useMemo(() => statisticsSnapshot ? getStatisticsAnalytics(statisticsSnapshot, userProfile?.prs || {}, 28, bodyContext) : calculateFullWorkoutAnalytics(
+    analysisLogs, userProfile?.prs || {}, 28, bodyContext, referenceDate,
+  ), [statisticsSnapshot, analysisLogs, userProfile?.prs, bodyContext, referenceDate]);
+  const analytics = useMemo(() => volumeTimeframe === 28 ? analytics28d : statisticsSnapshot ? getStatisticsAnalytics(statisticsSnapshot, userProfile?.prs || {}, 7, bodyContext) : calculateFullWorkoutAnalytics(
+    analysisLogs, userProfile?.prs || {}, 7, bodyContext, referenceDate,
+  ), [statisticsSnapshot, analytics28d, volumeTimeframe, analysisLogs, userProfile?.prs, bodyContext, referenceDate]);
 
   // Overall training state score & tier (28-day meso-cycle capacity)
   const overallTrainingScore = useMemo(() => {
@@ -385,97 +374,39 @@ export default function Statistics() {
   }, [workoutLogs, selectedWeeks, referenceDate, bodyContext]);
 
   const progression = useMemo(() => {
-    return computeExerciseProgression(workoutLogs, 28, referenceDate, bodyContext);
-  }, [workoutLogs, referenceDate, bodyContext]);
+    return computeExerciseProgression(analysisLogs, 28, referenceDate, bodyContext);
+  }, [analysisLogs, referenceDate, bodyContext]);
 
   const deterministicInsights = useMemo(() => {
-    return isTier3Open ? generateDeterministicTrainingInsights(analytics28d, progression, trends) : [];
-  }, [isTier3Open, analytics28d, progression, trends]);
+    return generateDeterministicTrainingInsights(analytics28d, progression, trends);
+  }, [analytics28d, progression, trends]);
 
-  // Data-driven key feedback for Tier 1
   const keyFeedback = useMemo(() => {
-    const { streak, totalWorkouts } = historySummary;
-    const recent28dSets = analytics28d.recentSetsCount;
-    const insights = analytics28d.insights;
-
-    if (!logsReady) return { title: '正在读取训练数据', description: workoutLogsError || '完整记录加载后展示训练结论。', badge: '待加载', badgeBg: 'bg-paper text-ink' };
-
-    if (totalWorkouts === 0 && workoutLogs.length === 0) {
-      return {
-        title: '🌱 新的起点',
-        description: '尚未记录训练。完成第 1 次打卡后，系统将自动建立专属能力与力量档案。',
-        badge: '起步阶段',
-        badgeBg: 'bg-paper text-ink',
-      };
-    }
-
-    if (streak >= 3) {
-      return {
-        title: `🔥 连续打卡 ${streak} 天`,
-        description: `保持了极佳的训练节奏！规律的周期刺激是力量增长与身体适应最关键的基石。`,
-        badge: '节奏优秀',
-        badgeBg: 'bg-neon text-ink',
-      };
-    }
-
-    const progressingCategory = Object.entries(analytics28d.categoryDetails).find(
-      ([cat, detail]) => cat !== WorkoutCategory.Cardio && detail.progressionScore >= 65 && detail.recentSets >= 6
-    );
-    if (progressingCategory) {
-      const [catName] = progressingCategory;
-      const meta = CATEGORY_META[catName as WorkoutCategory];
-      return {
-        title: `⚡ ${meta?.zh || catName}部位稳步超负荷`,
-        description: `近 28 天在${meta?.zh || catName}上的有效容量与负荷较上期持续增长，呈现明确进步轨迹。`,
-        badge: '超负荷推进',
-        badgeBg: 'bg-neon text-ink',
-      };
-    }
-
-    if (recent28dSets >= 40) {
-      return {
-        title: `💪 训练容量充沛`,
-        description: `近 28 天累计完成 ${recent28dSets} 组训练，总负荷达标，注意保证充分的蛋白质摄入与睡眠恢复。`,
-        badge: '容量充足',
-        badgeBg: 'bg-neon text-ink',
-      };
-    }
-
-    if (insights.balanceLevel === '极度均衡' || insights.balanceLevel === '均衡良好') {
-      return {
-        title: `⚖️ 肌群发展均衡`,
-        description: `推拉动作与上下肢兼顾，训练结构健康，有助于降低运动损伤风险并塑造匀称体态。`,
-        badge: '均衡体魄',
-        badgeBg: 'bg-neon text-ink',
-      };
-    }
-
+    const clear = progression.find(item => item.verdict === 'clear_progress');
+    const possible = progression.find(item => item.verdict === 'possible_progress');
+    const progress = clear ?? possible;
     return {
-      title: '🎯 保持训练节奏',
-      description: '继续积累有效组数，随着训练数据积累，系统将为你计算更高置信度的力量分段与动作超负荷建议。',
-      badge: '稳步累积',
-      badgeBg: 'bg-paper text-ink',
+      title: progress ? `${progress.exerciseName} · ${clear ? '明显进步' : '可能进步'}` : analytics28d.recentWorkoutsCount > 0 ? `近 28 天记录了 ${analytics28d.recentWorkoutsCount} 次训练` : '先记录，再看变化',
+      description: progress?.evidence ?? `近 28 天完成 ${analytics28d.recentSetsCount} 组抗阻训练；${analytics28d.categoryDetails.Cardio.cardioMetrics?.effectiveMinutes ?? 0} 分钟有效有氧。`,
+      badge: progress ? (clear ? '多日证据' : '待验证') : '记录概览', badgeBg: clear ? 'bg-neon text-ink' : 'bg-paper text-ink',
+      action: clear ? '下次在相同动作条件下记录，确认能稳定完成当前组次数后再调整负荷。' : possible ? '继续记录这个动作的实际组次数与负荷，确认提高能否重复。' : deterministicInsights.find(item => item.level === 'suggestion')?.action ?? '先保持记录习惯，积累同动作、同条件的多个训练日。',
     };
-  }, [logsReady, workoutLogsError, historySummary, analytics28d, workoutLogs.length]);
+  }, [progression, analytics28d, deterministicInsights]);
 
   const hasAnyData =
     (userProfile?.totalWorkouts && userProfile.totalWorkouts > 0) ||
     workoutLogs.length > 0 ||
     Object.keys(userProfile?.prs || {}).length > 0;
 
-  if (loading) {
+  if (!logsReady && !workoutLogsError) {
     return (
-      <div className="p-12 text-center">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-          className="inline-block"
-        >
-          <Activity size={36} className="text-ink" />
-        </motion.div>
-        <p className="mt-4 font-black uppercase text-xs tracking-widest text-ink/60">
-          加载统计数据…
-        </p>
+      <div className="space-y-4 pb-8" role="status" aria-label="训练统计加载中">
+        <h1 className="text-2xl font-black">看见每一步进步</h1>
+        <div className="card border-2 border-ink p-5 space-y-4 motion-safe:animate-pulse">
+          <div className="h-4 bg-ink/15 w-1/3" /><div className="h-14 bg-neon border-2 border-ink w-1/2" />
+          <div className="h-4 bg-ink/15 w-3/4" /><div className="h-14 bg-paper border border-ink/20" />
+          <p className="text-xs font-bold">正在读取近期训练…</p>
+        </div>
       </div>
     );
   }
@@ -493,7 +424,8 @@ export default function Statistics() {
 
       {workoutLogsError && (
         <div className="bg-amber-100 border-2 border-ink px-3 py-2 text-xs font-bold text-ink">
-          {logsReady ? '训练记录暂时无法刷新，当前仍显示上次成功加载的数据。' : '训练记录暂时无法加载，请稍后重试。'}{workoutLogsError}
+          {logsReady ? '刷新失败，保留上次成功的数据。' : '训练记录暂时无法加载。'}{workoutLogsError}
+          <button type="button" className="btn-secondary min-h-11 ml-2" onClick={() => void statisticsDataStore.retry(getCurrentUser()?.uid || '')}>重试读取</button>
         </div>
       )}
 
@@ -506,31 +438,13 @@ export default function Statistics() {
         referenceDate={referenceDate}
         ready={logsReady}
         streak={historySummary.streak}
-        totalWorkouts={logsReady ? historySummary.totalWorkouts : userProfile?.totalWorkouts || 0}
+        totalWorkouts={statisticsSnapshot?.totalWorkouts ?? userProfile?.totalWorkouts ?? historySummary.totalWorkouts}
         recentSets={analytics28d.recentSetsCount}
         balance={analytics28d.insights.balanceLevel}
       />
 
-      {/* Incomplete Profile Banner — generic assessment disclosure */}
-      {(!userProfile?.sex || !userProfile?.bodyweightKg) && (
-        <div className="bg-white border-l-2 border-ink/40 p-3 sm:p-3.5 flex flex-wrap items-start justify-between gap-2.5">
-          <div className="flex items-start sm:items-center gap-2 min-w-0">
-            <Info size={18} className="text-ink shrink-0 mt-0.5 sm:mt-0" />
-            <p className="text-xs font-black text-ink leading-tight sm:leading-normal">
-              {userProfile?.sex && userProfile?.bodyweightKg
-                ? ''
-                : !userProfile?.sex && !userProfile?.bodyweightKg
-                  ? '未填写性别与体重，当前使用通用参考标准（男 70kg）估算力量水平，力量等级仅供参考'
-                  : userProfile?.sex
-                    ? '未填写体重，力量标准按 70kg 参考体重估算，等级置信度降低'
-                    : '未填写性别，力量标准按男性参考曲线估算，等级置信度降低'}
-            </p>
-          </div>
-          <span className="text-[10px] font-black bg-ink text-neon px-2 py-0.5 whitespace-nowrap shrink-0 border border-ink self-start sm:self-center">
-            {userProfile?.sex ? `${userProfile.sex === 'female' ? '女' : '男'} · 缺体重` : userProfile?.bodyweightKg ? `${userProfile.bodyweightKg}kg · 缺性别` : '通用参考标准'}
-          </span>
-        </div>
-      )}
+      {historyReady && statisticsSnapshot?.historyRefreshing && <p role="status" className="text-xs font-bold text-ink/60">历史记录正在更新，先显示上次的结果。</p>}
+      {!historyReady && <p role="status" className="text-xs font-bold text-ink/60">近期数据已就绪，历史 PR 正在补齐。</p>}
 
       {/* 1.6 Tier 1 Key Interpretive Feedback / 近期训练反馈 */}
       <div className="card p-4 sm:p-5 bg-white border-2 border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
@@ -545,21 +459,22 @@ export default function Statistics() {
         </div>
         <h3 className="text-base font-black text-ink mb-1">{keyFeedback.title}</h3>
         <p className="text-xs text-ink/70 leading-relaxed font-medium">{keyFeedback.description}</p>
+        <p className="mt-3 pt-3 border-t-2 border-ink text-xs font-bold leading-relaxed"><span className="bg-neon px-1">下一步</span> {keyFeedback.action}</p>
       </div>
 
       {/* =========================================================================
           TIER 2: CAPACITY & STRENGTH (第二层：能力与力量)
-          我哪些地方进步了？
+          近期状态与力量
           ========================================================================= */}
       {logsReady && <div className="space-y-3 pt-2">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-black uppercase tracking-wider bg-ink text-neon px-1.5 py-0.5 border border-ink">
-              第二层
+              训练表现
             </span>
-            <h2 className="text-base font-black text-ink tracking-tight italic">我哪些地方进步了？</h2>
+            <h2 className="text-base font-black text-ink tracking-tight italic">近期状态与力量</h2>
           </div>
-          <span className="text-[10px] font-mono text-ink/50 font-bold">7天 vs 28天周期</span>
+          <span className="text-[10px] font-mono text-ink/50 font-bold">近 28 天记录</span>
         </div>
 
         {/* Dual-Track Paradigm Separation Cards (训练状态 vs 极限力量) */}
@@ -585,19 +500,44 @@ export default function Statistics() {
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[11px] font-black text-ink/60 uppercase">🏋️ 极限力量水平</span>
               <span className={`text-[10px] font-black px-1.5 py-0.2 border border-ink ${overallStrengthAssessment ? overallStrengthAssessment.tier.badgeBg : 'bg-paper text-ink'} ${overallStrengthAssessment ? overallStrengthAssessment.tier.badgeText : ''}`}>
-                {overallStrengthAssessment ? overallStrengthAssessment.tier.zh : '待测量'}
+                {!historyReady ? '历史补齐中' : overallStrengthAssessment ? overallStrengthAssessment.tier.zh : '待测量'}
               </span>
             </div>
             <div className="text-2xl font-black italic text-ink mb-1">
-              {overallStrengthAssessment ? overallStrengthAssessment.score : '—'} <span className="text-xs text-ink/50 not-italic">分</span>
+              {historyReady && overallStrengthAssessment ? overallStrengthAssessment.score : '—'} <span className="text-xs text-ink/50 not-italic">分</span>
             </div>
             <p className="text-[11px] text-ink/60 leading-tight">
-              历史最佳表现对照力量基准；数据不足时显示待测量。
+              {!userProfile?.sex || !userProfile?.bodyweightKg ? '资料不全，部分标准使用通用参考；展开查看依据。' : '历史最佳表现对照力量基准；数据不足时显示待测量。'}
             </p>
           </div>
         </div>
 
         {/* Six-Dimension Capability Radar & Bar Chart */}
+        <button type="button" aria-expanded={abilityOpen} onClick={() => setAbilityOpen(value => !value)} className="btn-secondary min-h-11 w-full flex justify-between items-center">
+          部位表现、雷达图与评分标准 {abilityOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
+        {abilityOpen && <Suspense fallback={<p role="status" className="p-4 text-xs">正在加载部位表现…</p>}>
+      {/* Incomplete Profile Banner — generic assessment disclosure */}
+      {(!userProfile?.sex || !userProfile?.bodyweightKg) && (
+        <div className="bg-white border-l-2 border-ink/40 p-3 sm:p-3.5 flex flex-wrap items-start justify-between gap-2.5">
+          <div className="flex items-start sm:items-center gap-2 min-w-0">
+            <Info size={18} className="text-ink shrink-0 mt-0.5 sm:mt-0" />
+            <p className="text-xs font-black text-ink leading-tight sm:leading-normal">
+              {userProfile?.sex && userProfile?.bodyweightKg
+                ? ''
+                : !userProfile?.sex && !userProfile?.bodyweightKg
+                  ? '未填写性别与体重，当前使用通用参考标准（男 70kg）估算力量水平，力量等级仅供参考'
+                  : userProfile?.sex
+                    ? '未填写体重，力量标准按 70kg 参考体重估算，等级置信度降低'
+                    : '未填写性别，力量标准按男性参考曲线估算，等级置信度降低'}
+            </p>
+          </div>
+          <span className="text-[10px] font-black bg-ink text-neon px-2 py-0.5 whitespace-nowrap shrink-0 border border-ink self-start sm:self-center">
+            {userProfile?.sex ? `${userProfile.sex === 'female' ? '女' : '男'} · 缺体重` : userProfile?.bodyweightKg ? `${userProfile.bodyweightKg}kg · 缺性别` : '通用参考标准'}
+          </span>
+        </div>
+      )}
+
         <AbilityRadarCard
           radarMode={radarMode}
           setRadarMode={setRadarMode}
@@ -605,9 +545,9 @@ export default function Statistics() {
           setChartView={setChartView}
           categoryDetails={analytics28d.categoryDetails}
           hasAnyData={hasAnyData}
-          onSelectCategory={(cat) => setSelectedCategoryForModal(cat)}
-          onOpenStandards={() => setShowStandardsModal(true)}
-        />
+          onSelectCategory={setSelectedCategoryForModal}
+          onOpenStandards={openStandards}
+        /></Suspense>}
       </div>}
 
       {/* =========================================================================
@@ -633,7 +573,7 @@ export default function Statistics() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-black uppercase tracking-wider bg-paper text-ink px-1.5 py-0.5 border border-ink">
-              第三层
+              更多依据
             </span>
             <h2 className="text-base font-black text-ink tracking-tight italic">详细分析</h2>
           </div>
@@ -651,7 +591,7 @@ export default function Statistics() {
         {isTier3Open && (
           <div className="space-y-4">
             {/* PR Archives */}
-            <PersonalRecordsSection prs={analytics28d.categorizedPrs} />
+            {historyReady ? <PersonalRecordsSection prs={analytics28d.categorizedPrs} /> : <p role="status" className="text-xs">历史 PR 尚未补齐，近期趋势可先查看。</p>}
 
             {/* Structured Insights (Observation → Evidence → Interpretation → Action) */}
             <StructuredInsightsSection insights={deterministicInsights} />
@@ -667,14 +607,14 @@ export default function Statistics() {
       {/* Modals */}
       <StandardsModal
         isOpen={showStandardsModal}
-        onClose={() => setShowStandardsModal(false)}
+        onClose={closeStandards}
         bodyContext={bodyContext}
       />
 
       <SubMuscleModal
         category={selectedCategoryForModal}
         detail={selectedCategoryDetail}
-        onClose={() => setSelectedCategoryForModal(null)}
+        onClose={closeMuscle}
       />
     </div>
   );

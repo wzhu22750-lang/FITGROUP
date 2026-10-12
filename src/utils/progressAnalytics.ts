@@ -74,6 +74,10 @@ export interface ExerciseProgressComparison {
     date: string;
     logId?: string;
   };
+  verdict?: 'clear_progress' | 'possible_progress' | 'stable' | 'regressed' | 'insufficient_evidence';
+  currentSampleDays?: number;
+  baselineSampleDays?: number;
+  sourceLogIds?: string[];
   status: 'progressed' | 'maintained' | 'regressed' | 'new_exercise' | 'untrained_recently';
   changePercentage?: number;
   evidence: string;
@@ -283,7 +287,8 @@ export function computeExerciseProgression(
   referenceDate = new Date(),
   ctx?: StrengthBodyContext | null
 ): ExerciseProgressComparison[] {
-  const bodyweightKg = resolveBodyContext(ctx).ctx.bodyweightKg;
+  const body = resolveBodyContext(ctx);
+  const bodyweightKg = body.ctx.bodyweightKg;
   const refMs = referenceDate.getTime();
   const periodMs = Math.max(1, Number.isFinite(scoringPeriodDays) ? scoringPeriodDays : 28) * 24 * 60 * 60 * 1000;
   const currentCutoff = refMs - periodMs;
@@ -297,6 +302,8 @@ export function computeExerciseProgression(
     logId: string;
   }
 
+  const currentSamples = new Map<string, Map<string, { value: number; reliable: boolean; logId: string }>>();
+  const baselineSamples = new Map<string, Map<string, { value: number; reliable: boolean; logId: string }>>();
   const currentPerformances = new Map<string, PerformanceCandidate>();
   const baselinePerformances = new Map<string, PerformanceCandidate>();
   const allTimePerformances = new Map<string, PerformanceCandidate>();
@@ -317,6 +324,16 @@ export function computeExerciseProgression(
         date: localWorkoutDateKey(log.timestamp),
         logId: log.id,
       };
+
+      const samples = t >= currentCutoff ? currentSamples : t >= baselineCutoff ? baselineSamples : null;
+      if (samples) {
+        const days = samples.get(canonicalId) ?? new Map();
+        const reliable = ['actual_1rm', 'high', 'medium'].includes(estimate.repConfidence)
+          && (estimate.estimateSpread ?? 0) <= 0.06 && definition.benchmarkReliability !== 'D';
+        const previous = days.get(candidate.date);
+        if (!previous || candidate.estimated1RM > previous.value) days.set(candidate.date, { value: candidate.estimated1RM, reliable, logId: log.id });
+        samples.set(canonicalId, days);
+      }
 
       // Check all-time
       const existingAllTime = allTimePerformances.get(canonicalId);
@@ -364,8 +381,8 @@ export function computeExerciseProgression(
     let evidence = '';
     const unit = STRENGTH_BENCHMARKS[canonicalId]?.unit ?? 'kg';
     const formatPerformance = (p: PerformanceCandidate) => unit === 'kg'
-      ? `${p.weight}kg×${p.reps} (e1RM≈${p.estimated1RM}kg)`
-      : `${p.estimated1RM}${unit === 'sec' ? '秒' : '次'}`;
+      ? `${p.date} · ${p.weight}kg×${p.reps} (e1RM≈${p.estimated1RM}kg)`
+      : `${p.date} · ${p.estimated1RM}${unit === 'sec' ? '秒' : '次'}`;
 
     if (cur && base) {
       const delta = cur.estimated1RM - base.estimated1RM;
@@ -393,6 +410,25 @@ export function computeExerciseProgression(
       evidence = `${definition.name}：历史最佳 ${formatPerformance(all)}，近期暂无训练记录。`;
     }
 
+    const currentDays = [...(currentSamples.get(canonicalId)?.values() ?? [])];
+    const baselineDays = [...(baselineSamples.get(canonicalId)?.values() ?? [])];
+    const median = (values: number[]) => { const sorted = [...values].sort((a, b) => a - b); const middle = Math.floor(sorted.length / 2); return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2; };
+    const enough = currentDays.filter(d => d.reliable).length >= 2 && baselineDays.filter(d => d.reliable).length >= 2;
+    const typicalChange = enough ? (median(currentDays.filter(d => d.reliable).map(d => d.value)) / median(baselineDays.filter(d => d.reliable).map(d => d.value)) - 1) * 100 : 0;
+    // Logs do not record historical bodyweight. A present-day profile cannot
+    // establish identical bodyweight across the two periods.
+    const personalized = definition.loadMode !== 'bodyweight_plus_external';
+    const reliableBenchmark = definition.benchmarkReliability === 'A' || definition.benchmarkReliability === 'B';
+    let verdict: ExerciseProgressComparison['verdict'] = 'insufficient_evidence';
+    if (cur && base) {
+      if ((changePercentage ?? 0) >= 2) verdict = enough && typicalChange >= 2 && personalized && reliableBenchmark ? 'clear_progress' : 'possible_progress';
+      else if (enough && personalized && reliableBenchmark && (changePercentage ?? 0) <= -3 && typicalChange <= -3) verdict = 'regressed';
+      else if (enough && personalized && reliableBenchmark && Math.abs(typicalChange) < 3 && Math.abs(changePercentage ?? 0) < 3) verdict = 'stable';
+    }
+    evidence += ` 本期 ${currentDays.length} 个训练日，上期 ${baselineDays.length} 个训练日；${enough ? '已对照多日典型表现' : '样本不足以确认持续变化'}。`;
+    if (definition.loadMode === 'bodyweight_plus_external') evidence += '自重负荷按当前参考体重折算，历史体重未记录。';
+    if (verdict === 'possible_progress') evidence += '最佳表现提高，但持续进步仍需后续同条件记录验证。';
+
     results.push({
       canonicalId,
       exerciseName: definition.name,
@@ -402,21 +438,18 @@ export function computeExerciseProgression(
       baselineBest: base,
       allTimeBest: all,
       status,
+      verdict,
+      currentSampleDays: currentDays.length,
+      baselineSampleDays: baselineDays.length,
+      sourceLogIds: [...new Set([...currentDays, ...baselineDays].map(d => d.logId).concat(all?.logId ?? []))],
       changePercentage,
       evidence,
     });
   });
 
   // Sort: progressed first, then maintained, then new_exercise, then untrained
-  const orderRank: Record<string, number> = {
-    progressed: 1,
-    maintained: 2,
-    new_exercise: 3,
-    regressed: 4,
-    untrained_recently: 5,
-  };
-
-  return results.sort((a, b) => (orderRank[a.status] || 99) - (orderRank[b.status] || 99));
+  const evidenceRank = { clear_progress: 0, possible_progress: 1, stable: 2, regressed: 3, insufficient_evidence: 4 };
+  return results.sort((a, b) => (evidenceRank[a.verdict ?? 'insufficient_evidence'] - evidenceRank[b.verdict ?? 'insufficient_evidence']) || (b.changePercentage ?? 0) - (a.changePercentage ?? 0) || a.canonicalId.localeCompare(b.canonicalId));
 }
 
 /**
@@ -437,16 +470,16 @@ export function generateDeterministicTrainingInsights(
   const { categoryDetails, insights: balanceInfo, recentWorkoutsCount } = analytics;
 
   // 1. Progress highlights (actions with progressive overload)
-  const progressed = progression.filter((p) => p.status === 'progressed');
+  const progressed = progression.filter((p) => p.verdict === 'clear_progress');
   if (progressed.length > 0) {
     const top = progressed[0];
     insights.push({
       type: 'strength',
       level: 'highlight',
-      observation: `${top.exerciseName} 取得实质性超负荷进步`,
+      observation: `${top.exerciseName} 多次记录显示表现提高`,
       evidence: top.evidence,
-      interpretation: '力量指标呈现明确的渐进超负荷趋势，神经适应或肌肥大成效显著。',
-      action: '保持当前组次数递增节奏，在能高质量完成目标次数时，下次可尝试微增 1.25~2.5kg 负重。',
+      interpretation: '多个训练日的表现共同提高；训练记录无法直接确认肌肥大或其他生理变化。',
+      action: '下次在相同动作条件下记录表现，确认能稳定完成当前组次数后再考虑调整负荷。',
     });
   }
 
@@ -461,7 +494,7 @@ export function generateDeterministicTrainingInsights(
       level: 'suggestion',
       observation: '主要肌群训练覆盖不均衡',
       evidence: `近 28 天仅训练了 ${balanceInfo.coverageCount} 个部位（${trained || '局部'}），其他主要大肌群覆盖不足。`,
-      interpretation: '全身力量发展不均可能增加关节负担或限制复合动作上限，不利于长期运动健康。',
+      interpretation: '记录中的部位覆盖较少；这描述记录分布，不能用于诊断身体失衡或伤病风险。',
       action: '建议检查分化计划，安排全身或上下肢分化（如增加推、拉、腿分化），逐步补齐未覆盖部位。',
     });
   } else if (balanceInfo.balanceLevel === '极度均衡' || balanceInfo.balanceLevel === '均衡良好') {
@@ -470,7 +503,7 @@ export function generateDeterministicTrainingInsights(
       level: 'highlight',
       observation: '肌群训练分布整体均衡',
       evidence: `5 大抗阻部位覆盖率达 ${Math.round(balanceInfo.coverageRatio * 100)}%，各部位训练量差异较小（均衡分 ${balanceInfo.balanceScore}）。`,
-      interpretation: '胸、背、腿、肩等各部位投入比例合理，体现了系统性的训练编排。',
+      interpretation: '胸、背、腿、肩等各部位投入比例合理，记录显示多个部位都有投入。',
       action: '继续保持当前的平衡分化，针对个人体态特点做局部微调即可。',
     });
   }
@@ -481,9 +514,9 @@ export function generateDeterministicTrainingInsights(
       insights.push({
         type: 'habit',
         level: 'highlight',
-        observation: '高频稳定的训练习惯已稳固建立',
+        observation: '近期每周平均活跃天数较多',
         evidence: `近 ${trends.weeksCount} 周平均每周活跃 ${trends.avgActiveDaysPerWeek} 天，累计完成 ${trends.totalWorkouts} 次打卡。`,
-        interpretation: '规律的每周刺激提供了持续的生理适应信号，比突击式高容量更利于长期进步。',
+        interpretation: '这是周期内的平均出勤；还需结合各周分布判断是否稳定。',
         action: '在保证睡眠和营养恢复的前提下维持当前频次，警惕过度疲劳信号。',
       });
     } else if (trends.avgActiveDaysPerWeek <= 1 && recentWorkoutsCount > 0) {
@@ -492,37 +525,20 @@ export function generateDeterministicTrainingInsights(
         level: 'suggestion',
         observation: '训练频率偏低，刺激间隔较长',
         evidence: `近 ${trends.weeksCount} 周平均每周训练 ${trends.avgActiveDaysPerWeek} 天。`,
-        interpretation: '肌肉合成信号在单次训练后通常维持 24-48 小时，过长的间隔可能导致部分适应效果回落。',
+        interpretation: '当前记录之间的间隔较长；未记录的训练和个人安排也可能影响这个判断。',
         action: '建议先确立“每周至少动 2-3 天”的底线目标，哪怕每次仅做 20-30 分钟。',
       });
     }
   }
 
-  // 4. Cardio & heart health insights
-  const cardioDetail = categoryDetails[WorkoutCategory.Cardio];
-  if (cardioDetail && cardioDetail.cardioCalories && cardioDetail.cardioCalories.actual > 0) {
-    const cal = cardioDetail.cardioCalories.actual;
-    const completion = cardioDetail.cardioCalories.completionRate;
-    if (completion >= 80) {
-      insights.push({
-        type: 'cardio',
-        level: 'highlight',
-        observation: '有氧心肺投入表现优秀',
-        evidence: `近 28 天累计消耗约 ${cal} kcal，达到月度目标 (${completion}%)。`,
-        interpretation: '规律的心肺耐力训练有助于增强毛细血管密度，加速力量训练间歇期间的乳酸清除。',
-        action: '保持当前的低/中强度心肺搭配，为力量训练提供充沛的体能底盘。',
-      });
-    }
-  } else if (recentWorkoutsCount >= 4 && (!cardioDetail || cardioDetail.recentSets === 0)) {
-    insights.push({
-      type: 'cardio',
-      level: 'neutral',
-      observation: '近期心肺训练投入较少',
-      evidence: '近 28 天暂无有氧打卡记录，训练以纯抗阻为主。',
-      interpretation: '适度有氧有助于改善线粒体功能并促进恢复，纯无氧训练者每周穿插适量有氧有益心血管。',
-      action: '建议每周安排 1 次 20-30 分钟轻松有氧（快走、骑行、羽毛球），控制心率在轻松说话区间。',
-    });
-  }
+  // Cardio conclusions use valid duration, never calorie goal completion as capability.
+  const cardio = categoryDetails[WorkoutCategory.Cardio]?.cardioMetrics;
+  if (cardio && cardio.validSessions > 0) insights.push({
+    type: 'cardio', level: 'neutral', observation: '近期有氧训练已有记录',
+    evidence: `近 28 天记录 ${cardio.activeDays} 个有效有氧训练日，累计 ${cardio.effectiveMinutes} 分钟。`,
+    interpretation: '这里展示有氧投入，不代表测得的心肺能力。',
+    action: '下次继续记录实际时长与活动类型，便于比较周期内的投入。',
+  });
 
   // Fallback if no specific insights matched
   if (insights.length === 0) {
@@ -539,10 +555,10 @@ export function generateDeterministicTrainingInsights(
       insights.push({
         type: 'volume',
         level: 'neutral',
-        observation: '训练节奏平稳保持',
+        observation: '已有训练记录，变化仍待验证',
         evidence: `近 28 天累计完成 ${recentWorkoutsCount} 次打卡，总组数 ${analytics.recentSetsCount} 组。`,
-        interpretation: '当前训练处于稳态维持期，动作表现与容量波动较小。',
-        action: '可评估是否尝试在下一个中周期引入新的渐进超负荷变量。',
+        interpretation: '仅凭当前打卡数量无法判断力量是否稳定或提高。',
+        action: '优先在相同动作条件下持续记录，再比较多个训练日的表现。',
       });
     }
   }

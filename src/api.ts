@@ -3,6 +3,8 @@ import { supabase } from './lib/supabase';
 import type { WorkoutLog, WorkoutVisibility, Team, TeamMember, TeamDashboardData, AppNotification, FeedbackType, UserFeedback } from './types';
 import { WorkoutCategory } from './types';
 import { parseCategories } from './constants/workoutPresets';
+import { cleanupWorkoutPhotos, trackUploadedPhoto } from './utils/workoutPhotos';
+import { createStatisticsDataStore, type StatisticsSnapshot } from './utils/statisticsData';
 import { localWorkoutDateKey } from './utils/workoutTime';
 import { fetchAllPagesById, validatePageSize } from './utils/pagination';
 import { executeWorkoutLogUpdate, sanitizeExercisesForDb } from './utils/workoutLogUpdate';
@@ -159,6 +161,7 @@ const readyProfiles = new Set<string>();
 const authStateCallbacks = new Set<(user: AppUser | null) => void>();
 
 function handleAuthSignOut(): void {
+  statisticsDataStore.reset();
   authGeneration++;
   if (currentProfileAbortController) {
     try {
@@ -177,6 +180,7 @@ function handleAuthSignOut(): void {
 
 function handleAuthSessionUser(user: User): AppUser {
   if (activeAuthUid !== user.id) {
+    statisticsDataStore.reset();
     // Account switch: increment generation and abort pending profile requests
     authGeneration++;
     if (currentProfileAbortController) {
@@ -724,6 +728,7 @@ export const createWorkoutLog = async (logData: Record<string, unknown>) => {
   const user = await currentAuthUser();
   if (!user) throw new Error('未登录');
 
+  statisticsDataStore.invalidate(user.id);
   const logId = typeof logData.id === 'string' && logData.id ? logData.id : newId('log');
   const exercises = sanitizeExercisesForDb(logData.exercises);
   let trainingTimestamp: string | undefined;
@@ -768,12 +773,14 @@ export const createWorkoutLog = async (logData: Record<string, unknown>) => {
         .eq('id', logId)
         .maybeSingle();
       if (existing && existing.user_id === user.id) {
+        statisticsDataStore.invalidate(user.id);
         return { id: logId };
       }
     }
     throw error;
   }
 
+  statisticsDataStore.invalidate(user.id);
   return { id: logId };
 };
 
@@ -781,12 +788,14 @@ export const updateWorkoutLog = async (workoutLogId: string, updates: Record<str
   const user = await currentAuthUser();
   if (!user) throw new Error('未登录');
 
-  return executeWorkoutLogUpdate({
+  const result = await executeWorkoutLogUpdate({
     client: supabase,
     user,
     workoutLogId,
     updates,
   });
+  statisticsDataStore.invalidate(user.id);
+  return result;
 };
 
 
@@ -796,7 +805,7 @@ export const deleteWorkoutLog = async (workoutLogId: string) => {
 
   const { data, error: readError } = await supabase
     .from('workout_logs')
-    .select('id, user_id')
+    .select('id, user_id, photo_url')
     .eq('id', workoutLogId)
     .maybeSingle();
   if (readError) throw readError;
@@ -807,6 +816,8 @@ export const deleteWorkoutLog = async (workoutLogId: string) => {
 
   const { error } = await supabase.from('workout_logs').delete().eq('id', workoutLogId);
   if (error) throw error;
+  statisticsDataStore.invalidate(user.id);
+  if (data.photo_url) { trackUploadedPhoto(user.id, data.photo_url, true); void cleanupWorkoutPhotos(user.id).catch(() => {}); }
 };
 
 export function normalizeLog(row: WorkoutLogRow): WorkoutLog {
@@ -830,8 +841,8 @@ export function normalizeLog(row: WorkoutLogRow): WorkoutLog {
   return {
     id: row.id,
     userId: row.user_id,
-    userName: row.user_name,
-    userPhoto: row.user_photo,
+    userName: row.user_name || '',
+    userPhoto: row.user_photo || '',
     timestamp: toIso(row.created_at) || new Date().toISOString(),
     category: row.category,
     categories,
@@ -1632,7 +1643,7 @@ export const getUserWorkoutLogs = async (
 };
 
 /** Analytics payload excludes photos, social counts and notes. No schema change. */
-const STATISTICS_LOG_COLUMNS = 'id,user_id,user_name,user_photo,created_at,category,exercises';
+const STATISTICS_LOG_COLUMNS = 'id,user_id,created_at,category,exercises';
 
 export async function fetchWorkoutLogsForStatistics(
   userId: string,
@@ -1659,6 +1670,34 @@ export async function fetchWorkoutLogsForStatistics(
     { ...options, timeoutMs: options.timeoutMs ?? 60000 },
   );
 }
+
+export const statisticsDataStore = createStatisticsDataStore({
+  fetch: fetchWorkoutLogsForStatistics,
+  listen: (uid, change, reconnect) => {
+    let subscribed = false;
+    let interrupted = false;
+    let profileCount = cachedUser?.uid === uid ? cachedUser.totalWorkouts : undefined;
+    const channel = supabase.channel(`statistics_${uid}_${newId('ch')}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'workout_logs', filter: `user_id=eq.${uid}` }, change)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'workout_logs', filter: `user_id=eq.${uid}` }, change)
+      // Own profile counts detect deletes without subscribing to other users'
+      // unfiltered DELETE IDs (RLS does not apply to deleted rows).
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${uid}` }, payload => {
+        const total = payload.new.total_workouts;
+        if (typeof total !== 'number') return;
+        if (profileCount === undefined || total < profileCount) reconnect();
+        profileCount = total;
+      })
+      .subscribe(status => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') interrupted = true;
+        if (status === 'SUBSCRIBED') { if (subscribed || interrupted) reconnect(); subscribed = true; interrupted = false; }
+      });
+    const online = () => reconnect();
+    if (typeof window !== 'undefined') window.addEventListener('online', online);
+    return () => { if (typeof window !== 'undefined') window.removeEventListener('online', online); void supabase.removeChannel(channel); };
+  },
+});
+export const subscribeToStatisticsData = (uid: string, data: (snapshot: StatisticsSnapshot) => void, error?: (error: Error) => void) => statisticsDataStore.subscribe(uid, data, error);
 
 /** Complete recent window, including all pages even above the provider row cap. */
 export const getUserWorkoutLogsForAnalytics = async (

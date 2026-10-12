@@ -300,11 +300,13 @@ export interface ResolvedBodyContext {
 export function resolveBodyContext(profile?: {
   sex?: string | null;
   bodyweightKg?: number | null;
+  sexAssumed?: boolean;
+  bodyweightAssumed?: boolean;
 } | null): ResolvedBodyContext {
   const sex = profile?.sex === 'female' ? 'female' : profile?.sex === 'male' ? 'male' : null;
   const rawBw = typeof profile?.bodyweightKg === 'number' && Number.isFinite(profile.bodyweightKg) && profile.bodyweightKg > 0 ? profile.bodyweightKg : null;
-  const sexAssumed = !sex;
-  const bodyweightAssumed = !rawBw;
+  const sexAssumed = profile?.sexAssumed === true || !sex;
+  const bodyweightAssumed = profile?.bodyweightAssumed === true || !rawBw;
   const ctx: StrengthBodyContext = {
     sex: sex || 'male',
     bodyweightKg: rawBw ? Math.min(BW_CLAMP_MAX, Math.max(BW_CLAMP_MIN, rawBw)) : REF_BW,
@@ -326,7 +328,10 @@ export function bodyContextFromProfile(p?: {
   const hasSex = p.sex === 'female' || p.sex === 'male';
   const rawBw = typeof p.bodyweightKg === 'number' && Number.isFinite(p.bodyweightKg) && p.bodyweightKg > 0;
   if (!hasSex && !rawBw) return null;
-  return resolveBodyContext(p).ctx;
+  const resolved = resolveBodyContext(p);
+  if (resolved.assessmentMode === 'personalized') return resolved.ctx;
+  const context = { ...resolved.ctx, sexAssumed: resolved.sexAssumed, bodyweightAssumed: resolved.bodyweightAssumed };
+  return context;
 }
 
 // ---------------------------------------------------------------------------

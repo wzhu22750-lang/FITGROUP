@@ -1,3 +1,4 @@
+import WorkoutPhoto from './WorkoutPhoto';
 import { Flame, Award, Target, Dumbbell, Timer, User as UserIcon } from 'lucide-react';
 import { WorkoutLog } from '../types';
 import { getCategoryBadgeColor, CATEGORY_META, inferLogCategories } from '../constants/workoutPresets';
@@ -118,7 +119,7 @@ export default function SharePoster({ log, statLabel, statValue, statIcon }: Sha
       {/* Photo */}
       {log.photoUrl && (
         <div className="border-4 border-ink aspect-[4/3] overflow-hidden bg-paper my-3">
-          <img src={log.photoUrl} className="w-full h-full object-cover grayscale contrast-125" alt="" crossOrigin="anonymous" />
+          <WorkoutPhoto reference={log.photoUrl} className="w-full h-full object-cover grayscale contrast-125" alt="" crossOrigin="anonymous" />
         </div>
       )}
 
