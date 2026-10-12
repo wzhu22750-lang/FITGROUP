@@ -25,6 +25,7 @@ export interface WorkoutDraft {
   exercises: DraftExercise[];
   categories: WorkoutCategory[];
   note: string;
+  photoUrl?: string;
   visibility: WorkoutVisibility;
   /** null means use submission time; a local minute value means a manual check-in time. */
   workoutTime: string | null;
@@ -39,7 +40,7 @@ export const draftStorageKey = (owner: string) => `fitgroup:workout-draft:v1:${o
 export const exerciseKey = (ex: { name: string; type: string }) => `${ex.type}:${ex.name.trim().toLocaleLowerCase()}`;
 
 export function createDraft(owner: string): WorkoutDraft {
-  return { version: 1, owner, id: newDraftId(), exercises: [], categories: [], note: '', visibility: 'public', workoutTime: null, updatedAt: Date.now(), pending: false };
+  return { version: 1, owner, id: newDraftId(), exercises: [], categories: [], note: '', photoUrl: '', visibility: 'public', workoutTime: null, updatedAt: Date.now(), pending: false };
 }
 
 export function createEditingDraft(owner: string, log: WorkoutLog): WorkoutDraft {
@@ -47,7 +48,7 @@ export function createEditingDraft(owner: string, log: WorkoutLog): WorkoutDraft
     ...createDraft(owner), id: log.id,
     exercises: (log.exercises || []).map(ex => ({ ...fromRecordedExercise(ex), id: ex.id || newDraftId() })),
     categories: inferLogCategories(log.category, log.categories, log.exercises),
-    note: log.note || '', visibility: log.visibility || 'public',
+    note: log.note || '', photoUrl: log.photoUrl || '', visibility: log.visibility || 'public',
     workoutTime: toLocalWorkoutTime(new Date(log.timestamp)),
   };
 }
@@ -159,6 +160,7 @@ export function decodeDraft(raw: string | null, owner: string): WorkoutDraft | n
     if (value.version !== 1 || value.owner !== owner || typeof value.id !== 'string' || !value.id || value.id.length > 64) return null;
     if (!Array.isArray(value.exercises) || value.exercises.length > MAX_WORKOUT_EXERCISES || !Array.isArray(value.categories)) return null;
     if (!['public', 'private', 'friends'].includes(value.visibility) || typeof value.note !== 'string' || value.note.length > 500 || typeof value.pending !== 'boolean') return null;
+    if (value.photoUrl !== undefined && typeof value.photoUrl !== 'string') return null;
     if (!Number.isFinite(value.updatedAt)) return null;
     // Existing v1 drafts predate the optional training time selector.
     if (value.workoutTime === undefined) value.workoutTime = null;

@@ -438,9 +438,27 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
               )}
             </div>
           ) : (
-            publicLogs.map((log) => (
-              <LogCard key={log.id} log={log} onLogUpdated={handleLogUpdated} />
-            ))
+            <>
+              {onNavigateToLog && (
+                <div className="card p-3 sm:p-4 bg-white border-2 border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-black uppercase text-ink/50 tracking-wider">今日训练状态</p>
+                    <h3 className="text-sm font-black text-ink truncate mt-0.5">今天练了吗？记下你的下一次突破</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onNavigateToLog}
+                    className="btn-neon text-xs py-2 px-3.5 flex items-center gap-1.5 shrink-0 cursor-pointer"
+                  >
+                    <Dumbbell size={14} />
+                    <span>立即打卡</span>
+                  </button>
+                </div>
+              )}
+              {publicLogs.map((log) => (
+                <LogCard key={log.id} log={log} onLogUpdated={handleLogUpdated} />
+              ))}
+            </>
           )}
         </div>
       )}

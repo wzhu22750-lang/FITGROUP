@@ -1,5 +1,11 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import TrainingOverview from './TrainingOverview';
+import AbilityRadarCard from './AbilityRadarCard';
+import TrainingTrendsCard from './TrainingTrendsCard';
+import PersonalRecordsSection from './PersonalRecordsSection';
+import StructuredInsightsSection from './StructuredInsightsSection';
+import StandardsModal from './StandardsModal';
+import SubMuscleModal from './SubMuscleModal';
 import CommunityLeaderboard from './CommunityLeaderboard';
 import {
   getCurrentUser,
@@ -10,60 +16,25 @@ import {
 } from '../api';
 import { UserProfile, WorkoutCategory, WorkoutLog } from '../types';
 import {
-  Target,
-  TrendingUp,
-  Award,
   Activity,
-  Zap,
-  HelpCircle,
-  Dumbbell,
-  Scale,
   Sparkles,
-  ChevronRight,
   ChevronDown,
   ChevronUp,
   Info,
-  Calendar,
-  X,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import {
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar,
-  ResponsiveContainer,
-  Tooltip,
-} from 'recharts';
+import { motion } from 'motion/react';
 import {
   calculateFullWorkoutAnalytics,
   getStrengthTier,
-  getCardioTier,
   getTrainingStateTier,
   bodyContextFromProfile,
-  getBenchmarkThresholdsForDisplay,
-  CategoryScoreDetail,
 } from '../utils/workoutAnalytics';
-import { STRENGTH_TIERS, BENCHMARK_PROVENANCE } from '../constants/strengthStandards';
-import { CATEGORY_META } from '../constants/workoutPresets';
 import {
-  getExerciseStimulusTable,
-  DEFAULT_CARDIO_CALORIE_TARGET,
-} from '../constants/muscleCoefficients';
-
-// Representative exercises shown in the standards modal table
-const STANDARDS_TABLE_EXERCISES = ['杠铃平板卧推', '坐姿哑铃推举', '高位下拉', '传统硬拉', '杠铃深蹲'];
-const CONFIDENCE_LABEL: Record<string, string> = {
-  high: '高置信度',
-  medium: '中置信度',
-  low: '低置信度',
-};
-const CONFIDENCE_STYLES: Record<string, string> = {
-  high: 'bg-emerald-100 text-emerald-800',
-  medium: 'bg-blue-100 text-blue-800',
-  low: 'bg-amber-100 text-amber-900',
-};
+  computeWeeklyTrainingTrends,
+  computeExerciseProgression,
+  generateDeterministicTrainingInsights,
+} from '../utils/progressAnalytics';
+import { CATEGORY_META } from '../constants/workoutPresets';
 
 export default function Statistics() {
   const cached = getCurrentUser();
@@ -74,27 +45,193 @@ export default function Statistics() {
   const [logsReady, setLogsReady] = useState(false);
   const [loading, setLoading] = useState(!cached);
 
-  // Toggle radar view: Training Capacity Index (28-day volume+freq+weight) vs Pure Strength PR
+  // Toggle radar view: Training Capacity Index (28-day volume+freq+progression+consistency) vs Pure Strength PR
   const [radarMode, setRadarMode] = useState<'composite' | 'strength'>('composite');
   // Chart visualization style: Radar Polygon vs 6-Dimension Progress Bars
   const [chartView, setChartView] = useState<'radar' | 'bars'>('radar');
   // Timeframe for volume distribution: 7 days vs 28 days
   const [volumeTimeframe, setVolumeTimeframe] = useState<7 | 28>(28);
-  // Filter for PR list
-  const [selectedPrCategory, setSelectedPrCategory] = useState<WorkoutCategory | 'ALL'>('ALL');
-  // Standards modal & active tab
-  const [showStandardsModal, setShowStandardsModal] = useState(false);
-  const [modalTab, setModalTab] = useState<'rules' | 'tiers'>('rules');
-  const [standardsTableMode, setStandardsTableMode] = useState<'personalized' | 'anchor'>('personalized');
+  // Timeframe for weekly trends: 4, 8, or 12 weeks
+  const [selectedWeeks, setSelectedWeeks] = useState<4 | 8 | 12>(4);
 
-  // Category Sub-muscle detail modal
+  // Standards modal & active sub-muscle drill-down
+  const [showStandardsModal, setShowStandardsModal] = useState(false);
   const [selectedCategoryForModal, setSelectedCategoryForModal] = useState<WorkoutCategory | null>(null);
 
-  // Collapsible sections - all collapsed by default as requested
-  const [isInsightsOpen, setIsInsightsOpen] = useState(false);
-  const [isPrsOpen, setIsPrsOpen] = useState(false);
+  // Collapsible detailed analysis section (Tier 3)
+  const [isTier3Open, setIsTier3Open] = useState(false);
 
   useEffect(() => {
+    const isPreview = typeof window !== 'undefined' && typeof window.location?.search === 'string' && window.location.search.includes('preview=stats');
+    if (isPreview) {
+      const dayMs = 24 * 3600 * 1000;
+      const now = Date.now();
+      const mockLogs: WorkoutLog[] = [
+        {
+          id: 'demo-1',
+          userId: 'demo-user-1',
+          userName: '力量训练者',
+          userPhoto: '',
+          timestamp: new Date(now - 2 * dayMs).toISOString(),
+          category: 'Chest',
+          exercises: [
+            { id: 'd1-1', name: '杠铃平板卧推', weight: 85, sets: 4, reps: 8, type: 'strength' },
+            { id: 'd1-2', name: '上斜哑铃卧推', weight: 24, sets: 3, reps: 10, type: 'strength' },
+          ],
+          likesCount: 5,
+          commentsCount: 2,
+        },
+        {
+          id: 'demo-2',
+          userId: 'demo-user-1',
+          userName: '力量训练者',
+          userPhoto: '',
+          timestamp: new Date(now - 4 * dayMs).toISOString(),
+          category: 'Back',
+          exercises: [
+            { id: 'd2-1', name: '高位下拉', weight: 65, sets: 4, reps: 10, type: 'strength' },
+            { id: 'd2-2', name: '引体向上', weight: 10, sets: 3, reps: 6, type: 'strength' },
+          ],
+          likesCount: 3,
+          commentsCount: 1,
+        },
+        {
+          id: 'demo-3',
+          userId: 'demo-user-1',
+          userName: '力量训练者',
+          userPhoto: '',
+          timestamp: new Date(now - 6 * dayMs).toISOString(),
+          category: 'Legs',
+          exercises: [
+            { id: 'd3-1', name: '杠铃深蹲', weight: 110, sets: 4, reps: 5, type: 'strength' },
+            { id: 'd3-2', name: '传统硬拉', weight: 130, sets: 3, reps: 5, type: 'strength' },
+          ],
+          likesCount: 8,
+          commentsCount: 4,
+        },
+        {
+          id: 'demo-4',
+          userId: 'demo-user-1',
+          userName: '力量训练者',
+          userPhoto: '',
+          timestamp: new Date(now - 8 * dayMs).toISOString(),
+          category: 'Shoulders',
+          exercises: [
+            { id: 'd4-1', name: '坐姿哑铃推举', weight: 22, sets: 4, reps: 8, type: 'strength' },
+            { id: 'd4-2', name: '哑铃侧平举', weight: 10, sets: 4, reps: 12, type: 'strength' },
+          ],
+          likesCount: 2,
+          commentsCount: 0,
+        },
+        {
+          id: 'demo-5',
+          userId: 'demo-user-1',
+          userName: '力量训练者',
+          userPhoto: '',
+          timestamp: new Date(now - 10 * dayMs).toISOString(),
+          category: 'Cardio',
+          exercises: [
+            { id: 'd5-1', name: '户外跑步', duration: 30, calories: 320, sets: 1, reps: 1, type: 'cardio' },
+          ],
+          likesCount: 4,
+          commentsCount: 1,
+        },
+        {
+          id: 'demo-6',
+          userId: 'demo-user-1',
+          userName: '力量训练者',
+          userPhoto: '',
+          timestamp: new Date(now - 13 * dayMs).toISOString(),
+          category: 'Others',
+          exercises: [
+            { id: 'd6-1', name: '杠铃弯举', weight: 30, sets: 3, reps: 10, type: 'strength' },
+            { id: 'd6-2', name: '绳索下压', weight: 25, sets: 3, reps: 12, type: 'strength' },
+          ],
+          likesCount: 3,
+          commentsCount: 0,
+        },
+        {
+          id: 'demo-7',
+          userId: 'demo-user-1',
+          userName: '力量训练者',
+          userPhoto: '',
+          timestamp: new Date(now - 16 * dayMs).toISOString(),
+          category: 'Chest',
+          exercises: [
+            { id: 'd7-1', name: '杠铃平板卧推', weight: 82.5, sets: 4, reps: 8, type: 'strength' },
+          ],
+          likesCount: 2,
+          commentsCount: 1,
+        },
+        {
+          id: 'demo-8',
+          userId: 'demo-user-1',
+          userName: '力量训练者',
+          userPhoto: '',
+          timestamp: new Date(now - 19 * dayMs).toISOString(),
+          category: 'Legs',
+          exercises: [
+            { id: 'd8-1', name: '杠铃深蹲', weight: 105, sets: 4, reps: 5, type: 'strength' },
+          ],
+          likesCount: 4,
+          commentsCount: 2,
+        },
+        {
+          id: 'demo-base-1',
+          userId: 'demo-user-1',
+          userName: '力量训练者',
+          userPhoto: '',
+          timestamp: new Date(now - 34 * dayMs).toISOString(),
+          category: 'Chest',
+          exercises: [
+            { id: 'db1-1', name: '杠铃平板卧推', weight: 80, sets: 4, reps: 8, type: 'strength' },
+          ],
+          likesCount: 2,
+          commentsCount: 0,
+        },
+        {
+          id: 'demo-base-2',
+          userId: 'demo-user-1',
+          userName: '力量训练者',
+          userPhoto: '',
+          timestamp: new Date(now - 38 * dayMs).toISOString(),
+          category: 'Legs',
+          exercises: [
+            { id: 'db2-1', name: '杠铃深蹲', weight: 105, sets: 4, reps: 5, type: 'strength' },
+          ],
+          likesCount: 1,
+          commentsCount: 0,
+        },
+      ];
+
+      setUserProfile({
+        id: 'demo-user-1',
+        displayName: '力量训练者',
+        photoURL: '',
+        sex: 'male',
+        bodyweightKg: 75,
+        streak: 7,
+        totalWorkouts: 48,
+        prs: {
+          '杠铃平板卧推': 85,
+          '杠铃深蹲': 110,
+          '传统硬拉': 130,
+          '坐姿哑铃推举': 22,
+          '引体向上': 10,
+        },
+      } as any);
+      setWorkoutLogs(mockLogs);
+      setGroupStats([
+        { id: 'g-1', displayName: '铁人阿强', totalWorkouts: 88 },
+        { id: 'g-2', displayName: '力量训练者', totalWorkouts: 48 },
+        { id: 'g-3', displayName: '晨跑小鹿', totalWorkouts: 42 },
+        { id: 'g-4', displayName: '深蹲小李', totalWorkouts: 35 },
+      ]);
+      setLogsReady(true);
+      setLoading(false);
+      return;
+    }
+
     const user = getCurrentUser();
     if (!user) {
       setLoading(false);
@@ -107,7 +244,7 @@ export default function Statistics() {
       setLoading(false);
     });
 
-    // 2. Real-time listener for user's own workout logs
+    // 2. Real-time listener for user's own workout logs (up to 500 for full historical PRs and analytics)
     const unsubLogs = subscribeToUserWorkoutLogs(
       user.uid,
       (logs) => {
@@ -120,6 +257,7 @@ export default function Statistics() {
         setWorkoutLogsError(error.message || '个人训练记录加载失败');
         setLoading(false);
       },
+      500,
     );
 
     // 3. Real-time listener for group leaderboard
@@ -205,78 +343,137 @@ export default function Statistics() {
     };
   }, []);
 
-
   // Extract body context for strength scoring
   const bodyContext = useMemo(() => {
     return bodyContextFromProfile(userProfile);
   }, [userProfile?.sex, userProfile?.bodyweightKg]);
 
-  // Compute full analytics data for 7/28 days
+  // Compute full analytics data for requested volume timeframe (7 or 28 days)
   const analytics = useMemo(() => {
     const prs = (userProfile?.prs || {}) as Record<string, number>;
     return calculateFullWorkoutAnalytics(workoutLogs, prs, volumeTimeframe, bodyContext);
   }, [workoutLogs, userProfile?.prs, volumeTimeframe, bodyContext]);
 
-  // Compute 28-day analytics for top overview
-  const overviewAnalytics = useMemo(() => {
-    if (volumeTimeframe === 28) return analytics;
+  // Canonical 28-day analytics for capacity model, balance, and insights
+  const analytics28d = useMemo(() => {
     const prs = (userProfile?.prs || {}) as Record<string, number>;
     return calculateFullWorkoutAnalytics(workoutLogs, prs, 28, bodyContext);
-  }, [analytics, volumeTimeframe, workoutLogs, userProfile?.prs, bodyContext]);
+  }, [workoutLogs, userProfile?.prs, bodyContext]);
 
-  const radarChartData = useMemo(() => {
-    const rawItems = analytics.radarData.map((d) => {
-      const rawScore = radarMode === 'composite' ? d.composite : d.strength;
-      // Visual baseline offset of 6 pts prevents 0-score dimensions from collapsing into a dead center needle
-      const visualScore = rawScore === 0 ? 6 : rawScore;
+  // 7-day analytics for comparison
+  const analytics7d = useMemo(() => {
+    const prs = (userProfile?.prs || {}) as Record<string, number>;
+    return calculateFullWorkoutAnalytics(workoutLogs, prs, 7, bodyContext);
+  }, [workoutLogs, userProfile?.prs, bodyContext]);
+
+  // Overall training state score & tier (28-day meso-cycle capacity)
+  const overallTrainingScore = useMemo(() => {
+    const nonCardio = Object.entries(analytics28d.categoryDetails)
+      .filter(([cat]) => cat !== WorkoutCategory.Cardio)
+      .map(([, d]) => d.trainingScore);
+    if (!nonCardio.length) return 0;
+    return Math.round(nonCardio.reduce((a, b) => a + b, 0) / nonCardio.length);
+  }, [analytics28d]);
+
+  const overallTrainingTier = useMemo(() => {
+    return getTrainingStateTier(overallTrainingScore);
+  }, [overallTrainingScore]);
+
+  // Overall strength score & tier (pure 1RM benchmarks)
+  const overallStrengthAssessment = useMemo(() => {
+    const scores = Object.values(analytics28d.categoryDetails)
+      .map((d) => d.strengthScore)
+      .filter((s) => s > 0);
+    if (!scores.length) return null;
+    const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+    return {
+      score: avgScore,
+      tier: getStrengthTier(avgScore),
+    };
+  }, [analytics28d]);
+
+  // Trends & progress calculations
+  const trends = useMemo(() => {
+    return computeWeeklyTrainingTrends(workoutLogs, selectedWeeks);
+  }, [workoutLogs, selectedWeeks]);
+
+  const progression = useMemo(() => {
+    return computeExerciseProgression(workoutLogs, 28);
+  }, [workoutLogs]);
+
+  const deterministicInsights = useMemo(() => {
+    return generateDeterministicTrainingInsights(analytics28d, progression, trends);
+  }, [analytics28d, progression, trends]);
+
+  // Data-driven key feedback for Tier 1
+  const keyFeedback = useMemo(() => {
+    const streak = userProfile?.streak || 0;
+    const totalWorkouts = userProfile?.totalWorkouts || 0;
+    const recent28dSets = analytics28d.recentSetsCount;
+    const insights = analytics28d.insights;
+
+    if (totalWorkouts === 0 && workoutLogs.length === 0) {
       return {
-        subject: d.subject,
-        score: visualScore,
-        rawScore,
-        composite: d.composite,
-        strength: d.strength,
-        activity: d.activity,
-        benchmark: 40,
-        fullMark: 100,
-        category: d.category,
+        title: '🌱 新的起点',
+        description: '尚未记录训练。完成第 1 次打卡后，系统将自动建立专属能力与力量档案。',
+        badge: '起步阶段',
+        badgeBg: 'bg-paper text-ink',
       };
-    });
-
-    // Dynamic Adjacent Clustering:
-    // Place all active/trained dimensions (score > 0) in contiguous adjacent positions,
-    // followed by unactivated dimensions on the remaining side.
-    const active = rawItems.filter((item) => item.rawScore > 0);
-    const inactive = rawItems.filter((item) => item.rawScore === 0);
-
-    if (active.length > 0 && inactive.length > 0) {
-      // Sort active dimensions so strongest are connected together in a solid contiguous polygon
-      active.sort((a, b) => b.rawScore - a.rawScore);
-      return [...active, ...inactive];
     }
 
-    return rawItems;
-  }, [analytics.radarData, radarMode]);
-
-
-  const filteredPrs = useMemo(() => {
-    if (selectedPrCategory === 'ALL') {
-      return analytics.categorizedPrs;
+    if (streak >= 3) {
+      return {
+        title: `🔥 连续打卡 ${streak} 天`,
+        description: `保持了极佳的训练节奏！规律的周期刺激是力量增长与身体适应最关键的基石。`,
+        badge: '节奏优秀',
+        badgeBg: 'bg-neon text-ink',
+      };
     }
-    return analytics.categorizedPrs.filter((p) => p.category === selectedPrCategory);
-  }, [analytics.categorizedPrs, selectedPrCategory]);
+
+    const progressingCategory = Object.entries(analytics28d.categoryDetails).find(
+      ([cat, detail]) => cat !== WorkoutCategory.Cardio && detail.progressionScore >= 65 && detail.recentSets >= 6
+    );
+    if (progressingCategory) {
+      const [catName] = progressingCategory;
+      const meta = CATEGORY_META[catName as WorkoutCategory];
+      return {
+        title: `⚡ ${meta?.zh || catName}部位稳步超负荷`,
+        description: `近 28 天在${meta?.zh || catName}上的有效容量与负荷较上期持续增长，呈现明确进步轨迹。`,
+        badge: '超负荷推进',
+        badgeBg: 'bg-neon text-ink',
+      };
+    }
+
+    if (recent28dSets >= 40) {
+      return {
+        title: `💪 训练容量充沛`,
+        description: `近 28 天累计完成 ${recent28dSets} 组训练，总负荷达标，注意保证充分的蛋白质摄入与睡眠恢复。`,
+        badge: '容量充足',
+        badgeBg: 'bg-neon text-ink',
+      };
+    }
+
+    if (insights.balanceLevel === '极度均衡' || insights.balanceLevel === '均衡良好') {
+      return {
+        title: `⚖️ 肌群发展均衡`,
+        description: `推拉动作与上下肢兼顾，训练结构健康，有助于降低运动损伤风险并塑造匀称体态。`,
+        badge: '均衡体魄',
+        badgeBg: 'bg-neon text-ink',
+      };
+    }
+
+    return {
+      title: '🎯 保持训练节奏',
+      description: '继续积累有效组数，随着训练数据积累，系统将为你计算更高置信度的力量分段与动作超负荷建议。',
+      badge: '稳步累积',
+      badgeBg: 'bg-paper text-ink',
+    };
+  }, [userProfile?.streak, userProfile?.totalWorkouts, analytics28d, workoutLogs.length]);
 
   const hasAnyData =
     (userProfile?.totalWorkouts && userProfile.totalWorkouts > 0) ||
     workoutLogs.length > 0 ||
     Object.keys(userProfile?.prs || {}).length > 0;
-
-  // Keep hooks before all conditional returns, including the initial loading state.
-  const selectedCategoryExercises = useMemo(() => {
-    if (!selectedCategoryForModal) return [];
-    return getExerciseStimulusTable().filter(
-      (entry) => entry.primaryCategory === selectedCategoryForModal
-    );
-  }, [selectedCategoryForModal]);
 
   if (loading) {
     return (
@@ -296,7 +493,7 @@ export default function Statistics() {
   }
 
   const selectedCategoryDetail = selectedCategoryForModal
-    ? analytics.categoryDetails[selectedCategoryForModal]
+    ? analytics28d.categoryDetails[selectedCategoryForModal]
     : null;
 
   return (
@@ -305,21 +502,27 @@ export default function Statistics() {
         <h1 className="text-2xl font-black tracking-tight">看见每一步进步</h1>
         <p className="mt-2 text-sm text-ink/60 leading-relaxed">不只看今天的数字，更看坚持的轨迹。</p>
       </div>
+
       {workoutLogsError && (
         <div className="bg-amber-100 border-2 border-ink px-3 py-2 text-xs font-bold text-ink">
           {logsReady ? '训练记录暂时无法刷新，当前仍显示上次成功加载的数据。' : '训练记录暂时无法加载，请稍后重试。'}{workoutLogsError}
         </div>
       )}
+
+      {/* =========================================================================
+          TIER 1: TRAINING OVERVIEW & PRIMARY CONCLUSION (第一层：训练总览)
+          我最近练得怎么样？ / 近期训练反馈
+          ========================================================================= */}
       <TrainingOverview
         logs={workoutLogs}
         ready={logsReady}
         streak={userProfile?.streak || 0}
         totalWorkouts={userProfile?.totalWorkouts || 0}
-        recentSets={overviewAnalytics.recentSetsCount}
-        balance={overviewAnalytics.insights.balanceLevel}
+        recentSets={analytics28d.recentSetsCount}
+        balance={analytics28d.insights.balanceLevel}
       />
 
-      {/* 1.5 Incomplete Profile Banner — generic assessment disclosure */}
+      {/* Incomplete Profile Banner — generic assessment disclosure */}
       {(!userProfile?.sex || !userProfile?.bodyweightKg) && (
         <div className="bg-white border-l-2 border-ink/40 p-3 sm:p-3.5 flex flex-wrap items-start justify-between gap-2.5">
           <div className="flex items-start sm:items-center gap-2 min-w-0">
@@ -340,974 +543,149 @@ export default function Statistics() {
         </div>
       )}
 
-      {/* 2. Ability Radar / 六维能力图谱 */}
-      <div className="card p-4 sm:p-5">
-        <div className="flex items-center justify-between mb-3 gap-2">
-          <h3 className="font-bold text-ink flex items-center gap-1 sm:gap-1.5 italic text-xs sm:text-base min-w-0">
-            <Target size={16} className="text-ink shrink-0 sm:w-[18px] sm:h-[18px]" />
-            <span className="truncate">能力图谱 </span>
-          </h3>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* View Switcher: Radar vs Bars */}
-            <div className="flex bg-paper p-0.5">
-              <button
-                type="button"
-                onClick={() => setChartView('radar')}
-                className="stats-control"
-                aria-pressed={chartView === 'radar'}
-                title="雷达图视图"
-              >
-                雷达
-              </button>
-              <button
-                type="button"
-                onClick={() => setChartView('bars')}
-                className="stats-control"
-                aria-pressed={chartView === 'bars'}
-                title="条形进度明细视图"
-              >
-                条形
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowStandardsModal(true)}
-              className="stats-control flex items-center gap-1 shrink-0"
-            >
-              <HelpCircle size={12} className="shrink-0" />
-              <span>标准</span>
-            </button>
+      {/* 1.6 Tier 1 Key Interpretive Feedback / 近期训练反馈 */}
+      <div className="card p-4 sm:p-5 bg-white border-2 border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-1.5">
+            <Sparkles size={16} className="text-ink" />
+            <h4 className="text-xs font-black uppercase tracking-wider text-ink/70">近期训练反馈</h4>
           </div>
+          <span className={`text-[10px] font-black px-2 py-0.5 border border-ink ${keyFeedback.badgeBg}`}>
+            {keyFeedback.badge}
+          </span>
         </div>
-
-        {/* Mode Switcher */}
-        <div className="flex bg-paper p-1 mb-4 gap-1">
-          <button
-            type="button"
-            onClick={() => setRadarMode('composite')}
-            className="stats-control flex-1"
-            aria-pressed={radarMode === 'composite'}
-          >
-            训练能力指数
-          </button>
-          <button
-            type="button"
-            onClick={() => setRadarMode('strength')}
-            className="stats-control flex-1"
-            aria-pressed={radarMode === 'strength'}
-          >
-            极限力量水平
-          </button>
-        </div>
-
-        {hasAnyData ? (
-          <div>
-            {chartView === 'radar' ? (
-              /* Responsive Radar chart */
-              <div className="h-[250px] sm:h-[270px] w-full relative">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={230} initialDimension={{ width: 280, height: 250 }}>
-                  <RadarChart cx="50%" cy="50%" outerRadius="66%" data={radarChartData}>
-                    <PolarGrid stroke="#e4e5df" strokeWidth={1} />
-                    <PolarAngleAxis
-                      dataKey="subject"
-                      tick={{ fill: '#45483f', fontSize: 12, fontWeight: '600' }}
-                    />
-                    <PolarRadiusAxis
-                      angle={30}
-                      domain={[0, 100]}
-                      tickCount={6}
-                      stroke="#94a3b8"
-                      tick={{ fontSize: 8, fill: '#64748b' }}
-                    />
-                    {/* Benchmark Polygon (进阶均衡基准 40分) */}
-                    <Radar
-                      name="进阶参考 (40分)"
-                      dataKey="benchmark"
-                      stroke="#cbd5e1"
-                      strokeDasharray="3 3"
-                      fill="#f8fafc"
-                      fillOpacity={0.4}
-                      strokeWidth={1.5}
-                    />
-                    {/* User Ability Polygon */}
-                    <Radar
-                      name="能力评分"
-                      dataKey="score"
-                      stroke="#000"
-                      fill="#DFFF00"
-                      fillOpacity={0.35}
-                      strokeWidth={2}
-                      dot={false}
-                      activeDot={false}
-                    />
-                    {/* Tooltip always reports the RAW score (0 included) — the +6
-                        baseline offset is chart-only visual padding and must never
-                        leak into labels or analytics data. */}
-                    <Tooltip
-                      content={({ active, payload }) => {
-                        if (!active || !payload || payload.length === 0) return null;
-                        const point = payload[0]?.payload as { subject?: string; rawScore?: number };
-                        return (
-                          <div className="bg-white border-2 border-ink px-2 py-1 text-[10px] font-black text-ink shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
-                            {point?.subject}: 真实得分 {point?.rawScore ?? 0} 分
-                          </div>
-                        );
-                      }}
-                    />
-                  </RadarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              /* 6-Dimension Progress Bars View (Linear & clean for asymmetric training) */
-              <div className="py-2 space-y-2 mb-2">
-                {Object.values(WorkoutCategory).map((cat) => {
-                  const detail = analytics.categoryDetails[cat];
-                  const meta = CATEGORY_META[cat];
-                  const isStrengthMode = radarMode === 'strength';
-                  const score = cat === WorkoutCategory.Cardio
-                    ? (isStrengthMode ? 0 : (detail.cardioScore ?? detail.compositeScore))
-                    : (isStrengthMode ? detail.strengthScore : detail.compositeScore);
-                  // Training mode uses the training-state tier vocabulary; strength
-                  // mode uses the strength-level tier vocabulary — never mixed.
-                  const tier = cat === WorkoutCategory.Cardio
-                    ? getCardioTier(score)
-                    : isStrengthMode
-                      ? (detail.strengthAssessment?.tier ?? getStrengthTier(score))
-                      : getTrainingStateTier(score);
-                  const isZero = score === 0;
-
-                  return (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => setSelectedCategoryForModal(cat)}
-                      className="w-full bg-paper hover:bg-white border-2 border-ink p-2 sm:p-2.5 flex flex-col gap-1.5 transition-all text-left cursor-pointer group  active:translate-x-0.5 active:translate-y-0.5"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-black text-xs text-ink flex items-center gap-1.5 truncate">
-                          <span className={`w-2.5 h-2.5 border border-ink ${meta.color}`} />
-                          <span>{meta.zh}</span>
-                          <span className="text-[10px] text-ink/40 font-normal">({meta.en})</span>
-                        </span>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span
-                            className={`text-[9px] font-black px-1.5 py-0.2 border border-ink whitespace-nowrap ${
-                              isZero ? 'bg-ink/10 text-ink/50' : `${tier.badgeBg} ${tier.badgeText}`
-                            }`}
-                          >
-                            {isZero ? '待激活' : tier.zh}
-                          </span>
-                          <span className="text-xs font-black italic">
-                            {score} <span className="text-[9px] text-ink/50 not-italic">分</span>
-                          </span>
-                          <ChevronRight size={12} className="text-ink/40 group-hover:text-ink transition-colors" />
-                        </div>
-                      </div>
-
-                      {/* Progress bar */}
-                      <div className="w-full bg-ink/10 border border-ink h-2.5 overflow-hidden p-0.5 relative">
-                        <div
-                          className={`h-full transition-all duration-500 ${
-                            isZero ? 'bg-transparent' : 'bg-neon border-r border-ink'
-                          }`}
-                          style={{ width: `${Math.min(score, 100)}%` }}
-                        />
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* 6 Category Breakdown Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3 pt-3 border-t-2 border-paper">
-              {Object.values(WorkoutCategory).map((cat) => {
-                const detail = analytics.categoryDetails[cat];
-                const meta = CATEGORY_META[cat];
-                const isStrengthMode = radarMode === 'strength';
-                const score = cat === WorkoutCategory.Cardio
-                  ? (isStrengthMode ? 0 : (detail.cardioScore ?? detail.compositeScore))
-                  : (isStrengthMode ? detail.strengthScore : detail.compositeScore);
-                const tier = cat === WorkoutCategory.Cardio
-                  ? getCardioTier(score)
-                  : isStrengthMode
-                    ? (detail.strengthAssessment?.tier ?? getStrengthTier(score))
-                    : getTrainingStateTier(score);
-
-                return (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setSelectedCategoryForModal(cat)}
-                    className="stats-category group"
-                  >
-                    <div className="flex items-center justify-between gap-1 min-w-0">
-                      <span className="font-black text-xs text-ink flex items-center gap-0.5 truncate">
-                        {meta.zh}
-                        <ChevronRight size={11} className="text-ink/40 group-hover:text-ink transition-colors shrink-0" />
-                      </span>
-                      <span
-                        className={`text-[9px] font-black px-1.5 py-0.2 border border-ink shrink-0 whitespace-nowrap ${tier.badgeBg} ${tier.badgeText}`}
-                      >
-                        {score === 0 ? '待激活' : tier.zh}
-                      </span>
-                    </div>
-
-                    <div className="text-lg font-black italic leading-none">
-                      {score} <span className="text-[10px] text-ink/60 not-italic">分</span>
-                    </div>
-
-                    {/* Breakdown indicators */}
-                    {cat === WorkoutCategory.Cardio ? (
-                      <div className="text-[10px] font-bold text-ink/70 truncate">
-                        {detail.cardioCalories?.actual ? `${detail.cardioCalories.actual} kcal` : '0 kcal'}
-                      </div>
-                    ) : isStrengthMode ? (
-                      <div className="text-[9px] font-bold text-ink/60 truncate flex items-center gap-1">
-                        {detail.bestExerciseName ? <span>依据 {detail.bestExerciseName}</span> : <span>暂无力量证据</span>}
-                        {detail.strengthConfidence && (
-                          <span className={`px-1 border border-ink/30 ${CONFIDENCE_STYLES[detail.strengthConfidence]}`}>
-                            {CONFIDENCE_LABEL[detail.strengthConfidence]}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="text-[9px] font-bold text-ink/60 truncate flex items-center gap-1">
-                        <span>频{detail.frequencyScore ?? 0}</span>
-                        <span>·</span>
-                        <span>容{detail.volumeScore ?? 0}</span>
-                        <span>·</span>
-                        <span>进{detail.progressionScore ?? 0}</span>
-                        <span>·</span>
-                        <span>稳{detail.consistencyScore ?? 0}</span>
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="text-[10px] text-ink/50 text-right mt-2 font-bold">
-              点击部位，查看肌群细分指标
-            </p>
-          </div>
-        ) : (
-          <div className="h-[230px] flex items-center justify-center border-2 border-dashed border-ink/20">
-            <div className="text-center p-6">
-              <Target size={32} className="text-ink/20 mx-auto mb-2" />
-              <p className="font-black text-ink/40 uppercase text-xs italic">
-                完成第一次打卡后解锁全维度能力雷达
-              </p>
-              <p className="text-[11px] text-ink/40 mt-1">
-                支持复合动作自动按比例映射至各主要部位
-              </p>
-            </div>
-          </div>
-        )}
+        <h3 className="text-base font-black text-ink mb-1">{keyFeedback.title}</h3>
+        <p className="text-xs text-ink/70 leading-relaxed font-medium">{keyFeedback.description}</p>
       </div>
 
-      {/* 3. Training Load / 训练负荷分布 */}
-      <div className="card p-4 sm:p-5">
-        <div className="flex items-center justify-between mb-3.5 gap-2">
-          <h3 className="font-bold text-ink flex items-center gap-1 sm:gap-1.5 italic text-xs sm:text-base min-w-0">
-            <Zap size={16} className="text-ink shrink-0 sm:w-[18px] sm:h-[18px]" />
-            <span className="truncate">训练负荷分布</span>
-          </h3>
-          <div className="flex bg-paper p-0.5 shrink-0 whitespace-nowrap">
-            <button
-              type="button"
-              onClick={() => setVolumeTimeframe(7)}
-              className="stats-control"
-              aria-pressed={volumeTimeframe === 7}
-            >
-              近 7 天
-            </button>
-            <button
-              type="button"
-              onClick={() => setVolumeTimeframe(28)}
-              className="stats-control"
-              aria-pressed={volumeTimeframe === 28}
-            >
-              近 28 天
-            </button>
+      {/* =========================================================================
+          TIER 2: CAPACITY & STRENGTH (第二层：能力与力量)
+          我哪些地方进步了？
+          ========================================================================= */}
+      <div className="space-y-3 pt-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black uppercase tracking-wider bg-ink text-neon px-1.5 py-0.5 border border-ink">
+              第二层
+            </span>
+            <h2 className="text-base font-black text-ink tracking-tight italic">我哪些地方进步了？</h2>
           </div>
+          <span className="text-[10px] font-mono text-ink/50 font-bold">7天 vs 28天周期</span>
         </div>
 
-        {analytics.recentSetsCount > 0 ? (
-          <div className="space-y-3">
-            {analytics.volumeDistribution.map((item) => {
-              const isCardio = item.category === WorkoutCategory.Cardio;
-              const detail = analytics.categoryDetails[item.category];
-
-              return (
-                <div key={item.category} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs font-black gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="w-2.5 h-2.5 border border-ink inline-block shrink-0" style={{ backgroundColor: item.hex }} />
-                      <span className="text-ink whitespace-nowrap">{item.zh}</span>
-                      <span className="text-[10px] text-ink/50 shrink-0">({item.workoutCount} 次训练)</span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {isCardio ? (
-                        <span className="text-ink font-black italic whitespace-nowrap">
-                          {detail.cardioCalories?.actual || 0} kcal
-                        </span>
-                      ) : (
-                        <span className="text-ink font-black italic whitespace-nowrap">{item.sets} 加权组</span>
-                      )}
-                      <span className="text-[10px] bg-paper px-1.5 py-0.2 border border-ink text-ink font-black shrink-0 whitespace-nowrap">
-                        {item.percentage}%
-                      </span>
-                    </div>
-                  </div>
-                  {/* Visual Bar */}
-                  <div className="w-full h-2 bg-paper overflow-hidden flex">
-                    <div
-                      style={{ width: `${Math.min(100, Math.max(0, item.percentage))}%` }}
-                      className={`h-full ${item.color}`}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-            <div className="pt-1.5 text-right">
-              <span className="text-[10px] sm:text-[11px] font-black text-ink/60">
-                近 {volumeTimeframe} 天累计完成 <span className="text-ink font-black">{analytics.recentWorkoutsCount}</span> 次打卡 · <span className="text-ink font-black">{analytics.recentSetsCount}</span> 组动作
+        {/* Dual-Track Paradigm Separation Cards (训练状态 vs 极限力量) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {/* Training State Card */}
+          <div className="card p-3.5 sm:p-4 bg-white border-2 border-ink">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] font-black text-ink/60 uppercase">🏃 训练状态 (近28天)</span>
+              <span className={`text-[10px] font-black px-1.5 py-0.2 border border-ink ${overallTrainingTier.badgeBg} ${overallTrainingTier.badgeText}`}>
+                {overallTrainingScore === 0 ? '待激活' : overallTrainingTier.zh}
               </span>
             </div>
-          </div>
-        ) : (
-          <div className="text-center py-6 border-2 border-dashed border-ink/20">
-            <Activity size={24} className="text-ink/20 mx-auto mb-2" />
-            <p className="text-ink/40 font-medium text-xs">
-              近 {volumeTimeframe} 天暂无训练数据，开启你的第一练吧！
+            <div className="text-2xl font-black italic text-ink mb-1">
+              {overallTrainingScore} <span className="text-xs text-ink/50 not-italic">分</span>
+            </div>
+            <p className="text-[11px] text-ink/60 leading-tight">
+              基于近28天训练频率 (25%)、有效容量 (30%)、进步 (25%) 与周间稳定性 (20%) 综合加权。
             </p>
+          </div>
+
+          {/* Strength Level Card */}
+          <div className="card p-3.5 sm:p-4 bg-white border-2 border-ink">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] font-black text-ink/60 uppercase">🏋️ 极限力量水平</span>
+              <span className={`text-[10px] font-black px-1.5 py-0.2 border border-ink ${overallStrengthAssessment ? overallStrengthAssessment.tier.badgeBg : 'bg-paper text-ink'} ${overallStrengthAssessment ? overallStrengthAssessment.tier.badgeText : ''}`}>
+                {overallStrengthAssessment ? overallStrengthAssessment.tier.zh : '待测量'}
+              </span>
+            </div>
+            <div className="text-2xl font-black italic text-ink mb-1">
+              {overallStrengthAssessment ? overallStrengthAssessment.score : '—'} <span className="text-xs text-ink/50 not-italic">分</span>
+            </div>
+            <p className="text-[11px] text-ink/60 leading-tight">
+              基于标准复合动作 1RM 极限负荷对照成年训练者人群基准，与近 28 天出勤状态完全独立。
+            </p>
+          </div>
+        </div>
+
+        {/* Six-Dimension Capability Radar & Bar Chart */}
+        <AbilityRadarCard
+          radarMode={radarMode}
+          setRadarMode={setRadarMode}
+          chartView={chartView}
+          setChartView={setChartView}
+          categoryDetails={analytics28d.categoryDetails}
+          hasAnyData={hasAnyData}
+          onSelectCategory={(cat) => setSelectedCategoryForModal(cat)}
+          onOpenStandards={() => setShowStandardsModal(true)}
+        />
+      </div>
+
+      {/* =========================================================================
+          TIER 3: RECENT TRAINING & PROGRESS (第三层：近期训练与进步)
+          ========================================================================= */}
+      <TrainingTrendsCard
+        trends={trends}
+        selectedWeeks={selectedWeeks}
+        onSelectWeeks={setSelectedWeeks}
+        progression={progression}
+        volumeDistribution={analytics.volumeDistribution}
+        volumeTimeframe={volumeTimeframe}
+        onSelectVolumeTimeframe={setVolumeTimeframe}
+        categoryDetails={analytics.categoryDetails}
+        recentWorkoutsCount={analytics.recentWorkoutsCount}
+        recentSetsCount={analytics.recentSetsCount}
+      />
+
+      {/* =========================================================================
+          TIER 4: PROFESSIONAL ANALYSIS & PRs (详细分析 / 专业分析)
+          ========================================================================= */}
+      <div className="space-y-4 pt-3 border-t-2 border-ink/20">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black uppercase tracking-wider bg-paper text-ink px-1.5 py-0.5 border border-ink">
+              第三层
+            </span>
+            <h2 className="text-base font-black text-ink tracking-tight italic">详细分析</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsTier3Open(!isTier3Open)}
+            className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1 cursor-pointer"
+          >
+            <span>{isTier3Open ? '收起明细' : '展开明细'}</span>
+            {isTier3Open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+        </div>
+
+        {isTier3Open && (
+          <div className="space-y-4">
+            {/* PR Archives */}
+            <PersonalRecordsSection prs={analytics28d.categorizedPrs} />
+
+            {/* Structured Insights (Observation → Evidence → Interpretation → Action) */}
+            <StructuredInsightsSection insights={deterministicInsights} />
           </div>
         )}
       </div>
 
-      {/* 4. Personal Records (PR) / 巅峰档案 */}
-      <div className="card p-4 sm:p-5">
-        <button
-          type="button"
-          onClick={() => setIsPrsOpen(!isPrsOpen)}
-          aria-expanded={isPrsOpen}
-          className="w-full flex items-center justify-between text-left cursor-pointer group gap-2"
-        >
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <TrendingUp size={18} className="text-ink shrink-0" />
-            <h3 className="font-bold text-ink italic text-sm sm:text-base whitespace-nowrap truncate">
-              巅峰档案 <span className="text-xs text-ink/50 font-normal not-italic ml-0.5">/ PR</span>
-            </h3>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-[10px] font-black bg-paper px-2 py-0.5 border-2 border-ink text-ink shrink-0 whitespace-nowrap">
-              {analytics.categorizedPrs.length} 项纪录
-            </span>
-            <div className="p-1 bg-paper border-2 border-ink group-hover:bg-neon transition-colors shrink-0">
-              {isPrsOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-            </div>
-          </div>
-        </button>
-
-        <AnimatePresence>
-          {isPrsOpen && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.25, ease: 'easeInOut' }}
-              className="overflow-hidden"
-            >
-              <div className="pt-3.5 border-t-2 border-ink/20 mt-3">
-                {/* PR Category Filter Bar */}
-                <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3.5 scrollbar-none">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPrCategory('ALL')}
-                    className={`px-2.5 py-1 text-xs font-black uppercase shrink-0 border-2 border-ink cursor-pointer transition-all ${
-                      selectedPrCategory === 'ALL'
-                        ? 'bg-neon text-ink '
-                        : 'bg-white text-ink/70 hover:bg-paper'
-                    }`}
-                  >
-                    全部 ({analytics.categorizedPrs.length})
-                  </button>
-                  {Object.values(WorkoutCategory).map((cat) => {
-                    const count = analytics.categorizedPrs.filter((p) => p.category === cat).length;
-                    const isSelected = selectedPrCategory === cat;
-                    return (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => setSelectedPrCategory(cat)}
-                        className={`px-2.5 py-1 text-xs font-black uppercase shrink-0 border-2 border-ink cursor-pointer transition-all ${
-                          isSelected
-                            ? 'bg-neon text-ink '
-                            : 'bg-white text-ink/70 hover:bg-paper'
-                        }`}
-                      >
-                        {CATEGORY_META[cat].zh} ({count})
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Clean PR List */}
-                <div className="space-y-2">
-                  {filteredPrs.length > 0 ? (
-                    filteredPrs.map((pr) => (
-                      <div
-                        key={pr.name}
-                        className="py-3 border-b border-ink/10 last:border-0 flex flex-wrap items-center justify-between gap-2"
-                      >
-                        <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
-                          <span className="font-black text-ink text-xs sm:text-sm tracking-tight truncate" title={pr.name}>
-                            {pr.name}
-                          </span>
-                          <span className="text-[9px] sm:text-[10px] font-bold px-1.5 py-0.2 bg-white border border-ink/40 text-ink/70 shrink-0 whitespace-nowrap">
-                            {CATEGORY_META[pr.category]?.zh || pr.category}
-                          </span>
-                          <span className={`text-[9px] sm:text-[10px] font-black px-1.5 py-0.2 border border-ink shrink-0 whitespace-nowrap ${pr.tier.badgeBg} ${pr.tier.badgeText}`}>
-                            {pr.tier.zh}
-                          </span>
-                          {pr.confidence && (
-                            <span className={`text-[9px] font-black px-1.5 py-0.2 border border-ink/40 shrink-0 whitespace-nowrap ${CONFIDENCE_STYLES[pr.confidence]}`}>
-                              {CONFIDENCE_LABEL[pr.confidence]}
-                            </span>
-                          )}
-                          {pr.excludeFromScoring && (
-                            <span className="text-[9px] font-black px-1.5 py-0.2 bg-red-100 text-red-800 border border-red-400 shrink-0 whitespace-nowrap">
-                              ⚠ 数值异常，未计入统计
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-right shrink-0">
-                          <div className="text-ink font-black text-lg tabular-nums whitespace-nowrap">
-                            {pr.weight} {pr.unit.toUpperCase()}
-                            {/* Dumbbell weights are recorded per hand, unilateral per side — make it explicit. */}
-                            {pr.loadMode === 'dumbbell_per_hand' ? <span className="text-[10px] text-ink/50">/只</span> : pr.loadMode === 'unilateral' ? <span className="text-[10px] text-ink/50">/侧</span> : null}
-                          </div>
-                          {pr.estimated1RM && pr.estimated1RM > 0 && Math.abs(pr.estimated1RM - pr.weight) > 0.05 && (
-                            <div className="text-[9px] font-bold text-ink/50 tabular-nums whitespace-nowrap">
-                              e1RM ≈ {pr.estimated1RM} {pr.unit.toUpperCase()}
-                              {pr.loadMode === 'dumbbell_per_hand' ? '/只' : pr.loadMode === 'unilateral' ? '/侧' : ''}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-6 border-2 border-dashed border-ink/20">
-                      <Award size={22} className="text-ink/20 mx-auto mb-1.5" />
-                      <p className="text-ink/30 font-medium text-xs">
-                        {selectedPrCategory === 'ALL' ? '打卡记录重量将自动录入 PR 档案' : '该部位暂无 PR 记录'}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
+      {/* =========================================================================
+          TIER 5: COMMUNITY LEADERBOARD (第五层：社区榜单)
+          ========================================================================= */}
       <CommunityLeaderboard entries={groupStats} />
 
-      {/* 5. Smart Insights / 训练分析与建议 */}
-      {hasAnyData && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="card bg-paper p-4 sm:p-5"
-        >
-          <button
-            type="button"
-            onClick={() => setIsInsightsOpen(!isInsightsOpen)}
-            className="w-full flex items-center justify-between text-left cursor-pointer group gap-2"
-          >
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <div className="p-1 bg-ink text-neon border-2 border-ink shrink-0">
-                <Sparkles size={15} />
-              </div>
-              <h3 className="font-bold text-ink text-xs sm:text-sm whitespace-nowrap truncate">
-                训练分析与建议
-              </h3>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="text-[10px] font-black bg-white px-2 py-0.5 border-2 border-ink/40 text-ink/80 shrink-0 whitespace-nowrap">
-                {analytics.insights.highlights.length + analytics.insights.recommendations.length} 条建议
-              </span>
-              <div className="p-1 bg-white border-2 border-ink group-hover:bg-neon transition-colors shrink-0">
-                {isInsightsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              </div>
-            </div>
-          </button>
+      {/* Modals */}
+      <StandardsModal
+        isOpen={showStandardsModal}
+        onClose={() => setShowStandardsModal(false)}
+        bodyContext={bodyContext}
+      />
 
-          <AnimatePresence>
-            {isInsightsOpen && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.25, ease: 'easeInOut' }}
-                className="overflow-hidden"
-              >
-                <div className="pt-3.5 space-y-2 text-xs font-bold text-ink/80 leading-relaxed border-t-2 border-ink/20 mt-3">
-                  {analytics.insights.highlights.map((h, i) => (
-                    <div key={i} className="flex items-start gap-2 bg-white p-2.5 border-2 border-ink">
-                      <span className="bg-neon text-ink font-black text-[10px] px-1 border border-ink shrink-0 mt-0.5">
-                        优势
-                      </span>
-                      <span>{h}</span>
-                    </div>
-                  ))}
-
-                  {analytics.insights.recommendations.map((r, i) => (
-                    <div key={i} className="flex items-start gap-2 bg-white p-2.5 border-2 border-ink">
-                      <span className="bg-ink text-neon font-black text-[10px] px-1 border border-ink shrink-0 mt-0.5">
-                        建议
-                      </span>
-                      <span>{r}</span>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
-      )}
-
-      {/* 6. Category Sub-Dimension Drill-Down Modal */}
-      <AnimatePresence>
-        {selectedCategoryForModal && selectedCategoryDetail && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white border-4 border-ink p-4 sm:p-5 max-w-lg w-full max-h-[88vh] overflow-y-auto shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]"
-            >
-              <div className="flex items-center justify-between pb-3 border-b-2 border-ink mb-3.5">
-                <div className="flex items-center gap-2">
-                  <div className="bg-neon p-1.5 border-2 border-ink font-black text-sm">
-                    {CATEGORY_META[selectedCategoryForModal].iconLabel}
-                  </div>
-                  <div>
-                    <h4 className="font-black text-ink text-base uppercase flex items-center gap-1.5">
-                      {selectedCategoryDetail.zh}训练深度解析
-                      <span className={`text-[9px] font-black px-1.5 py-0.2 border border-ink ${selectedCategoryDetail.tier.badgeBg} ${selectedCategoryDetail.tier.badgeText}`}>
-                        {selectedCategoryDetail.tier.zh}
-                      </span>
-                    </h4>
-                    <p className="text-[10px] sm:text-[11px] text-ink/60 font-bold">
-                      {selectedCategoryForModal === WorkoutCategory.Cardio
-                        ? <>28天有氧评分: <strong className="text-ink">{selectedCategoryDetail.cardioScore ?? selectedCategoryDetail.trainingScore} 分</strong></>
-                        : <>28天训练状态: <strong className="text-ink">{selectedCategoryDetail.trainingScore} 分</strong> · 相对力量: {selectedCategoryDetail.strengthScore} 分{selectedCategoryDetail.strengthConfidence ? ` · ${CONFIDENCE_LABEL[selectedCategoryDetail.strengthConfidence]}` : ''}</>}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedCategoryForModal(null)}
-                  className="font-black text-ink p-1 hover:bg-paper border-2 border-transparent hover:border-ink cursor-pointer"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              {selectedCategoryForModal === WorkoutCategory.Cardio ? (
-                <div className="space-y-3.5 text-xs font-bold text-ink">
-                  <div className="bg-paper p-3 border-2 border-ink space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-black">28天有氧消耗目标</span>
-                      <span className="font-black text-neon bg-ink px-2 py-0.5 text-xs">
-                        {selectedCategoryDetail.cardioCalories?.actual || 0} / {selectedCategoryDetail.cardioCalories?.target || 2000} kcal
-                      </span>
-                    </div>
-                    <div className="w-full h-3 bg-white border-2 border-ink overflow-hidden">
-                      <div
-                        className="h-full bg-orange-500"
-                        style={{ width: `${Math.min(100, selectedCategoryDetail.cardioCalories?.completionRate || 0)}%` }}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-[11px] text-ink/70">
-                      <span>完成度: {selectedCategoryDetail.cardioCalories?.completionRate || 0}%</span>
-                      <span>周均训练: {selectedCategoryDetail.weeklyWorkouts || 0} 次/周</span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-[10px]">
-                    <div className="bg-white border border-ink p-2">频率 {selectedCategoryDetail.cardioMetrics?.frequencyScore || 0}</div>
-                    <div className="bg-white border border-ink p-2">时间 {selectedCategoryDetail.cardioMetrics?.durationScore || 0}</div>
-                    <div className="bg-white border border-ink p-2">强度 {selectedCategoryDetail.cardioMetrics?.intensityScore || 0}</div>
-                    <div className="bg-white border border-ink p-2">运动量 {selectedCategoryDetail.cardioMetrics?.volumeScore || 0}</div>
-                    <div className="bg-white border border-ink p-2">持续性 {selectedCategoryDetail.cardioMetrics?.consistencyScore || 0}</div>
-                    <div className="bg-white border border-ink p-2">有效时间 {selectedCategoryDetail.cardioMetrics?.effectiveMinutes || 0} min</div>
-                  </div>
-
-                  <p className="text-ink/80 text-[11px] leading-relaxed">
-                    有氧评分由频率、有效时间、MET 强度、加权运动量和四周持续性共同构成；卡路里仅作为消耗统计与目标完成度，不直接决定有氧能力分。
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3.5 text-xs font-bold text-ink">
-                  {/* Strength assessment block */}
-                  {selectedCategoryDetail.strengthAssessment ? (
-                    <div className="bg-paper p-2.5 sm:p-3 border-2 border-ink space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-black text-ink">⚡️ 极限力量评估</span>
-                        <span className={`text-[9px] font-black px-1.5 py-0.2 border border-ink ${selectedCategoryDetail.strengthAssessment.tier.badgeBg} ${selectedCategoryDetail.strengthAssessment.tier.badgeText}`}>
-                          {selectedCategoryDetail.strengthAssessment.tier.zh}
-                        </span>
-                      </div>
-                      <div className="flex items-end justify-between gap-2">
-                        <div className="text-2xl font-black italic leading-none">
-                          {selectedCategoryDetail.strengthAssessment.score}
-                          <span className="text-[10px] text-ink/60 not-italic ml-1">相对力量指数</span>
-                        </div>
-                        <span className={`text-[9px] font-black px-1.5 py-0.2 border border-ink/40 shrink-0 ${CONFIDENCE_STYLES[selectedCategoryDetail.strengthAssessment.confidence]}`}>
-                          置信度：{CONFIDENCE_LABEL[selectedCategoryDetail.strengthAssessment.confidence]}
-                        </span>
-                      </div>
-                      {(() => {
-                        const evidence = [
-                          ...selectedCategoryDetail.strengthAssessment!.primaryEvidence,
-                          ...selectedCategoryDetail.strengthAssessment!.secondaryEvidence,
-                        ].slice(0, 3);
-                        if (evidence.length === 0) return null;
-                        return (
-                          <div className="space-y-1">
-                            <p className="text-[10px] text-ink/60 font-bold">主要依据：</p>
-                            {evidence.map((item) => (
-                              <div key={item.exerciseId} className="flex items-center justify-between bg-white px-2 py-1 border border-ink/30 text-[10px]">
-                                <span className="font-black text-ink truncate mr-1">{item.exerciseName}</span>
-                                <span className="text-ink/70 shrink-0 tabular-nums">
-                                  e1RM ≈ {Number(item.assessment.benchmarkValue.toFixed(1))}
-                                  {item.assessment.unit === 'kg' ? 'kg' : item.assessment.unit === 'sec' ? 's' : ' 次'}
-                                  {item.assessment.repRange && item.assessment.repRange > 1 && item.assessment.unit === 'kg' ? ` (${item.assessment.repRange}RM组)` : ''}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })()}
-                      <p className="text-[10px] text-ink/60 leading-relaxed">
-                        {selectedCategoryDetail.strengthAssessment.assessmentMode === 'personalized'
-                          ? '基于你的性别与体重个性化基准。'
-                          : selectedCategoryDetail.strengthAssessment.assessmentMode === 'partial'
-                            ? '身体资料不完整，按参考值估算，置信度已降低。'
-                            : '未填写身体资料，按男 70kg 通用参考标准估算。'}
-                        {selectedCategoryDetail.strengthAssessment.machineOnly && ' 该部位仅有器械/绳索动作证据，器械配重受设备差异影响，等级仅供参考。'}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="bg-paper p-2.5 border-2 border-ink text-[11px] text-ink/70">
-                      暂无可靠的极限力量证据（含基准动作的训练记录），完成含杠铃/哑铃等标准动作的打卡后自动评估。
-                    </div>
-                  )}
-
-                  {/* Top Formula Hint */}
-                  <div className="bg-paper p-2.5 border-2 border-ink text-[11px] text-ink/80">
-                    <p className="font-black text-ink mb-0.5">📐 训练状态评分法则（近28天）：</p>
-                    <p>部位得分 = 频率分 × 25% + 有效容量分 × 30% + 进步分 × 25% + 稳定性 × 20%</p>
-                  </div>
-
-                  {/* Sub-muscles breakdown */}
-                  <div className="space-y-2">
-                    <h5 className="font-black text-ink text-xs uppercase flex items-center justify-between">
-                      <span>各子肌群训练状态明细</span>
-                      <span className="text-[10px] text-ink/50 font-normal">加权汇总构成总分</span>
-                    </h5>
-
-                    {(selectedCategoryDetail.subMuscleScores || []).map((sm) => (
-                      <div key={sm.subMuscle} className="bg-paper p-2.5 sm:p-3 border-2 border-ink space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-black text-sm text-ink">{sm.zh}</span>
-                            <span className="text-[9px] bg-white px-1.5 py-0.2 border border-ink/40 text-ink/70 font-black">
-                              权重 {Math.round(sm.weight * 100)}%
-                            </span>
-                          </div>
-                          <div className="text-right">
-                            <span className="font-black text-base italic text-ink">{sm.score}</span>
-                            <span className="text-[10px] text-ink/60 not-italic ml-0.5">分</span>
-                          </div>
-                        </div>
-
-                        {/* Four sub metrics */}
-                        <div className="grid grid-cols-4 gap-1 pt-0.5 text-[9px] sm:text-[10px]">
-                          <div className="bg-white p-1.5 border border-ink/30 text-center">
-                            <div className="text-ink/60 font-bold">频率 25%</div>
-                            <div className="font-black text-ink mt-0.5">{sm.frequencyScore}分</div>
-                            <div className="text-[8px] sm:text-[9px] text-ink/50 font-normal">{sm.weeklyFrequency}次/周</div>
-                          </div>
-                          <div className="bg-white p-1.5 border border-ink/30 text-center">
-                            <div className="text-ink/60 font-bold">容量 30%</div>
-                            <div className="font-black text-ink mt-0.5">{sm.volumeScore}分</div>
-                            <div className="text-[8px] sm:text-[9px] text-ink/50 font-normal">{sm.weeklyEffectiveSets}/{sm.targetSets.target}组/周</div>
-                          </div>
-                          <div className="bg-white p-1.5 border border-ink/30 text-center">
-                            <div className="text-ink/60 font-bold">进步 25%</div>
-                            <div className="font-black text-ink mt-0.5">{sm.progressionScore}分</div>
-                            <div className="text-[8px] sm:text-[9px] text-ink/50 font-normal">{sm.hasProgressionBaseline ? '对比上期' : '数据不足'}</div>
-                          </div>
-                          <div className="bg-white p-1.5 border border-ink/30 text-center">
-                            <div className="text-ink/60 font-bold">稳定 20%</div>
-                            <div className="font-black text-ink mt-0.5">{sm.consistencyScore}分</div>
-                            <div className="text-[8px] sm:text-[9px] text-ink/50 font-normal">周间分布</div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Representative Exercises and effective-set stimulus coefficients */}
-                  {selectedCategoryExercises.length > 0 && (
-                    <div className="border-t-2 border-ink pt-2.5 space-y-1.5">
-                      <h5 className="font-black text-ink text-xs uppercase">
-                        该部位代表动作与有效组刺激系数
-                      </h5>
-                      <p className="text-[10px] text-ink/50 font-bold">
-                        系数为有效组折算（主肌群 1.0，次要肌群按贡献折算），复合动作可同时刺激多个肌群，总和可大于 1。
-                      </p>
-                      <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
-                        {selectedCategoryExercises.slice(0, 8).map((ex) => (
-                          <div key={ex.id} className="flex items-center justify-between bg-white p-2 border border-ink/40 text-[11px]">
-                            <span className="font-black text-ink truncate mr-2">{ex.name}</span>
-                            <div className="flex gap-1 shrink-0 flex-wrap justify-end">
-                              {Object.entries(ex.subMuscles).map(([smKey, ratio]) => (
-                                <span key={smKey} className="bg-paper px-1.5 py-0.2 border border-ink/30 text-[9px] font-black">
-                                  {smKey}: {(ratio || 0).toFixed(1)}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setSelectedCategoryForModal(null)}
-                className="w-full mt-3.5 bg-ink text-neon border-2 border-ink py-2.5 font-black uppercase text-xs cursor-pointer hover:bg-black/80 transition-colors "
-              >
-                返回图谱
-              </button>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* 7. Standards & Scoring Rules Explanation Modal */}
-      <AnimatePresence>
-        {showStandardsModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white border-4 border-ink p-4 sm:p-5 max-w-md w-full max-h-[85vh] overflow-y-auto shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]"
-            >
-              <div className="flex items-center justify-between pb-2.5 border-b-2 border-ink mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="bg-neon p-1 border-2 border-ink">
-                    <Scale size={16} className="text-ink" />
-                  </div>
-                  <h4 className="font-black text-ink text-sm sm:text-base uppercase">六维量化规则与进阶标准</h4>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowStandardsModal(false)}
-                  className="font-black text-ink p-1 hover:bg-paper border-2 border-transparent hover:border-ink cursor-pointer"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              {/* Modal Tabs */}
-              <div className="flex bg-paper p-1 border-2 border-ink mb-3.5 gap-1">
-                <button
-                  type="button"
-                  onClick={() => setModalTab('rules')}
-                  className={`flex-1 py-1.5 text-xs font-black transition-all cursor-pointer ${
-                    modalTab === 'rules'
-                      ? 'bg-ink text-neon '
-                      : 'text-ink/60 hover:text-ink'
-                  }`}
-                >
-                  28天训练能力算法
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setModalTab('tiers')}
-                  className={`flex-1 py-1.5 text-xs font-black transition-all cursor-pointer ${
-                    modalTab === 'tiers'
-                      ? 'bg-ink text-neon '
-                      : 'text-ink/60 hover:text-ink'
-                  }`}
-                >
-                  5档极限力量标准
-                </button>
-              </div>
-
-              {modalTab === 'rules' ? (
-                <div className="space-y-3 text-xs font-bold text-ink">
-                  <div className="bg-paper p-2.5 sm:p-3 border-2 border-ink space-y-1">
-                    <p className="font-black text-xs sm:text-sm text-ink">🎯 两套评分，回答两个不同的问题</p>
-                    <p className="text-ink/80 leading-relaxed text-[11px]">
-                      <strong>训练能力指数</strong>（近28天训练状态）回答"我最近练得怎么样"；
-                      <strong>极限力量水平</strong>回答"我现在有多强"。两者数学含义不同，互不混算：练得多不等于力量大，减量期力量分也不会下降。
-                    </p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <div className="bg-white p-2.5 border-2 border-ink space-y-0.5">
-                      <span className="font-black text-ink">训练能力指数 = 频率 25% + 有效容量 30% + 进步 25% + 稳定性 20%</span>
-                      <p className="text-[11px] text-ink/70">
-                        频率：每周训练 0.5/1/2/3 次对应 20/45/80/100 分，连续插值无跳变。
-                      </p>
-                      <p className="text-[11px] text-ink/70">
-                        有效容量：按动作的肌群刺激系数折算有效组数，对照每个肌群自身的目标区间（如中胸约 12 组/周）计分，超过上限不再加分。
-                      </p>
-                      <p className="text-[11px] text-ink/70">
-                        进步：对比本期与上一期的估算 1RM（e1RM）变化，只看力量是否提升——增加轻重量次数不会误判为进步。无历史数据时给中性分并标注低置信度。
-                      </p>
-                      <p className="text-[11px] text-ink/70">
-                        稳定性：统计近 4 周每周有效组数，一周突击练完一个月的量，得分会显著低于平均分布。
-                      </p>
-                    </div>
-
-                    <div className="bg-white p-2.5 border-2 border-ink space-y-0.5">
-                      <span className="font-black text-ink">极限力量水平 = 基准动作 e1RM → 相对力量指数</span>
-                      <p className="text-[11px] text-ink/70">
-                        1RM 可能来自估算（Epley/Brzycki 公式共识，<code className="bg-paper px-1 border border-ink/40">1RM ≈ 重量 × (1 + 次数/30)</code>）；1-5 次的组估算最可靠，11-12 次置信度低，超过 12 次的组不用于力量评分（仍计入训练容量）。
-                      </p>
-                      <p className="text-[11px] text-ink/70">
-                        体重与性别会影响基准：未填写时使用通用参考标准（男 70kg）并标注为估算。器械/绳索动作因配重受设备差异影响，力量等级仅供参考。
-                      </p>
-                    </div>
-
-                    <div className="bg-white p-2.5 border-2 border-ink space-y-0.5">
-                      <span className="font-black text-ink">4. 有氧维度</span>
-                      <p className="text-[11px] text-ink/70">
-                        有氧评分由频率、时间、MET 强度、加权运动量和四周持续性共同组成；2,000 kcal 仅作为独立的消耗目标完成度。
-                      </p>
-                    </div>
-
-                    <div className="bg-white p-2.5 border-2 border-ink space-y-0.5">
-                      <span className="font-black text-ink">5. 数据说明</span>
-                      <p className="text-[11px] text-ink/70">
-                        力量水平基于成年训练者参考标准，未进行年龄修正。人口基准来自社区训练数据（{BENCHMARK_PROVENANCE.source} · {BENCHMARK_PROVENANCE.sourceSnapshot} 快照），仅作参考，不是医学诊断或竞技认证。分数为相对力量指数，不代表精确的人群百分位。
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-3 text-xs font-bold text-ink">
-                  <div className="bg-paper p-2.5 sm:p-3 border-2 border-ink space-y-1">
-                    <p className="font-black text-xs sm:text-sm text-ink">⚡️ 五档力量参考标准</p>
-                    <p className="text-ink/80 leading-relaxed text-[11px]">
-                      档位锚点来自社区力量数据的人群分位（初学≈5%、入门≈20%、进阶≈50%、高阶≈80%、精英≈95%），按<strong>你的性别与体重</strong>缩放（基准锚点：{BENCHMARK_PROVENANCE.source} {BENCHMARK_PROVENANCE.sourceSnapshot} 男性 70kg 数据，幂函数缩放到个人）。未填写身体数据时按男 70kg 通用参考标准估算。身高仅用于 BMI，不参与力量分；暂不做年龄修正。
-                    </p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    {Object.values(STRENGTH_TIERS).map((t) => (
-                      <div key={t.key} className="p-2 border-2 border-ink bg-paper flex items-start gap-2">
-                        <span className={`text-[9px] font-black px-1.5 py-0.5 border border-ink shrink-0 ${t.badgeBg} ${t.badgeText}`}>
-                          {t.zh} ({t.anchorScore}分)
-                        </span>
-                        <span className="text-ink/80 text-[10px] sm:text-[11px] leading-snug">{t.description}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="border-t-2 border-ink pt-2.5">
-                    <div className="flex items-center justify-between mb-2 gap-2">
-                      <h5 className="font-black text-ink text-xs uppercase">代表动作各档位参考对照</h5>
-                      <div className="flex bg-paper border-2 border-ink p-0.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => setStandardsTableMode('personalized')}
-                          className={`px-1.5 py-0.5 text-[9px] font-black cursor-pointer transition-all ${
-                            standardsTableMode === 'personalized' ? 'bg-ink text-neon' : 'text-ink/60 hover:text-ink'
-                          }`}
-                        >
-                          我的标准
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setStandardsTableMode('anchor')}
-                          className={`px-1.5 py-0.5 text-[9px] font-black cursor-pointer transition-all ${
-                            standardsTableMode === 'anchor' ? 'bg-ink text-neon' : 'text-ink/60 hover:text-ink'
-                          }`}
-                        >
-                          男70kg参考
-                        </button>
-                      </div>
-                    </div>
-
-                    <p className="text-[10px] text-ink/60 mb-1.5 font-bold">
-                      {standardsTableMode === 'personalized'
-                        ? bodyContext
-                          ? `💡 当前展示：${bodyContext.sex === 'female' ? '女性' : '男性'} ${bodyContext.bodyweightKg}kg 专属力量阈值`
-                          : '💡 当前展示：暂未设置身体数据，默认采用男 70kg 通用参考标准'
-                        : '💡 当前展示：' + BENCHMARK_PROVENANCE.source + ' 70kg 男性锚点对照表'}
-                    </p>
-
-                    <div className="overflow-x-auto border-2 border-ink">
-                      <table className="w-full text-[9px] sm:text-[10px] text-left">
-                        <thead className="bg-ink text-white font-black">
-                          <tr>
-                            <th className="p-1 sm:p-1.5">动作</th>
-                            <th className="p-1 sm:p-1.5">初学</th>
-                            <th className="p-1 sm:p-1.5">入门</th>
-                            <th className="p-1 sm:p-1.5">进阶</th>
-                            <th className="p-1 sm:p-1.5">高阶</th>
-                            <th className="p-1 sm:p-1.5">精英</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-ink/20">
-                          {STANDARDS_TABLE_EXERCISES.map((name) => {
-                            const table = getBenchmarkThresholdsForDisplay(
-                              name,
-                              standardsTableMode === 'personalized' ? bodyContext : null
-                            );
-                            if (!table) return null;
-                            return (
-                              <tr key={table.name}>
-                                <td className="p-1 sm:p-1.5 font-black">{table.name}</td>
-                                {table.thresholds.map((t, idx) => (
-                                  <td key={idx} className="p-1 sm:p-1.5">
-                                    {t}
-                                    {table.unit}
-                                  </td>
-                                ))}
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setShowStandardsModal(false)}
-                className="w-full mt-3 bg-ink text-neon border-2 border-ink py-2.5 font-black uppercase text-xs cursor-pointer hover:bg-black/80 transition-colors "
-              >
-                我知道了
-              </button>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <SubMuscleModal
+        category={selectedCategoryForModal}
+        detail={selectedCategoryDetail}
+        onClose={() => setSelectedCategoryForModal(null)}
+      />
     </div>
   );
 }

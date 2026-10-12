@@ -29,9 +29,24 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastProvider } from './components/Toast';
 
 export default function App() {
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(() => !supabaseConfigError);
-  const [activeTab, setActiveTab] = useState<'feed' | 'log' | 'stats' | 'profile'>('feed');
+  const isStatsPreview = typeof window !== 'undefined' && typeof window.location?.search === 'string' && window.location.search.includes('preview=stats');
+  const [user, setUser] = useState<any>(() => {
+    if (isStatsPreview) {
+      return {
+        uid: 'demo-user-1',
+        id: 'demo-user-1',
+        displayName: '力量训练者',
+        photoURL: '',
+        sex: 'male',
+        bodyweightKg: 75,
+        streak: 7,
+        totalWorkouts: 48,
+      };
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState(() => (isStatsPreview ? false : !supabaseConfigError));
+  const [activeTab, setActiveTab] = useState<'feed' | 'log' | 'stats' | 'profile'>(() => (isStatsPreview ? 'stats' : 'feed'));
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [detailTarget, setDetailTarget] = useState<{ logId: string; accountId: string } | null>(null);
@@ -40,11 +55,35 @@ export default function App() {
   accountIdRef.current = accountId;
   const closeDetail = useCallback(() => setDetailTarget(null), []);
 
+  const [hasActiveDraft, setHasActiveDraft] = useState(() => {
+    try {
+      if (typeof localStorage !== 'undefined' && accountId) {
+        const raw = localStorage.getItem(`fitgroup:workout-draft:v1:${accountId}`);
+        return Boolean(raw && JSON.parse(raw)?.exercises?.length);
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const handleDraftState = (e: Event) => {
+      const hasDraft = (e as CustomEvent)?.detail?.hasDraft;
+      if (typeof hasDraft === 'boolean') {
+        setHasActiveDraft(hasDraft);
+      }
+    };
+    window.addEventListener('fitgroup:draft-state', handleDraftState);
+    return () => window.removeEventListener('fitgroup:draft-state', handleDraftState);
+  }, []);
+
   useEffect(() => {
     setDetailTarget(null);
     setShowNotificationsModal(false);
   }, [accountId]);
   const [showSplash, setShowSplash] = useState(() => {
+    if (isStatsPreview) return false;
     if (supabaseConfigError) return false;
     try {
       if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('fitgroup_splash_shown')) {
@@ -71,6 +110,7 @@ export default function App() {
 
 
   useEffect(() => {
+    if (isStatsPreview) return;
     if (supabaseConfigError) {
       void hideSplash();
       return;
@@ -96,7 +136,7 @@ export default function App() {
       void hideSplash();
     });
     return () => { disposed = true; unsub?.(); };
-  }, []);
+  }, [isStatsPreview]);
 
   // Listen for user profile updates to instantly sync App-level user state
   useEffect(() => {
@@ -319,7 +359,7 @@ export default function App() {
       {/* ── Bottom tab bar ── */}
       <nav aria-label="主导航" className="app-tabbar fixed bottom-0 left-0 right-0 bg-white border-t border-ink/20 px-3 pt-2 flex items-center justify-around gap-2 max-w-lg mx-auto z-40">
         <NavButton active={activeTab === 'feed'} onClick={() => setActiveTab('feed')} icon={<Compass size={22} />} label="动态" />
-        <NavButton active={activeTab === 'log'} onClick={() => setActiveTab('log')} onPreload={preloadLog} icon={<Dumbbell size={22} />} label="打卡" />
+        <NavButton active={activeTab === 'log'} onClick={() => setActiveTab('log')} onPreload={preloadLog} icon={<Dumbbell size={22} />} label="打卡" hasDot={hasActiveDraft && activeTab !== 'log'} />
         <NavButton active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} onPreload={preloadStats} icon={<BarChart3 size={22} />} label="统计" />
         <NavButton active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} onPreload={preloadProfile} icon={<UserIcon size={22} />} label="我的" />
       </nav>
@@ -335,19 +375,21 @@ function NavButton({
   onPreload,
   icon,
   label,
+  hasDot,
 }: {
   active: boolean;
   onClick: () => void;
   onPreload?: () => void;
   icon: ReactNode;
   label: string;
+  hasDot?: boolean;
 }) {
   return (
     <button 
       onClick={onClick}
       onMouseEnter={onPreload}
       onTouchStart={onPreload}
-      className={`app-nav-button flex flex-col justify-center items-center gap-1 cursor-pointer px-3 py-1 border-2 ${
+      className={`app-nav-button relative flex flex-col justify-center items-center gap-1 cursor-pointer px-3 py-1 border-2 ${
         active 
           ? 'bg-neon text-ink border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] font-black'
           : 'border-transparent text-ink/50 hover:text-ink font-bold'
@@ -355,7 +397,12 @@ function NavButton({
       style={{ minWidth: 54 }}
       aria-current={active ? 'page' : undefined}
     >
-      {icon}
+      <div className="relative">
+        {icon}
+        {hasDot && (
+          <span className="absolute -top-1 -right-1.5 w-2 h-2 bg-neon border border-ink rounded-full" title="有未提交的训练草稿" />
+        )}
+      </div>
       <span className="text-[11px] leading-tight tracking-tight">{label}</span>
     </button>
   );

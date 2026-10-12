@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
-import { getCurrentUser, updateUserProfileFn, submitFeedbackFn, fetchUserFeedbacksFn, subscribeToMyWorkoutLogs, fetchMyWorkoutLogs } from '../api';
+import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
+import { getCurrentUser, updateUserProfileFn, submitFeedbackFn, fetchUserFeedbacksFn, subscribeToMyWorkoutLogs, fetchMyWorkoutLogs, uploadUserAvatar } from '../api';
 import { supabase } from '../lib/supabase';
 import {
   LogOut,
@@ -28,6 +28,8 @@ import {
   Layers,
   Edit3,
   ClipboardList,
+  Camera,
+  Loader2,
 } from 'lucide-react';
 import { AnimatePresence } from 'motion/react';
 import { pushBackHandler } from '../backStack';
@@ -398,7 +400,31 @@ function SettingsPage({
   );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
+
+  const handleAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const currentUser = getCurrentUser();
+    if (!file || !currentUser) return;
+    setUploadingAvatar(true);
+    try {
+      const url = await uploadUserAvatar(file, currentUser.uid);
+      const updatedProfile = await updateUserProfileFn(currentUser.uid, {
+        photoURL: url,
+      });
+      if (onUserUpdate && updatedProfile) {
+        onUserUpdate(updatedProfile);
+      }
+      showToast('头像更新成功', 'success');
+    } catch (err) {
+      showToast((err as Error)?.message || '头像上传失败', 'error');
+    } finally {
+      setUploadingAvatar(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
+  };
 
   const numWeight = parseFloat(bodyweightKg);
   const numHeight = parseFloat(heightCm);
@@ -459,6 +485,44 @@ function SettingsPage({
 
       <div className="card p-5 space-y-5">
         <h2 className="text-lg font-bold text-ink">身体与个人档案</h2>
+
+        {/* 头像设置 */}
+        <div className="flex items-center gap-4 pb-3 border-b-2 border-ink/10">
+          <div className="relative w-16 h-16 border-2 border-ink p-0.5 bg-paper shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] shrink-0 overflow-hidden">
+            {user?.photoURL ? (
+              <img src={user.photoURL} className="w-full h-full object-cover" alt="头像" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <UserIcon size={24} className="text-ink/30" />
+              </div>
+            )}
+            {uploadingAvatar && (
+              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                <Loader2 size={18} className="text-neon animate-spin" />
+              </div>
+            )}
+          </div>
+          <div>
+            <input
+              type="file"
+              ref={avatarInputRef}
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={handleAvatarSelect}
+              disabled={uploadingAvatar}
+            />
+            <button
+              type="button"
+              onClick={() => avatarInputRef.current?.click()}
+              disabled={uploadingAvatar}
+              className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5 cursor-pointer"
+            >
+              <Camera size={14} />
+              <span>{uploadingAvatar ? '正在上传…' : '更换头像'}</span>
+            </button>
+            <p className="text-[10px] text-ink/40 mt-1">支持 JPG / PNG / WebP，上传前自动压缩</p>
+          </div>
+        </div>
 
         <div className="space-y-4">
           {/* 昵称 */}

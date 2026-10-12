@@ -32,6 +32,9 @@ export function useWorkoutDraft(owner: string, editingLog?: WorkoutLog) {
     try {
       localStorage.setItem(draftStorageKey(owner), JSON.stringify(updated));
       setStorageWarning('');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('fitgroup:draft-state', { detail: { hasDraft: updated.exercises.length > 0 } }));
+      }
     } catch {
       setStorageWarning('草稿暂时无法保存在此设备，请勿刷新或关闭页面。');
     }
@@ -45,10 +48,16 @@ export function useWorkoutDraft(owner: string, editingLog?: WorkoutLog) {
     if (editingLog) return;
     completedDrafts.add(draftRef.current.id);
     try { localStorage.removeItem(draftStorageKey(owner)); } catch { /* Server success must remain success. */ }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fitgroup:draft-state', { detail: { hasDraft: false } }));
+    }
   };
   const reset = () => {
     commit(editingLog ? createEditingDraft(owner, editingLog) : createDraft(owner));
     setRestored(false);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fitgroup:draft-state', { detail: { hasDraft: false } }));
+    }
   };
   return { draft, draftRef, update, commit, finish, reset, restored, storageWarning };
 }

@@ -11,8 +11,8 @@ interface LeaderboardEntry {
 export default function CommunityLeaderboard({ entries }: { entries: LeaderboardEntry[] }) {
   return (
     <section className="card p-4 sm:p-5" aria-label="社区榜单">
-      <h2 className="text-base font-bold flex items-center gap-2"><Trophy size={18} />社区榜单</h2>
-      <p className="text-xs text-ink/60 mt-1 mb-4">和一起坚持的健友，互相激励。</p>
+      <h2 className="text-base font-bold flex items-center gap-2"><Trophy size={18} />社区榜单 <span className="text-xs text-ink/50 font-normal">/ 累计打卡</span></h2>
+      <p className="text-xs text-ink/60 mt-1 mb-4">记录坚持轨迹，互相激励；不代表绝对力量水平。</p>
       <ol className="divide-y divide-ink/10">
         {entries.map((entry, index) => (
           <li key={entry.uid || entry.id || index} className="flex items-center gap-3 py-3">
