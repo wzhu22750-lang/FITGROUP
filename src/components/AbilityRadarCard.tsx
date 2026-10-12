@@ -15,6 +15,7 @@ import {
   getCardioTier,
   getTrainingStateTier,
   CategoryScoreDetail,
+  categoryMetricState,
 } from '../utils/workoutAnalytics';
 import { CATEGORY_META } from '../constants/workoutPresets';
 
@@ -73,6 +74,7 @@ export default function AbilityRadarCard({
       // Real 0-values without arbitrary +6 visual distortion
       return {
         subject: meta.zh,
+        metricState: categoryMetricState(detail, radarMode),
         score: rawScore,
         rawScore,
         composite: detail.compositeScore,
@@ -191,11 +193,10 @@ export default function AbilityRadarCard({
                   <Tooltip
                     content={({ active, payload }) => {
                       if (!active || !payload || payload.length === 0) return null;
-                      const point = payload[0]?.payload as { subject?: string; rawScore?: number };
+                      const point = payload[0]?.payload as { subject?: string; rawScore?: number; metricState?: string };
                       return (
                         <div className="bg-white border-2 border-ink px-2.5 py-1 text-xs font-black text-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                          {point?.subject}: {point?.rawScore ?? 0} 分
-                          {(point?.rawScore ?? 0) === 0 && <span className="text-ink/50 ml-1 font-normal">(暂无训练)</span>}
+                          {point?.subject}: {point?.metricState === 'not_applicable' ? '不适用' : point?.metricState === 'no_data' ? '无数据' : `${point?.rawScore ?? 0} 分`}
                         </div>
                       );
                     }}
@@ -222,6 +223,8 @@ export default function AbilityRadarCard({
                   : isStrengthMode
                     ? (detail.strengthAssessment?.tier ?? getStrengthTier(score))
                     : getTrainingStateTier(score);
+                const metricState = categoryMetricState(detail, radarMode);
+                const label = metricState === 'not_applicable' ? '不适用' : metricState === 'no_data' ? '无数据' : tier.zh;
                 const isZero = score === 0;
 
                 return (
@@ -229,7 +232,7 @@ export default function AbilityRadarCard({
                     key={cat}
                     type="button"
                     onClick={() => onSelectCategory(cat)}
-                    className="w-full bg-paper hover:bg-white border-2 border-ink p-2 sm:p-2.5 flex flex-col gap-1.5 transition-all text-left cursor-pointer group active:translate-x-0.5 active:translate-y-0.5"
+                    className="w-full bg-paper hover:bg-white border-2 border-ink p-2 sm:p-2.5 flex flex-col gap-1.5 transition-colors text-left cursor-pointer group active:translate-x-0.5 active:translate-y-0.5"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-black text-xs text-ink flex items-center gap-1.5 truncate">
@@ -243,10 +246,10 @@ export default function AbilityRadarCard({
                             isZero ? 'bg-ink/10 text-ink/50' : `${tier.badgeBg} ${tier.badgeText}`
                           }`}
                         >
-                          {isZero ? '待激活' : tier.zh}
+                          {label}
                         </span>
                         <span className="text-xs font-black italic">
-                          {score} <span className="text-[9px] text-ink/50 not-italic">分</span>
+                          {metricState === 'measured' ? score : '—'} <span className="text-[9px] text-ink/50 not-italic">分</span>
                         </span>
                         <ChevronRight size={12} className="text-ink/40 group-hover:text-ink transition-colors" />
                       </div>
@@ -255,7 +258,7 @@ export default function AbilityRadarCard({
                     {/* Progress bar */}
                     <div className="w-full bg-ink/10 border border-ink h-2.5 overflow-hidden p-0.5 relative">
                       <div
-                        className={`h-full transition-all duration-500 ${
+                        className={`h-full transition-colors duration-500 ${
                           isZero ? 'bg-transparent' : 'bg-neon border-r border-ink'
                         }`}
                         style={{ width: `${Math.min(score, 100)}%` }}
@@ -268,7 +271,7 @@ export default function AbilityRadarCard({
           )}
 
           {/* 6 Category Breakdown Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3 pt-3 border-t-2 border-paper">
+          <div className={`${chartView === 'bars' ? 'hidden sm:grid grid-cols-3' : 'grid grid-cols-2 sm:grid-cols-3'} gap-2 mt-3 pt-3 border-t-2 border-paper`}>
             {FIXED_RADAR_ORDER.map((cat) => {
               const detail = categoryDetails[cat];
               const meta = CATEGORY_META[cat];
@@ -282,6 +285,8 @@ export default function AbilityRadarCard({
                   ? (detail.strengthAssessment?.tier ?? getStrengthTier(score))
                   : getTrainingStateTier(score);
 
+              const metricState = categoryMetricState(detail, radarMode);
+              const label = metricState === 'not_applicable' ? '不适用' : metricState === 'no_data' ? '无数据' : tier.zh;
               return (
                 <button
                   key={cat}
@@ -297,12 +302,12 @@ export default function AbilityRadarCard({
                     <span
                       className={`text-[9px] font-black px-1.5 py-0.2 border border-ink shrink-0 whitespace-nowrap ${tier.badgeBg} ${tier.badgeText}`}
                     >
-                      {score === 0 ? '待激活' : tier.zh}
+                      {label}
                     </span>
                   </div>
 
                   <div className="text-lg font-black italic leading-none my-1">
-                    {score} <span className="text-[10px] text-ink/60 not-italic">分</span>
+                    {metricState === 'measured' ? score : '—'} <span className="text-[10px] text-ink/60 not-italic">分</span>
                   </div>
 
                   {/* Breakdown indicators */}

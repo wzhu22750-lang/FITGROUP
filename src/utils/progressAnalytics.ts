@@ -1,17 +1,21 @@
-import { WorkoutCategory, WorkoutLog } from '../types';
+import { WorkoutCategory, WorkoutLog, StrengthBodyContext } from '../types';
 import {
   CategoryScoreDetail,
   WorkoutInsights,
+  resolveTrainingVolume,
+  resolveExerciseMuscles,
+  calculateCardioExerciseMetrics,
 } from './workoutAnalytics';
 import {
   EXERCISE_DEFINITIONS,
-  resolveExerciseDefinition,
 } from '../constants/exerciseDefinitions';
 import {
-  estimateOneRepMaxDetailed,
-  resolvePerformanceLoad,
+  resolveLoggedStrengthPerformance,
+  resolveBodyContext,
 } from './strengthAssessment';
-import { CATEGORY_META } from '../constants/workoutPresets';
+import { CATEGORY_META, isCardioExercise, parseCategories } from '../constants/workoutPresets';
+import { localWorkoutDateKey } from './workoutTime';
+import { STRENGTH_BENCHMARKS } from '../constants/strengthStandards';
 
 export interface WeeklyTrendBucket {
   weekKey: string;
@@ -48,6 +52,7 @@ export interface ExerciseProgressComparison {
   canonicalId: string;
   exerciseName: string;
   category: WorkoutCategory;
+  unit?: 'kg' | 'reps' | 'sec';
   currentBest?: {
     weight: number;
     reps: number;
@@ -120,8 +125,10 @@ function formatShortDate(d: Date): string {
 export function computeWeeklyTrainingTrends(
   logs: WorkoutLog[],
   weeksCount: 4 | 8 | 12 = 4,
-  referenceDate = new Date()
+  referenceDate = new Date(),
+  ctx?: StrengthBodyContext | null
 ): WeeklyTrendsSummary {
+  const bodyweightKg = resolveBodyContext(ctx).ctx.bodyweightKg;
   const currentWeekStart = getStartOfWeek(referenceDate);
   const buckets: WeeklyTrendBucket[] = [];
 
@@ -135,7 +142,7 @@ export function computeWeeklyTrainingTrends(
     weekEnd.setHours(23, 59, 59, 999);
 
     const label = `${formatShortDate(weekStart)}-${formatShortDate(weekEnd)}`;
-    const weekKey = `${weekStart.getFullYear()}-W${String(Math.ceil((weekStart.getDate() + 6) / 7)).padStart(2, '0')}`;
+    const weekKey = localWorkoutDateKey(weekStart);
 
     buckets.push({
       weekKey,
@@ -155,49 +162,48 @@ export function computeWeeklyTrainingTrends(
 
   // Populate buckets with log data
   const dateKeysPerBucket = buckets.map(() => new Set<string>());
+  const bucketByWeek = new Map(buckets.map((bucket, index) => [bucket.weekKey, index]));
 
   logs.forEach((log) => {
     const logTime = new Date(log.timestamp).getTime();
     if (isNaN(logTime) || logTime > referenceDate.getTime()) return;
 
-    // Find corresponding bucket
-    for (let bIndex = 0; bIndex < buckets.length; bIndex++) {
-      const bucket = buckets[bIndex];
-      const startMs = new Date(bucket.startDate).getTime();
-      const endMs = new Date(bucket.endDate).getTime();
+    const bIndex = bucketByWeek.get(localWorkoutDateKey(getStartOfWeek(new Date(logTime))));
+    if (bIndex === undefined) return;
+    const bucket = buckets[bIndex];
+    bucket.workoutCount += 1;
+    const dateKey = localWorkoutDateKey(log.timestamp);
+    if (dateKey) dateKeysPerBucket[bIndex].add(dateKey);
 
-      if (logTime >= startMs && logTime <= endMs) {
-        bucket.workoutCount += 1;
-        const dateKey = log.timestamp.split('T')[0] || '';
-        if (dateKey) dateKeysPerBucket[bIndex].add(dateKey);
-
-        const exercises = Array.isArray(log.exercises) ? log.exercises : [];
-        exercises.forEach((ex) => {
-          if (ex.type === 'cardio') {
-            bucket.cardioMinutes += Number(ex.duration || 0);
-            bucket.categorySets[WorkoutCategory.Cardio] += 1;
-            return;
-          }
-
-          const sets = Math.max(0, ex.sets || 0);
-          const reps = Math.max(0, ex.reps || 0);
-          const weight = Math.max(0, ex.weight || 0);
-          bucket.totalSets += sets;
-          bucket.effectiveSets += sets;
-          bucket.tonnageKg += Math.round(weight * sets * reps);
-
-          const { definition } = resolveExerciseDefinition(ex.name);
-          const primaryCat = definition?.primaryCategory || WorkoutCategory.Others;
-          bucket.categorySets[primaryCat] = (bucket.categorySets[primaryCat] || 0) + sets;
-        });
-        break;
+    const exercises = Array.isArray(log.exercises) ? log.exercises : [];
+    exercises.forEach((ex) => {
+      if (ex.type === 'cardio' || isCardioExercise(ex.name)) {
+        const metrics = calculateCardioExerciseMetrics(ex, bodyweightKg);
+        bucket.cardioMinutes += metrics.effectiveMinutes;
+        if (metrics.validForScoring) bucket.categorySets[WorkoutCategory.Cardio] += 1;
+        return;
       }
-    }
+
+      const volume = resolveTrainingVolume(ex, bodyweightKg);
+      if (!volume) return;
+      const { sets, tonnage, definition } = volume;
+      bucket.totalSets += sets;
+      bucket.effectiveSets += sets;
+      bucket.tonnageKg += tonnage;
+
+      const shares = definition ? undefined : resolveExerciseMuscles(ex.name, parseCategories(log.category));
+      const primaryCat = definition?.primaryCategory
+        ?? (Object.entries(shares ?? {}) as Array<[WorkoutCategory, number]>).sort((a, b) => b[1] - a[1])[0]?.[0]
+        ?? WorkoutCategory.Others;
+      bucket.categorySets[primaryCat] = (bucket.categorySets[primaryCat] || 0) + sets;
+    });
   });
 
   // Calculate active days & top category for each bucket
   buckets.forEach((bucket, idx) => {
     bucket.activeDays = dateKeysPerBucket[idx].size;
+    bucket.tonnageKg = Math.round(bucket.tonnageKg);
+    bucket.cardioMinutes = Number(bucket.cardioMinutes.toFixed(2));
     let topCat: WorkoutCategory | undefined;
     let maxSets = 0;
     (Object.entries(bucket.categorySets) as Array<[WorkoutCategory, number]>).forEach(([cat, sets]) => {
@@ -222,10 +228,12 @@ export function computeWeeklyTrainingTrends(
   const avgSetsPerWeek = Number((totalSets / weeksCount).toFixed(1));
   const avgTonnagePerWeek = Math.round(totalTonnage / weeksCount);
 
-  // Direction: compare second half of weeks vs first half
-  const half = Math.floor(weeksCount / 2);
-  const firstHalfSets = buckets.slice(0, half).reduce((sum, b) => sum + b.totalSets, 0);
-  const secondHalfSets = buckets.slice(half).reduce((sum, b) => sum + b.totalSets, 0);
+  // Compare equally sized completed periods. The unfinished current week is
+  // still visible, but cannot manufacture a Monday-morning decline.
+  const half = Math.floor((weeksCount - 1) / 2);
+  const completed = buckets.slice(0, -1).slice(-half * 2);
+  const firstHalfSets = completed.slice(0, half).reduce((sum, b) => sum + b.totalSets, 0);
+  const secondHalfSets = completed.slice(half).reduce((sum, b) => sum + b.totalSets, 0);
 
   let trendDirection: 'increasing' | 'stable' | 'decreasing' = 'stable';
   let percentageChange = 0;
@@ -272,10 +280,12 @@ export function computeWeeklyTrainingTrends(
 export function computeExerciseProgression(
   logs: WorkoutLog[],
   scoringPeriodDays = 28,
-  referenceDate = new Date()
+  referenceDate = new Date(),
+  ctx?: StrengthBodyContext | null
 ): ExerciseProgressComparison[] {
+  const bodyweightKg = resolveBodyContext(ctx).ctx.bodyweightKg;
   const refMs = referenceDate.getTime();
-  const periodMs = scoringPeriodDays * 24 * 60 * 60 * 1000;
+  const periodMs = Math.max(1, Number.isFinite(scoringPeriodDays) ? scoringPeriodDays : 28) * 24 * 60 * 60 * 1000;
   const currentCutoff = refMs - periodMs;
   const baselineCutoff = currentCutoff - periodMs;
 
@@ -296,23 +306,15 @@ export function computeExerciseProgression(
     if (isNaN(t) || t > refMs) return;
 
     (log.exercises || []).forEach((ex) => {
-      if (ex.type !== 'strength' || typeof ex.weight !== 'number') return;
-      const reps = Math.max(1, ex.reps || 1);
-      const weight = Math.max(0, ex.weight || 0);
-      if (weight <= 0) return;
-
-      const { definition, canonicalId } = resolveExerciseDefinition(ex.name);
-      if (!definition || !definition.hasStrengthBenchmark) return;
-
-      const load = resolvePerformanceLoad(definition, ex.name, weight);
-      const estimate = estimateOneRepMaxDetailed(load.benchmarkLoad, reps);
-      const e1rm = estimate.usableForStrength ? estimate.estimated1RM : load.benchmarkLoad;
-
+      const performance = resolveLoggedStrengthPerformance(ex, bodyweightKg);
+      if (!performance || performance.plausibility.excludeFromScoring) return;
+      const { definition, canonicalId, estimate, benchmarkLoad, reps } = performance;
+      if (!definition?.hasStrengthBenchmark) return;
       const candidate: PerformanceCandidate = {
-        weight: load.benchmarkLoad,
+        weight: benchmarkLoad,
         reps,
-        estimated1RM: e1rm,
-        date: log.timestamp.split('T')[0] || '',
+        estimated1RM: estimate.estimated1RM,
+        date: localWorkoutDateKey(log.timestamp),
         logId: log.id,
       };
 
@@ -360,6 +362,10 @@ export function computeExerciseProgression(
     let status: ExerciseProgressComparison['status'] = 'untrained_recently';
     let changePercentage: number | undefined;
     let evidence = '';
+    const unit = STRENGTH_BENCHMARKS[canonicalId]?.unit ?? 'kg';
+    const formatPerformance = (p: PerformanceCandidate) => unit === 'kg'
+      ? `${p.weight}kg×${p.reps} (e1RM≈${p.estimated1RM}kg)`
+      : `${p.estimated1RM}${unit === 'sec' ? '秒' : '次'}`;
 
     if (cur && base) {
       const delta = cur.estimated1RM - base.estimated1RM;
@@ -368,29 +374,30 @@ export function computeExerciseProgression(
 
       if (pct >= 2.0) {
         status = 'progressed';
-        evidence = `${definition.name}：本期最佳 ${cur.weight}kg×${cur.reps} (e1RM≈${cur.estimated1RM}kg)，较上期最佳 ${base.weight}kg×${base.reps} (e1RM≈${base.estimated1RM}kg) 提升 +${pct}%。`;
+        evidence = `${definition.name}：本期最佳 ${formatPerformance(cur)}，较上期最佳 ${formatPerformance(base)} 提升 +${pct}%。`;
       } else if (pct <= -3.0) {
         status = 'regressed';
-        evidence = `${definition.name}：本期最佳 ${cur.weight}kg×${cur.reps} (e1RM≈${cur.estimated1RM}kg)，较上期 ${base.weight}kg×${base.reps} 回落 ${pct}%。`;
+        evidence = `${definition.name}：本期最佳 ${formatPerformance(cur)}，较上期 ${formatPerformance(base)} 回落 ${pct}%。`;
       } else {
         status = 'maintained';
-        evidence = `${definition.name}：本期表现 (${cur.weight}kg×${cur.reps}) 与上期持平，力量输出稳定。`;
+        evidence = `${definition.name}：本期表现 (${formatPerformance(cur)}) 与上期持平，力量输出稳定。`;
       }
     } else if (cur && !base) {
       status = 'new_exercise';
-      evidence = `${definition.name}：本期最佳完成 ${cur.weight}kg×${cur.reps} (e1RM≈${cur.estimated1RM}kg)，上期未记录该动作。`;
+      evidence = `${definition.name}：本期最佳完成 ${formatPerformance(cur)}，上期未记录该动作。`;
     } else if (!cur && base) {
       status = 'untrained_recently';
-      evidence = `${definition.name}：近 ${scoringPeriodDays} 天未记录该动作，上期最佳为 ${base.weight}kg×${base.reps}。`;
+      evidence = `${definition.name}：近 ${scoringPeriodDays} 天未记录该动作，上期最佳为 ${formatPerformance(base)}。`;
     } else if (all) {
       status = 'untrained_recently';
-      evidence = `${definition.name}：历史最佳 ${all.weight}kg×${all.reps}，近期暂无训练记录。`;
+      evidence = `${definition.name}：历史最佳 ${formatPerformance(all)}，近期暂无训练记录。`;
     }
 
     results.push({
       canonicalId,
       exerciseName: definition.name,
       category: definition.primaryCategory,
+      unit,
       currentBest: cur,
       baselineBest: base,
       allTimeBest: all,

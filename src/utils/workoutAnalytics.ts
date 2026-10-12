@@ -48,9 +48,11 @@ import {
   checkPlausibility,
   estimateOneRepMaxDetailed,
   resolvePerformanceLoad,
+  resolveLoggedStrengthPerformance,
   resolveBodyContext,
   bodyContextFromProfile,
 } from './strengthAssessment';
+import { localWorkoutDateKey } from './workoutTime';
 import { computeTrainingCapacity, SubMuscleTrainingStats } from './trainingCapacity';
 import type {
   AssessmentMode,
@@ -126,6 +128,8 @@ export interface CategoryScoreDetail {
     estimated?: number;
   };
   cardioMetrics?: CardioScoreBreakdown;
+  /** Selected volume window, independent of the fixed 28-day cardio score. */
+  cardioVolumeMetrics?: CardioScoreBreakdown;
 }
 
 export interface RadarDataPoint {
@@ -138,6 +142,18 @@ export interface RadarDataPoint {
   /** Frequency score (0-100). */
   activity: number;
   fullMark: number;
+}
+
+/** Availability is evidence-based. A measured zero remains a real score. */
+export function categoryMetricState(detail: CategoryScoreDetail, mode: 'composite' | 'strength') {
+  if (mode === 'strength') {
+    if (detail.category === WorkoutCategory.Cardio) return 'not_applicable' as const;
+    return detail.strengthAssessment ? 'measured' as const : 'no_data' as const;
+  }
+  const hasData = detail.category === WorkoutCategory.Cardio
+    ? (detail.cardioMetrics?.validSessions ?? 0) > 0
+    : detail.recentSets > 0 || (detail.subMuscleScores ?? []).some(sm => sm.weeklyEffectiveSets > 0);
+  return hasData ? 'measured' as const : 'no_data' as const;
 }
 
 export type LaggingStatus = 'none' | 'not_trained' | 'insufficient_data' | 'lagging';
@@ -278,11 +294,7 @@ function interpolateCardioScore(value: number, breakpoints: Array<[number, numbe
   return breakpoints[breakpoints.length - 1][1];
 }
 
-function localDateKey(timestamp: string): string {
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return '';
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
+const localDateKey = localWorkoutDateKey;
 
 export function calculateCardioIntensityScore(met: number): number {
   return Math.round(clampCardio(((met - 2.5) / 7.5) * 100, 0, 100));
@@ -386,7 +398,9 @@ export function calculateCardioScore(
   validRecords.forEach((record) => {
     const timestamp = new Date(record.timestamp).getTime();
     const key = localDateKey(record.timestamp) || new Date(timestamp).toISOString().slice(0, 10);
-    const weekIndex = Math.min(weekCount - 1, Math.max(0, Math.floor((timestamp - periodStartMs) / weekDurationMs)));
+    const localDayStart = new Date(timestamp);
+    localDayStart.setHours(0, 0, 0, 0);
+    const weekIndex = Math.min(weekCount - 1, Math.max(0, Math.floor((localDayStart.getTime() - periodStartMs) / weekDurationMs)));
     const current = days.get(key) || { weekIndex, duration: 0, weighted: 0, sessionWeight: 0, calories: 0, reported: 0, estimated: 0, metDuration: 0, intensityDuration: 0, bestActivityWeighted: 0 };
     current.duration += record.effectiveMinutes;
     current.weighted += record.weightedMinutes;
@@ -631,6 +645,22 @@ export function resolveExerciseTonnage(
   return loadPerRep * load.tonnageMultiplier * safeSets * safeReps;
 }
 
+/** Valid recorded sets and shared load semantics; never mutate the source log. */
+export function resolveTrainingVolume(exercise: Exercise, bodyweightKg = REF_BW) {
+  const sets = exercise.sets ?? 0;
+  const reps = exercise.reps ?? 0;
+  if (!Number.isSafeInteger(sets) || sets <= 0 || !Number.isSafeInteger(reps) || reps < 0) return null;
+  const { definition } = resolveExerciseDefinition(exercise.name);
+  const weight = exercise.weight ?? 0;
+  if (!Number.isFinite(weight)) return null;
+  const load = resolvePerformanceLoad(definition, exercise.name, weight, bodyweightKg);
+  if (weight < 0 && load.loadMode !== 'bodyweight_plus_external') return null;
+  if (definition?.maxPlausibleLoad !== undefined && load.benchmarkLoad > definition.maxPlausibleLoad) return null;
+  const tonnage = resolveExerciseTonnage(exercise.name, weight, sets, reps, bodyweightKg);
+  if (!Number.isFinite(tonnage)) return null;
+  return { sets, reps, definition, tonnage };
+}
+
 /** Epley kept for direct callers; analytics uses the consensus estimate. */
 export function estimateOneRepMax(effectiveLoad: number, reps: number): number {
   if (!Number.isFinite(effectiveLoad) || effectiveLoad <= 0 || !Number.isFinite(reps) || reps <= 0) return 0;
@@ -806,7 +836,8 @@ export function calculateFullWorkoutAnalytics(
   logs: WorkoutLog[],
   userPrs: Record<string, number> = {},
   days = SCORING_PERIOD_DAYS,
-  ctx?: StrengthBodyContext | null
+  ctx?: StrengthBodyContext | null,
+  referenceDate = new Date(Date.now())
 ): {
   categoryDetails: Record<WorkoutCategory, CategoryScoreDetail>;
   radarData: RadarDataPoint[];
@@ -816,8 +847,12 @@ export function calculateFullWorkoutAnalytics(
   recentWorkoutsCount: number;
   recentSetsCount: number;
 } {
-  const now = Date.now();
-  const safeDays = Math.max(1, days);
+  const now = referenceDate.getTime();
+  const safeDays = Math.max(1, Number.isFinite(days) ? days : SCORING_PERIOD_DAYS);
+  logs = logs.filter(log => {
+    const time = new Date(log.timestamp).getTime();
+    return Number.isFinite(time) && time <= now;
+  });
   const currentPeriodMs = safeDays * 24 * 60 * 60 * 1000;
   const cutoffTime = now - currentPeriodMs;
   const baselineCutoffTime = cutoffTime - currentPeriodMs;
@@ -864,7 +899,7 @@ export function calculateFullWorkoutAnalytics(
   );
 
   const processLogExercises = (log: WorkoutLog, isCurrent: boolean) => {
-    const dateKey = log.timestamp ? log.timestamp.split('T')[0] : '';
+    const dateKey = localWorkoutDateKey(log.timestamp);
     const timestamp = new Date(log.timestamp).getTime();
     const weekIndex = Number.isFinite(timestamp)
       ? Math.min(weekCount - 1, Math.max(0, Math.floor((timestamp - (now - currentPeriodMs)) / weekDurationMs)))
@@ -875,18 +910,15 @@ export function calculateFullWorkoutAnalytics(
 
     exercises.forEach((ex) => {
       if (ex.type === 'cardio' || isCardioExercise(ex.name)) return;
-      const sets = Math.max(0, ex.sets || 0);
-      if (sets <= 0) return;
-      const reps = Math.max(0, ex.reps || 0);
-
-      const { definition } = resolveExerciseDefinition(ex.name);
+      const volume = resolveTrainingVolume(ex, bodyweightKg);
+      if (!volume) return;
+      const { sets, definition, tonnage } = volume;
       // Primary category: canonical definition first, muscle-share fallback otherwise.
       const muscleShares = definition ? undefined : resolveExerciseMuscles(ex.name, logCategories);
       const primary = definition?.primaryCategory
         ?? (Object.entries(muscleShares ?? {}) as Array<[WorkoutCategory, number]>)
           .sort((a, b) => b[1] - a[1])[0]?.[0]
         ?? WorkoutCategory.Others;
-      const tonnage = resolveExerciseTonnage(ex.name, typeof ex.weight === 'number' ? ex.weight : 0, sets, reps, bodyweightKg);
 
       // Current-window volume only; baseline contributes stimulus for comparison,
       // never the displayed sets/tonnage or volume distribution.
@@ -963,8 +995,10 @@ export function calculateFullWorkoutAnalytics(
 
   // Cardio keeps a fixed 28-day window regardless of the caller's volume view.
   const cardioSummary = calculateCardioScore(cardioRecords, SCORING_PERIOD_DAYS, now);
-  categorySets[WorkoutCategory.Cardio] = cardioSummary.validSessions;
-  categoryWorkoutOccurrences[WorkoutCategory.Cardio] = cardioSummary.validSessions;
+  const cardioVolumeSummary = safeDays === SCORING_PERIOD_DAYS
+    ? cardioSummary : calculateCardioScore(cardioRecords, safeDays, now);
+  categorySets[WorkoutCategory.Cardio] = cardioVolumeSummary.validSessions;
+  categoryWorkoutOccurrences[WorkoutCategory.Cardio] = cardioVolumeSummary.validSessions;
 
   // ------------------------------------------------------------------
   // Strength pipeline: canonicalized performances → assessments
@@ -978,41 +1012,15 @@ export function calculateFullWorkoutAnalytics(
 
   const collectFromLog = (log: WorkoutLog) => {
     (log.exercises || []).forEach((ex) => {
-      if (ex.type !== 'strength' || typeof ex.weight !== 'number' || !ex.name) return;
-      const reps = ex.reps || 1;
-      if (!Number.isFinite(reps) || reps <= 0 || !Number.isInteger(reps)) return;
-      const { definition, canonicalId } = resolveExerciseDefinition(ex.name);
-      const load = resolvePerformanceLoad(definition, ex.name, ex.weight, bodyweightKg);
-      const isBodyweightLoad = load.loadMode === 'bodyweight' || load.loadMode === 'bodyweight_plus_external';
-      if (load.loadMode === 'bodyweight') {
-        // Reps/time benchmarks are scored directly on reps; no e1RM involved.
-        pushPerformance({
-          canonicalKey: canonicalId,
-          name: definition?.name || ex.name.trim(),
-          definition,
-          timestamp: new Date(log.timestamp).getTime(),
-          benchmarkLoad: reps,
-          estimated1RM: reps,
-          repRange: reps,
-          estimate: { estimated1RM: reps, formula: 'actual', repConfidence: 'high', usableForStrength: true },
-          suspectedOutlier: false,
-          excludeFromScoring: false,
-          source: 'logged_e1rm',
-        });
-        return;
-      }
-      const estimate = estimateOneRepMaxDetailed(load.benchmarkLoad, reps);
-      // Absolute plausibility only here; the personal-jump screen runs in a
-      // second pass so the verdict cannot depend on log iteration order.
-      const plausibility = estimate.usableForStrength
-        ? checkPlausibility(definition, load.benchmarkLoad, estimate.estimated1RM, [])
-        : { plausible: false, suspectedOutlier: false, excludeFromScoring: true, reason: 'reps beyond benchmark range' };
+      const performance = resolveLoggedStrengthPerformance(ex, bodyweightKg);
+      if (!performance) return;
+      const { definition, canonicalId, benchmarkLoad, reps, estimate, plausibility } = performance;
       pushPerformance({
         canonicalKey: canonicalId,
         name: definition?.name || ex.name.trim(),
         definition,
         timestamp: new Date(log.timestamp).getTime(),
-        benchmarkLoad: load.benchmarkLoad,
+        benchmarkLoad,
         estimated1RM: estimate.usableForStrength ? estimate.estimated1RM : 0,
         repRange: reps,
         estimate,
@@ -1032,7 +1040,7 @@ export function calculateFullWorkoutAnalytics(
     if (usable.length < 2) return;
     const best = Math.max(...usable.map((c) => c.estimated1RM));
     const secondBest = Math.max(...usable.filter((c) => c.estimated1RM < best).map((c) => c.estimated1RM));
-    if (best >= secondBest + 20 && best > secondBest * 1.3) {
+    if (Number.isFinite(secondBest) && best >= secondBest + 20 && best > secondBest * 1.3) {
       usable.forEach((c) => {
         if (c.estimated1RM === best) c.suspectedOutlier = true;
       });
@@ -1046,9 +1054,9 @@ export function calculateFullWorkoutAnalytics(
     const { definition, canonicalId } = resolveExerciseDefinition(name);
     if (!definition) return;
     const load = resolvePerformanceLoad(definition, name, storedValue, bodyweightKg);
-    if (load.loadMode === 'bodyweight') return; // legacy reps are not interpretable
+    if (load.loadMode === 'bodyweight' || (load.loadMode !== 'bodyweight_plus_external' && storedValue <= 0)) return; // legacy reps are not interpretable
     const benchmarkValue = load.effectiveTotalLoad > 0 ? load.effectiveTotalLoad : load.benchmarkLoad;
-    if (benchmarkValue <= 0) return;
+    if (benchmarkValue <= 0 || checkPlausibility(definition, benchmarkValue, benchmarkValue).excludeFromScoring) return;
 
     // Check if logs already have an equal or better performance
     const existingLogCandidates = performancesByKey.get(canonicalId);
@@ -1059,6 +1067,7 @@ export function calculateFullWorkoutAnalytics(
     // If log has an equal or better performance, log data wins
     if (bestLogEstimated1RM >= benchmarkValue) return;
 
+    if ((legacyByKey.get(canonicalId)?.estimated1RM ?? 0) >= benchmarkValue) return;
     legacyByKey.set(canonicalId, {
       canonicalKey: canonicalId,
       name: definition.name,
@@ -1228,7 +1237,8 @@ export function calculateFullWorkoutAnalytics(
   const weeksInPeriod = Math.max(1, safeDays / 7);
   const categoryDetails: Record<WorkoutCategory, CategoryScoreDetail> = {} as Record<WorkoutCategory, CategoryScoreDetail>;
   const radarData: RadarDataPoint[] = [];
-  const totalSetsAll = Object.values(categorySets).reduce((a, b) => a + b, 0);
+  // Cardio sessions and resistance sets have different units.
+  const totalSetsAll = Object.entries(categorySets).reduce((sum, [cat, sets]) => cat === WorkoutCategory.Cardio ? sum : sum + sets, 0);
 
   (Object.values(WorkoutCategory) as WorkoutCategory[]).forEach((cat) => {
     const meta = CATEGORY_META[cat];
@@ -1248,7 +1258,7 @@ export function calculateFullWorkoutAnalytics(
         activityScore: cardioSummary.frequencyScore,
         compositeScore: cardioSummary.score,
         tier: cardioTier,
-        recentSets: cardioSummary.validSessions,
+        recentSets: cardioVolumeSummary.validSessions,
         totalVolumeKg: 0,
         bestExerciseName: cardioSummary.bestActivityName,
         bestRecordValue: cardioSummary.effectiveMinutes,
@@ -1266,6 +1276,7 @@ export function calculateFullWorkoutAnalytics(
           estimated: cardioSummary.estimatedCalories,
         },
         cardioMetrics: cardioSummary,
+        cardioVolumeMetrics: cardioVolumeSummary,
       };
       radarData.push({
         subject: meta.zh,
@@ -1365,7 +1376,7 @@ export function calculateFullWorkoutAnalytics(
   const volumeDistribution: VolumeDistributionItem[] = (Object.values(WorkoutCategory) as WorkoutCategory[]).map((cat) => {
     const meta = CATEGORY_META[cat];
     const sets = Math.round(categorySets[cat]);
-    const percentage = totalSetsAll > 0 ? Math.round((sets / totalSetsAll) * 100) : 0;
+    const percentage = cat !== WorkoutCategory.Cardio && totalSetsAll > 0 ? Math.round((sets / totalSetsAll) * 100) : 0;
     return {
       category: cat,
       zh: meta.zh,
@@ -1380,7 +1391,9 @@ export function calculateFullWorkoutAnalytics(
   // ------------------------------------------------------------------
   // Insights: muscle balance V4 (coverage + distribution + evidence sufficiency)
   // ------------------------------------------------------------------
-  const balanceResult = computeMuscleBalance(categoryDetails, recentLogs.length, Math.round(totalSetsAll));
+  const resistanceWorkouts = recentLogs.filter(log => (log.exercises ?? []).some(ex =>
+    ex.type !== 'cardio' && !isCardioExercise(ex.name) && resolveTrainingVolume(ex, bodyweightKg) != null));
+  const balanceResult = computeMuscleBalance(categoryDetails, resistanceWorkouts.length, Math.round(totalSetsAll));
   const { balanceScore, balanceLevel, coverageCount, coverageRatio, evidenceSufficient } = balanceResult;
   const resistanceCategories = (Object.values(WorkoutCategory) as WorkoutCategory[]).filter((c) => c !== WorkoutCategory.Cardio);
   const activeResistance = resistanceCategories.filter((c) => categoryDetails[c].trainingScore > 0);

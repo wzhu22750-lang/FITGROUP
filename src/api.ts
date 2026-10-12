@@ -3,6 +3,7 @@ import { supabase } from './lib/supabase';
 import type { WorkoutLog, WorkoutVisibility, Team, TeamMember, TeamDashboardData, AppNotification, FeedbackType, UserFeedback } from './types';
 import { WorkoutCategory } from './types';
 import { parseCategories } from './constants/workoutPresets';
+import { localWorkoutDateKey } from './utils/workoutTime';
 import { fetchAllPagesById, validatePageSize } from './utils/pagination';
 import { executeWorkoutLogUpdate, sanitizeExercisesForDb } from './utils/workoutLogUpdate';
 export { sanitizeExercisesForDb } from './utils/workoutLogUpdate';
@@ -1630,21 +1631,59 @@ export const getUserWorkoutLogs = async (
   );
 };
 
-/**
- * Accurately fetch user workout logs for training analytics and statistics.
- * Default window is 90 days (12-13 weeks) to cover 4/8/12w trends,
- * 28-day training capacity, and baseline progression without row truncation.
- */
+/** Analytics payload excludes photos, social counts and notes. No schema change. */
+const STATISTICS_LOG_COLUMNS = 'id,user_id,user_name,user_photo,created_at,category,exercises';
+
+export async function fetchWorkoutLogsForStatistics(
+  userId: string,
+  options: ReadRequestOptions & { since?: string; before?: string; until?: string } = {},
+): Promise<WorkoutLog[]> {
+  if (!userId) return [];
+  const until = options.until ?? new Date().toISOString();
+  return readRequest(
+    `statistics:${userId}:${options.since ?? ''}:${options.before ?? ''}:${until}`,
+    async (signal) => {
+      const rows = await fetchAllPagesById<WorkoutLogRow>(async (cursor, limit) => {
+        let query = supabase.from('workout_logs').select(STATISTICS_LOG_COLUMNS)
+          .eq('user_id', userId).lte('created_at', until)
+          .order('id', { ascending: false }).limit(limit);
+        if (options.since) query = query.gte('created_at', options.since);
+        if (options.before) query = query.lt('created_at', options.before);
+        if (cursor !== undefined) query = query.lt('id', cursor);
+        const { data, error } = await query.abortSignal(signal);
+        if (error) throw error;
+        return (data ?? []) as WorkoutLogRow[];
+      }, 400, { signal, exhaustUntilEmpty: true });
+      return rows.map(normalizeLog).sort((a, b) => b.timestamp.localeCompare(a.timestamp) || b.id.localeCompare(a.id));
+    },
+    { ...options, timeoutMs: options.timeoutMs ?? 60000 },
+  );
+}
+
+/** Complete recent window, including all pages even above the provider row cap. */
 export const getUserWorkoutLogsForAnalytics = async (
   userId: string,
   options?: ReadRequestOptions & { days?: number; maxCount?: number },
 ): Promise<WorkoutLog[]> => {
-  const days = options?.days ?? 90;
-  const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
-  return getUserWorkoutLogs(userId, options?.maxCount ?? 1500, { ...options, since });
+  const days = Math.max(1, Number.isFinite(options?.days) ? options!.days! : 90);
+  const until = new Date().toISOString();
+  const since = new Date(new Date(until).getTime() - days * 86400000).toISOString();
+  return fetchWorkoutLogsForStatistics(userId, { ...options, since, until });
 };
 
-export const getUserWorkoutLogsForStats = getUserWorkoutLogsForAnalytics;
+/** Complete 90-day trends plus older history for PRs; disjoint time windows. */
+export const getUserWorkoutLogsForStats = async (
+  userId: string,
+  options: ReadRequestOptions & { since?: string; until?: string } = {},
+): Promise<WorkoutLog[]> => {
+  const until = options.until ?? new Date().toISOString();
+  const since = options.since ?? new Date(new Date(until).getTime() - 90 * 86400000).toISOString();
+  const [recent, history] = await Promise.all([
+    fetchWorkoutLogsForStatistics(userId, { ...options, since, until }),
+    fetchWorkoutLogsForStatistics(userId, { ...options, since: undefined, before: since, until }),
+  ]);
+  return [...recent, ...history];
+};
 
 /**
  * Page size for full-history export reads. Kept below common provider caps so
@@ -1711,7 +1750,7 @@ export const subscribeToUserWorkoutLogs = (
   userId: string,
   callback: (logs: WorkoutLog[]) => void,
   onError?: (error: Error) => void,
-  maxCountOrOptions: number | { since?: string; maxCount?: number } = 500,
+  maxCountOrOptions: number | { since?: string; maxCount?: number; mode?: 'statistics' } = 500,
 ) => {
   if (!userId) {
     callback([]);
@@ -1728,7 +1767,24 @@ export const subscribeToUserWorkoutLogs = (
     ? maxCountOrOptions?.since
     : undefined;
 
-  const pull = () => {
+  const isStatistics = typeof maxCountOrOptions === 'object' && maxCountOrOptions.mode === 'statistics';
+  // Fix the partition for this subscription so edits across it cannot get lost.
+  const statsSince = resolvedSince ?? new Date(Date.now() - 90 * 86400000).toISOString();
+  let history: WorkoutLog[] | undefined;
+  let historyRevision = 0;
+  const controller = new AbortController();
+
+  const pull = (payload?: { eventType?: string; old?: { created_at?: string }; new?: { created_at?: string } }) => {
+    if (disposed) return;
+    // DELETE/UPDATE may omit the previous timestamp under replica identity.
+    // Refresh history whenever we cannot prove the change is recent-only.
+    const nextTime = payload?.new?.created_at;
+    const oldTime = payload?.old?.created_at;
+    const recentInsert = payload?.eventType === 'INSERT' && nextTime && nextTime >= statsSince;
+    const recentUpdate = payload?.eventType === 'UPDATE' && nextTime && oldTime && nextTime >= statsSince && oldTime >= statsSince;
+    if (!recentInsert && !recentUpdate) { historyRevision++; history = undefined; }
+    version++; // Immediately invalidate an in-flight result before the debounce.
+
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
@@ -1738,7 +1794,19 @@ export const subscribeToUserWorkoutLogs = (
 
   const execute = () => {
     const currentVersion = ++version;
-    void getUserWorkoutLogs(userId, resolvedMaxCount, { since: resolvedSince })
+    const readLogs = async () => {
+      if (!isStatistics) return getUserWorkoutLogs(userId, resolvedMaxCount, { since: resolvedSince, signal: controller.signal });
+      const until = new Date().toISOString();
+      const revision = historyRevision;
+      const cachedHistory = history;
+      const [recent, older] = await Promise.all([
+        fetchWorkoutLogsForStatistics(userId, { since: statsSince, until, signal: controller.signal }),
+        cachedHistory ? Promise.resolve(cachedHistory) : fetchWorkoutLogsForStatistics(userId, { before: statsSince, until, signal: controller.signal }),
+      ]);
+      if (!disposed && revision === historyRevision) history = older;
+      return [...recent, ...older];
+    };
+    void readLogs()
       .then((logs) => {
         if (!disposed && currentVersion === version) {
           callback(logs);
@@ -1763,6 +1831,7 @@ export const subscribeToUserWorkoutLogs = (
 
   return () => {
     disposed = true;
+    controller.abort();
     version++;
     if (timer) clearTimeout(timer);
     void supabase.removeChannel(channel);
@@ -1789,13 +1858,7 @@ export const getLastWorkoutsByCategories = async (
 // Squads & Teams (好友小队)
 // ---------------------------------------------------------------------------
 
-export function toLocalDateKey(isoOrDate: string | Date): string {
-  const d = new Date(isoOrDate);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
+export const toLocalDateKey = localWorkoutDateKey;
 
 export const getUserTeams = async (userId: string, options?: ReadRequestOptions): Promise<Team[]> => {
   if (!userId) return [];

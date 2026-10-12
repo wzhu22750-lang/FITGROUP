@@ -9,7 +9,6 @@ import SubMuscleModal from './SubMuscleModal';
 import CommunityLeaderboard from './CommunityLeaderboard';
 import {
   getCurrentUser,
-  syncUserStatsFromLogs,
   subscribeToUserProfile,
   subscribeToLeaderboard,
   subscribeToUserWorkoutLogs,
@@ -34,6 +33,7 @@ import {
   computeExerciseProgression,
   generateDeterministicTrainingInsights,
 } from '../utils/progressAnalytics';
+import { summarizeWorkoutHistory } from '../utils/trainingPresentation';
 import { CATEGORY_META } from '../constants/workoutPresets';
 
 export default function Statistics() {
@@ -48,7 +48,7 @@ export default function Statistics() {
   // Toggle radar view: Training Capacity Index (28-day volume+freq+progression+consistency) vs Pure Strength PR
   const [radarMode, setRadarMode] = useState<'composite' | 'strength'>('composite');
   // Chart visualization style: Radar Polygon vs 6-Dimension Progress Bars
-  const [chartView, setChartView] = useState<'radar' | 'bars'>('radar');
+  const [chartView, setChartView] = useState<'radar' | 'bars'>(() => typeof window !== 'undefined' && window.matchMedia?.('(max-width: 639px)').matches ? 'bars' : 'radar');
   // Timeframe for volume distribution: 7 days vs 28 days
   const [volumeTimeframe, setVolumeTimeframe] = useState<7 | 28>(28);
   // Timeframe for weekly trends: 4, 8, or 12 weeks
@@ -244,7 +244,7 @@ export default function Statistics() {
       setLoading(false);
     });
 
-    // 2. Real-time listener for user's own workout logs (up to 500 for full historical PRs and analytics)
+    // 2. Complete recent window and historical PR evidence, read in pages.
     const unsubLogs = subscribeToUserWorkoutLogs(
       user.uid,
       (logs) => {
@@ -257,18 +257,13 @@ export default function Statistics() {
         setWorkoutLogsError(error.message || '个人训练记录加载失败');
         setLoading(false);
       },
-      500,
+      { mode: 'statistics' },
     );
 
     // 3. Real-time listener for group leaderboard
     const unsubLeaderboard = subscribeToLeaderboard((leaderboard) => {
       setGroupStats(leaderboard);
     }, 5);
-
-    // 4. Background verification
-    void syncUserStatsFromLogs(user.uid).catch((err) => {
-      console.warn('Background stats verification:', err);
-    });
 
     return () => {
       unsubProfile?.();
@@ -348,23 +343,15 @@ export default function Statistics() {
     return bodyContextFromProfile(userProfile);
   }, [userProfile?.sex, userProfile?.bodyweightKg]);
 
-  // Compute full analytics data for requested volume timeframe (7 or 28 days)
-  const analytics = useMemo(() => {
-    const prs = (userProfile?.prs || {}) as Record<string, number>;
-    return calculateFullWorkoutAnalytics(workoutLogs, prs, volumeTimeframe, bodyContext);
-  }, [workoutLogs, userProfile?.prs, volumeTimeframe, bodyContext]);
-
-  // Canonical 28-day analytics for capacity model, balance, and insights
-  const analytics28d = useMemo(() => {
-    const prs = (userProfile?.prs || {}) as Record<string, number>;
-    return calculateFullWorkoutAnalytics(workoutLogs, prs, 28, bodyContext);
-  }, [workoutLogs, userProfile?.prs, bodyContext]);
-
-  // 7-day analytics for comparison
-  const analytics7d = useMemo(() => {
-    const prs = (userProfile?.prs || {}) as Record<string, number>;
-    return calculateFullWorkoutAnalytics(workoutLogs, prs, 7, bodyContext);
-  }, [workoutLogs, userProfile?.prs, bodyContext]);
+  // All modules use the same clock snapshot; only compute 7-day data on demand.
+  const referenceDate = useMemo(() => new Date(), [workoutLogs]);
+  const historySummary = useMemo(() => summarizeWorkoutHistory(workoutLogs, referenceDate), [workoutLogs, referenceDate]);
+  const analytics28d = useMemo(() => calculateFullWorkoutAnalytics(
+    workoutLogs, userProfile?.prs || {}, 28, bodyContext, referenceDate,
+  ), [workoutLogs, userProfile?.prs, bodyContext, referenceDate]);
+  const analytics = useMemo(() => volumeTimeframe === 28 ? analytics28d : calculateFullWorkoutAnalytics(
+    workoutLogs, userProfile?.prs || {}, 7, bodyContext, referenceDate,
+  ), [analytics28d, volumeTimeframe, workoutLogs, userProfile?.prs, bodyContext, referenceDate]);
 
   // Overall training state score & tier (28-day meso-cycle capacity)
   const overallTrainingScore = useMemo(() => {
@@ -382,8 +369,8 @@ export default function Statistics() {
   // Overall strength score & tier (pure 1RM benchmarks)
   const overallStrengthAssessment = useMemo(() => {
     const scores = Object.values(analytics28d.categoryDetails)
-      .map((d) => d.strengthScore)
-      .filter((s) => s > 0);
+      .filter((d) => d.strengthAssessment != null)
+      .map((d) => d.strengthScore);
     if (!scores.length) return null;
     const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
     return {
@@ -394,23 +381,24 @@ export default function Statistics() {
 
   // Trends & progress calculations
   const trends = useMemo(() => {
-    return computeWeeklyTrainingTrends(workoutLogs, selectedWeeks);
-  }, [workoutLogs, selectedWeeks]);
+    return computeWeeklyTrainingTrends(workoutLogs, selectedWeeks, referenceDate, bodyContext);
+  }, [workoutLogs, selectedWeeks, referenceDate, bodyContext]);
 
   const progression = useMemo(() => {
-    return computeExerciseProgression(workoutLogs, 28);
-  }, [workoutLogs]);
+    return computeExerciseProgression(workoutLogs, 28, referenceDate, bodyContext);
+  }, [workoutLogs, referenceDate, bodyContext]);
 
   const deterministicInsights = useMemo(() => {
-    return generateDeterministicTrainingInsights(analytics28d, progression, trends);
-  }, [analytics28d, progression, trends]);
+    return isTier3Open ? generateDeterministicTrainingInsights(analytics28d, progression, trends) : [];
+  }, [isTier3Open, analytics28d, progression, trends]);
 
   // Data-driven key feedback for Tier 1
   const keyFeedback = useMemo(() => {
-    const streak = userProfile?.streak || 0;
-    const totalWorkouts = userProfile?.totalWorkouts || 0;
+    const { streak, totalWorkouts } = historySummary;
     const recent28dSets = analytics28d.recentSetsCount;
     const insights = analytics28d.insights;
+
+    if (!logsReady) return { title: '正在读取训练数据', description: workoutLogsError || '完整记录加载后展示训练结论。', badge: '待加载', badgeBg: 'bg-paper text-ink' };
 
     if (totalWorkouts === 0 && workoutLogs.length === 0) {
       return {
@@ -468,7 +456,7 @@ export default function Statistics() {
       badge: '稳步累积',
       badgeBg: 'bg-paper text-ink',
     };
-  }, [userProfile?.streak, userProfile?.totalWorkouts, analytics28d, workoutLogs.length]);
+  }, [logsReady, workoutLogsError, historySummary, analytics28d, workoutLogs.length]);
 
   const hasAnyData =
     (userProfile?.totalWorkouts && userProfile.totalWorkouts > 0) ||
@@ -515,9 +503,10 @@ export default function Statistics() {
           ========================================================================= */}
       <TrainingOverview
         logs={workoutLogs}
+        referenceDate={referenceDate}
         ready={logsReady}
-        streak={userProfile?.streak || 0}
-        totalWorkouts={userProfile?.totalWorkouts || 0}
+        streak={historySummary.streak}
+        totalWorkouts={logsReady ? historySummary.totalWorkouts : userProfile?.totalWorkouts || 0}
         recentSets={analytics28d.recentSetsCount}
         balance={analytics28d.insights.balanceLevel}
       />
@@ -562,7 +551,7 @@ export default function Statistics() {
           TIER 2: CAPACITY & STRENGTH (第二层：能力与力量)
           我哪些地方进步了？
           ========================================================================= */}
-      <div className="space-y-3 pt-2">
+      {logsReady && <div className="space-y-3 pt-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-black uppercase tracking-wider bg-ink text-neon px-1.5 py-0.5 border border-ink">
@@ -580,14 +569,14 @@ export default function Statistics() {
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[11px] font-black text-ink/60 uppercase">🏃 训练状态 (近28天)</span>
               <span className={`text-[10px] font-black px-1.5 py-0.2 border border-ink ${overallTrainingTier.badgeBg} ${overallTrainingTier.badgeText}`}>
-                {overallTrainingScore === 0 ? '待激活' : overallTrainingTier.zh}
+                {!logsReady ? '待加载' : overallTrainingScore === 0 ? '暂无抗阻训练' : overallTrainingTier.zh}
               </span>
             </div>
             <div className="text-2xl font-black italic text-ink mb-1">
-              {overallTrainingScore} <span className="text-xs text-ink/50 not-italic">分</span>
+              {logsReady ? overallTrainingScore : '—'} <span className="text-xs text-ink/50 not-italic">分</span>
             </div>
             <p className="text-[11px] text-ink/60 leading-tight">
-              基于近28天训练频率 (25%)、有效容量 (30%)、进步 (25%) 与周间稳定性 (20%) 综合加权。
+              综合反映近期抗阻训练投入，点击部位查看详细依据。
             </p>
           </div>
 
@@ -603,7 +592,7 @@ export default function Statistics() {
               {overallStrengthAssessment ? overallStrengthAssessment.score : '—'} <span className="text-xs text-ink/50 not-italic">分</span>
             </div>
             <p className="text-[11px] text-ink/60 leading-tight">
-              基于标准复合动作 1RM 极限负荷对照成年训练者人群基准，与近 28 天出勤状态完全独立。
+              历史最佳表现对照力量基准；数据不足时显示待测量。
             </p>
           </div>
         </div>
@@ -619,12 +608,12 @@ export default function Statistics() {
           onSelectCategory={(cat) => setSelectedCategoryForModal(cat)}
           onOpenStandards={() => setShowStandardsModal(true)}
         />
-      </div>
+      </div>}
 
       {/* =========================================================================
           TIER 3: RECENT TRAINING & PROGRESS (第三层：近期训练与进步)
           ========================================================================= */}
-      <TrainingTrendsCard
+      {logsReady && <TrainingTrendsCard
         trends={trends}
         selectedWeeks={selectedWeeks}
         onSelectWeeks={setSelectedWeeks}
@@ -635,7 +624,7 @@ export default function Statistics() {
         categoryDetails={analytics.categoryDetails}
         recentWorkoutsCount={analytics.recentWorkoutsCount}
         recentSetsCount={analytics.recentSetsCount}
-      />
+      />}
 
       {/* =========================================================================
           TIER 4: PROFESSIONAL ANALYSIS & PRs (详细分析 / 专业分析)
@@ -651,7 +640,8 @@ export default function Statistics() {
           <button
             type="button"
             onClick={() => setIsTier3Open(!isTier3Open)}
-            className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1 cursor-pointer"
+            aria-expanded={isTier3Open}
+            className="btn-secondary min-h-11 text-xs py-1 px-2.5 flex items-center gap-1 cursor-pointer"
           >
             <span>{isTier3Open ? '收起明细' : '展开明细'}</span>
             {isTier3Open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}

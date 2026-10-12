@@ -157,7 +157,7 @@ export function computeTrainingCapacity(
     const freq = frequencyScore(weeklyTrainedDays);
     const vol = volumeScore(weeklySets, subMuscle);
     const ratio = progressionRatioByMuscle.get(subMuscle) ?? null;
-    const prog = progressionScore(ratio);
+    const prog = effectiveSets > 0 || trainingDays > 0 ? progressionScore(ratio) : 0;
     const cons = consistencyScore(weekly).score;
 
     const detail: SubMuscleCapacityDetail = {

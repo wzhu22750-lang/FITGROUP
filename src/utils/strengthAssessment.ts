@@ -11,7 +11,7 @@
  *   never the score itself
  * - coverage is informational; it never multiplies a strength score
  */
-import { StrengthBodyContext } from '../types';
+import { Exercise, StrengthBodyContext } from '../types';
 import {
   EXERCISE_DEFINITIONS,
   ExerciseDefinition,
@@ -234,6 +234,9 @@ export function checkPlausibility(
   estimated1RM: number,
   priorReliableBests: number[] = []
 ): PlausibilityVerdict {
+  if (!Number.isFinite(benchmarkLoad) || !Number.isFinite(estimated1RM)) {
+    return { plausible: false, suspectedOutlier: false, excludeFromScoring: true, reason: 'non-finite performance' };
+  }
   if (estimated1RM <= 0) {
     return { plausible: false, suspectedOutlier: false, excludeFromScoring: true, reason: 'non-positive estimated 1RM' };
   }
@@ -251,6 +254,28 @@ export function checkPlausibility(
     }
   }
   return { plausible: true, suspectedOutlier: false, excludeFromScoring: false };
+}
+
+/** Shared interpretation for PRs, strength scores and period comparisons. */
+export function resolveLoggedStrengthPerformance(exercise: Exercise, bodyweightKg = REF_BW) {
+  if (exercise.type !== 'strength' || !exercise.name) return null;
+  const sets = exercise.sets ?? 1;
+  const reps = exercise.reps ?? 1;
+  if (!Number.isSafeInteger(sets) || sets <= 0 || !Number.isSafeInteger(reps) || reps <= 0) return null;
+  const { definition, canonicalId } = resolveExerciseDefinition(exercise.name);
+  const bodyweightMode = definition?.loadMode === 'bodyweight' || definition?.loadMode === 'bodyweight_plus_external';
+  const weight = exercise.weight ?? (bodyweightMode ? 0 : NaN);
+  if (!Number.isFinite(weight) || (!bodyweightMode && weight < 0)) return null;
+  const load = resolvePerformanceLoad(definition, exercise.name, weight, bodyweightKg);
+  // Existing reps/time benchmarks use the recorded reps field.
+  const estimate: OneRepMaxEstimate = load.loadMode === 'bodyweight'
+    ? { estimated1RM: reps, formula: 'actual', repConfidence: 'high', usableForStrength: true }
+    : estimateOneRepMaxDetailed(load.benchmarkLoad, reps);
+  const benchmarkLoad = load.loadMode === 'bodyweight' ? reps : load.benchmarkLoad;
+  const plausibility = estimate.usableForStrength
+    ? checkPlausibility(definition, benchmarkLoad, estimate.estimated1RM)
+    : { plausible: false, suspectedOutlier: false, excludeFromScoring: true, reason: 'reps beyond benchmark range' };
+  return { definition, canonicalId, load, benchmarkLoad, reps, estimate, plausibility };
 }
 
 // ---------------------------------------------------------------------------
@@ -277,7 +302,7 @@ export function resolveBodyContext(profile?: {
   bodyweightKg?: number | null;
 } | null): ResolvedBodyContext {
   const sex = profile?.sex === 'female' ? 'female' : profile?.sex === 'male' ? 'male' : null;
-  const rawBw = typeof profile?.bodyweightKg === 'number' && profile.bodyweightKg > 0 ? profile.bodyweightKg : null;
+  const rawBw = typeof profile?.bodyweightKg === 'number' && Number.isFinite(profile.bodyweightKg) && profile.bodyweightKg > 0 ? profile.bodyweightKg : null;
   const sexAssumed = !sex;
   const bodyweightAssumed = !rawBw;
   const ctx: StrengthBodyContext = {
@@ -299,7 +324,7 @@ export function bodyContextFromProfile(p?: {
 } | null): StrengthBodyContext | null {
   if (!p) return null;
   const hasSex = p.sex === 'female' || p.sex === 'male';
-  const rawBw = typeof p.bodyweightKg === 'number' && p.bodyweightKg > 0;
+  const rawBw = typeof p.bodyweightKg === 'number' && Number.isFinite(p.bodyweightKg) && p.bodyweightKg > 0;
   if (!hasSex && !rawBw) return null;
   return resolveBodyContext(p).ctx;
 }

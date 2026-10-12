@@ -9,10 +9,11 @@ interface TrainingOverviewProps {
   totalWorkouts: number;
   recentSets: number;
   balance: string;
+  referenceDate?: Date;
 }
 
-export default function TrainingOverview({ logs, ready, streak, totalWorkouts, recentSets, balance }: TrainingOverviewProps) {
-  const days = recentTrainingDays(logs);
+export default function TrainingOverview({ logs, ready, streak, totalWorkouts, recentSets, balance, referenceDate }: TrainingOverviewProps) {
+  const days = recentTrainingDays(logs, referenceDate);
   const sessions = days.reduce((sum, day) => sum + day.count, 0);
   const activeDays = days.filter(day => day.count > 0).length;
 

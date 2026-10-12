@@ -9,6 +9,8 @@ export interface FetchAllPagesOptions {
   signal?: AbortSignal;
   /** Hard safety stop to avoid infinite loops on misbehaving backends. */
   maxPages?: number;
+  /** Continue through short provider-capped pages until an empty page. */
+  exhaustUntilEmpty?: boolean;
 }
 
 /**
@@ -87,7 +89,7 @@ export async function fetchAllPagesById<T extends { id: string }>(
       previous = row.id;
     }
     collected.push(...rows);
-    if (rows.length < pageSize) return collected;
+    if (rows.length === 0 || (!options.exhaustUntilEmpty && rows.length < pageSize)) return collected;
     cursor = previous;
   }
   throw new Error('分页查询超过安全页数上限');

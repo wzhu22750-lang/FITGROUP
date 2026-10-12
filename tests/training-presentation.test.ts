@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { recentTrainingDays, summarizeTraining } from '../src/utils/trainingPresentation';
+import { recentTrainingDays, summarizeTraining, summarizeWorkoutHistory } from '../src/utils/trainingPresentation';
 import type { WorkoutLog } from '../src/types';
 
 assert.deepEqual(summarizeTraining([]), { actions: 0, sets: 0, cardioMinutes: 0, distance: 0 });
@@ -27,3 +27,14 @@ assert.equal(days.filter(day => day.count > 0).length, 2);
 assert.equal(days[6].date.getDate(), 6);
 assert.ok(recentTrainingDays([], now).every(day => day.count === 0));
 console.log('PASS training presentation: mixed metrics, invalid data, local dates, future exclusion, empty state');
+
+const streakLogs = [
+  makeLog(new Date(2026, 9, 6, 11).toISOString()),
+  makeLog(new Date(2026, 9, 5, 23).toISOString()),
+  makeLog(new Date(2026, 9, 4, 20).toISOString()),
+];
+assert.deepEqual(summarizeWorkoutHistory([...streakLogs, streakLogs[0], makeLog('invalid')], now), { totalWorkouts: 3, streak: 3 });
+assert.equal(summarizeWorkoutHistory(streakLogs.slice(1), now).streak, 2);
+assert.equal(summarizeWorkoutHistory([streakLogs[2]], now).streak, 0);
+assert.deepEqual(summarizeWorkoutHistory([makeLog(new Date(2026, 9, 6, 13).toISOString())], now), { totalWorkouts: 0, streak: 0 });
+console.log('PASS complete-history summary: distinct logs, local streaks, yesterday continuation and invalid/future exclusion');

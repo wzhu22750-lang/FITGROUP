@@ -36,6 +36,7 @@ export default function TrainingTrendsCard({
   recentWorkoutsCount,
   recentSetsCount,
 }: TrainingTrendsCardProps) {
+  const [showAllExercises, setShowAllExercises] = useState(false);
   const [activeTab, setActiveTab] = useState<'trends' | 'exercises' | 'volume'>('trends');
 
   // Find max sets in buckets for relative bar scaling
@@ -91,7 +92,7 @@ export default function TrainingTrendsCard({
                   key={w}
                   type="button"
                   onClick={() => onSelectWeeks(w)}
-                  className={`px-2 py-0.5 text-xs font-black transition-all cursor-pointer ${
+                  className={`min-h-10 px-2 py-1 text-xs font-black transition-colors cursor-pointer ${
                     selectedWeeks === w ? 'bg-ink text-neon' : 'text-ink/60 hover:text-ink'
                   }`}
                 >
@@ -115,10 +116,10 @@ export default function TrainingTrendsCard({
                   ? 'bg-amber-100 text-amber-900'
                   : 'bg-white text-ink/80'
               }`}>
-                {trends.trendDirection === 'increasing' ? '容量上升' : trends.trendDirection === 'decreasing' ? '周期减量' : '节奏平稳'}
+                {!trends.hasEnoughData ? '数据积累中' : trends.trendDirection === 'increasing' ? '容量上升' : trends.trendDirection === 'decreasing' ? '周期减量' : '节奏平稳'}
               </span>
             </div>
-            <div className="flex items-center gap-3 text-[11px] font-bold text-ink/60 pt-1">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-bold text-ink/60 pt-1">
               <span>周均打卡 <strong className="text-ink">{trends.avgWorkoutsPerWeek}</strong> 次</span>
               <span>·</span>
               <span>周均动起来 <strong className="text-ink">{trends.avgActiveDaysPerWeek}</strong> 天</span>
@@ -126,6 +127,8 @@ export default function TrainingTrendsCard({
               <span>周均负荷 <strong className="text-ink">{trends.avgSetsPerWeek}</strong> 组</span>
             </div>
           </div>
+
+          <p className="text-[10px] text-ink/60">包含本周；趋势方向比较等长的完整周，周均值包含本周。</p>
 
           {/* Visual Week Bars */}
           <div className="space-y-2 pt-1">
@@ -163,11 +166,15 @@ export default function TrainingTrendsCard({
       {activeTab === 'exercises' && (
         <div className="space-y-2.5">
           <p className="text-[11px] text-ink/60 font-bold leading-relaxed">
-            对比近 28 天与上一个 28 天周期的动作极限力量 (e1RM) 与负荷变化：
+            对比近 28 天与上一个 28 天周期的最佳表现；自重动作按有效负荷或次数比较。
           </p>
 
+          {progression.length > 6 && <button type="button" aria-expanded={showAllExercises}
+            onClick={() => setShowAllExercises(value => !value)} className="btn-secondary min-h-11 text-xs">
+            {showAllExercises ? '收起动作明细' : `查看全部 ${progression.length} 个动作`}
+          </button>}
           {progression.length > 0 ? (
-            progression.slice(0, 6).map((item) => {
+            progression.slice(0, showAllExercises ? progression.length : 6).map((item) => {
               const isProgressed = item.status === 'progressed';
               const isMaintained = item.status === 'maintained';
               const isRegressed = item.status === 'regressed';
@@ -200,7 +207,7 @@ export default function TrainingTrendsCard({
                         : isRegressed
                         ? `回落 ${item.changePercentage}%`
                         : isNew
-                        ? '新动作'
+                        ? '上期无记录'
                         : '暂无近期记录'}
                     </span>
                   </div>
@@ -231,7 +238,7 @@ export default function TrainingTrendsCard({
               <button
                 type="button"
                 onClick={() => onSelectVolumeTimeframe(7)}
-                className={`px-2 py-0.5 text-xs font-black transition-all cursor-pointer ${
+                className={`min-h-10 px-2 py-1 text-xs font-black transition-colors cursor-pointer ${
                   volumeTimeframe === 7 ? 'bg-ink text-neon' : 'text-ink/60 hover:text-ink'
                 }`}
               >
@@ -240,7 +247,7 @@ export default function TrainingTrendsCard({
               <button
                 type="button"
                 onClick={() => onSelectVolumeTimeframe(28)}
-                className={`px-2 py-0.5 text-xs font-black transition-all cursor-pointer ${
+                className={`min-h-10 px-2 py-1 text-xs font-black transition-colors cursor-pointer ${
                   volumeTimeframe === 28 ? 'bg-ink text-neon' : 'text-ink/60 hover:text-ink'
                 }`}
               >
@@ -249,7 +256,7 @@ export default function TrainingTrendsCard({
             </div>
           </div>
 
-          {recentSetsCount > 0 ? (
+          {recentSetsCount > 0 || (categoryDetails[WorkoutCategory.Cardio].cardioVolumeMetrics?.validSessions ?? 0) > 0 ? (
             <div className="space-y-3">
               {volumeDistribution.map((item) => {
                 const isCardio = item.category === WorkoutCategory.Cardio;
@@ -266,23 +273,23 @@ export default function TrainingTrendsCard({
                       <div className="flex items-center gap-2 shrink-0">
                         {isCardio ? (
                           <span className="text-ink font-black italic whitespace-nowrap">
-                            {detail?.cardioCalories?.actual || 0} kcal
+                            {detail?.cardioVolumeMetrics?.effectiveMinutes || 0} 分钟
                           </span>
                         ) : (
-                          <span className="text-ink font-black italic whitespace-nowrap">{item.sets} 加权组</span>
+                          <span className="text-ink font-black italic whitespace-nowrap">{item.sets} 组</span>
                         )}
-                        <span className="text-[10px] bg-paper px-1.5 py-0.2 border border-ink text-ink font-black shrink-0 whitespace-nowrap">
+                        {!isCardio && <span className="text-[10px] bg-paper px-1.5 py-0.2 border border-ink text-ink font-black shrink-0 whitespace-nowrap">
                           {item.percentage}%
-                        </span>
+                        </span>}
                       </div>
                     </div>
                     {/* Visual Bar */}
-                    <div className="w-full h-2 bg-paper overflow-hidden flex border border-ink/30">
+                    {!isCardio && <div className="w-full h-2 bg-paper overflow-hidden flex border border-ink/30">
                       <div
                         style={{ width: `${Math.min(100, Math.max(0, item.percentage))}%` }}
                         className={`h-full ${item.color}`}
                       />
-                    </div>
+                    </div>}
                   </div>
                 );
               })}

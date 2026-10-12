@@ -13,17 +13,17 @@ console.log('--- Testing Statistics 3-Tier Hierarchy & Data Isolation ---');
 const root = process.cwd();
 const statsCode = fs.readFileSync(path.join(root, 'src/components/Statistics.tsx'), 'utf8');
 
-// 1. Verify 500-log subscription parameter to prevent 100-log truncation
+// 1. Statistics requests complete paginated history.
 assert.ok(
   statsCode.includes('subscribeToUserWorkoutLogs(\n      user.uid,') ||
   statsCode.includes('subscribeToUserWorkoutLogs('),
   'Statistics calls subscribeToUserWorkoutLogs',
 );
 assert.ok(
-  statsCode.includes('500,'),
-  'Statistics passes 500 maxCount to subscribeToUserWorkoutLogs to prevent PR truncation',
+  statsCode.includes("{ mode: 'statistics' }"),
+  'Statistics opts into complete paginated history',
 );
-console.log('✅ PASSED: Statistics passes 500-log limit preventing historical PR truncation');
+console.log('✅ PASSED: Statistics uses paginated history without a 500-log cap');
 
 // 2. Verify 3-tier hierarchy structure in markup
 assert.ok(statsCode.includes('第二层'), 'Tier 2 header present in Statistics');
@@ -61,14 +61,14 @@ console.log('✅ PASSED: Training State vs Strength Level conceptually separated
     makeLog('l-1', new Date(nowMs - 2 * dayMs).toISOString(), 80, 5),
     makeLog('l-2', new Date(nowMs - 4 * dayMs).toISOString(), 80, 5),
   ];
-  const analyticsA = calculateFullWorkoutAnalytics(logsA, {}, 28, { sex: 'male', bodyweightKg: 75 });
+  const analyticsA = calculateFullWorkoutAnalytics(logsA, {}, 28, { sex: 'male', bodyweightKg: 75 }, now);
   const chestA = analyticsA.categoryDetails[WorkoutCategory.Chest];
 
   // Lifter B: trained 80kg x 5 a long time ago (60 days ago - outside 28 days)
   const logsB = [
     makeLog('l-old', new Date(nowMs - 60 * dayMs).toISOString(), 80, 5),
   ];
-  const analyticsB = calculateFullWorkoutAnalytics(logsB, {}, 28, { sex: 'male', bodyweightKg: 75 });
+  const analyticsB = calculateFullWorkoutAnalytics(logsB, {}, 28, { sex: 'male', bodyweightKg: 75 }, now);
   const chestB = analyticsB.categoryDetails[WorkoutCategory.Chest];
 
   // Lifter A has active training capacity in 28 days

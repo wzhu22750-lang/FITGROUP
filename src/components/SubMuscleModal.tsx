@@ -55,7 +55,7 @@ export default function SubMuscleModal({ category, detail, onClose }: SubMuscleM
                 {category === WorkoutCategory.Cardio ? (
                   <>28天有氧评分: <strong className="text-ink">{detail.cardioScore ?? detail.trainingScore} 分</strong></>
                 ) : (
-                  <>28天训练状态: <strong className="text-ink">{detail.trainingScore} 分</strong> · 相对力量: {detail.strengthScore} 分{detail.strengthConfidence ? ` · ${CONFIDENCE_LABEL[detail.strengthConfidence]}` : ''}</>
+                  <>28天训练状态: <strong className="text-ink">{detail.trainingScore} 分</strong> · 相对力量: {detail.strengthAssessment ? `${detail.strengthScore} 分` : '无数据'}{detail.strengthConfidence ? ` · ${CONFIDENCE_LABEL[detail.strengthConfidence]}` : ''}</>
                 )}
               </p>
             </div>
