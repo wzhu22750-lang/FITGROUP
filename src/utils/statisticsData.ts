@@ -9,6 +9,8 @@ export interface StatisticsSnapshot {
   historyReady: boolean;
   historyRefreshing?: boolean;
   totalWorkouts?: number;
+  /** Query cutoff shared by every progressive phase; updatedAt is cache freshness. */
+  asOf?: number;
   updatedAt: number;
 }
 export interface StatisticsChange {
@@ -18,7 +20,7 @@ export interface StatisticsChange {
 }
 interface Dependencies {
   fetch: (uid: string, options: { since?: string; before?: string; until: string; signal: AbortSignal; timeoutMs: number }) => Promise<WorkoutLog[]>;
-  listen: (uid: string, change: (event: StatisticsChange) => void, reconnect: () => void) => () => void;
+  listen: (uid: string, change: (event: StatisticsChange) => void, reconnect: () => void, foreground: () => void) => () => void;
   now?: () => number;
   ttlMs?: number;
   historyTtlMs?: number;
@@ -41,6 +43,23 @@ const contentEqual = (a: WorkoutLog[], b: WorkoutLog[]) => a.length === b.length
   const other = b[index];
   return log.id === other.id && log.timestamp === other.timestamp && log.category === other.category && exerciseContent(log.exercises) === exerciseContent(other.exercises);
 });
+const partitionLogs = (logs: WorkoutLog[], since: string, until: string, previous?: StatisticsSnapshot) => {
+  // Later payloads replace earlier versions of an immutable record ID.
+  const unique = new Map(logs.map(log => [log.id, log]));
+  const recent: WorkoutLog[] = [], older: WorkoutLog[] = [];
+  const sinceMs = Date.parse(since), untilMs = Date.parse(until);
+  for (const log of unique.values()) {
+    const time = Date.parse(log.timestamp);
+    if (!Number.isFinite(time) || time > untilMs) continue;
+    (time >= sinceMs ? recent : older).push(log);
+  }
+  const sort = (a: WorkoutLog, b: WorkoutLog) => Date.parse(b.timestamp) - Date.parse(a.timestamp) || b.id.localeCompare(a.id);
+  recent.sort(sort); older.sort(sort);
+  const recentLogs = previous && contentEqual(previous.recentLogs, recent) ? previous.recentLogs : recent;
+  const history = previous && contentEqual(previous.history, older) ? previous.history : older;
+  const combined = recentLogs === previous?.recentLogs && history === previous?.history ? previous.logs : [...recentLogs, ...history];
+  return { recentLogs, history, logs: combined };
+};
 
 /** User-scoped memory cache. Never persist private training data to shared storage. */
 export function createStatisticsDataStore(deps: Dependencies) {
@@ -64,30 +83,32 @@ export function createStatisticsDataStore(deps: Dependencies) {
     if (entry.flight) return entry.flight;
     const version = ++entry.version;
     const controller = new AbortController(); entry.controller = controller;
-    const until = new Date(now()).toISOString();
-    const needsHistory = entry.dirtyHistory || !entry.snapshot?.historyReady || now() - entry.historyAt >= historyTtl;
+    const asOf = now();
+    const until = new Date(asOf).toISOString();
+    const since = new Date(asOf - 90 * 86400000).toISOString();
+    const needsHistory = entry.dirtyHistory || !entry.snapshot?.historyReady || asOf - entry.historyAt >= historyTtl || since < entry.since;
     const flight = (async () => {
       try {
         // Recent data alone unlocks the first screen. Historical PRs arrive later.
-        const recent = await deps.fetch(uid, { since: entry.since, until, signal: controller.signal, timeoutMs: 15_000 });
+        const recent = await deps.fetch(uid, { since, until, signal: controller.signal, timeoutMs: 15_000 });
         if (version !== entry.version || controller.signal.aborted) return;
         const previous = entry.snapshot;
-        const history = previous?.history ?? [];
-        const recentLogs = previous && contentEqual(previous.recentLogs, recent) ? previous.recentLogs : recent;
+        const expired = previous?.recentLogs.filter(log => Date.parse(log.timestamp) < Date.parse(since)) ?? [];
+        const window = partitionLogs([...(previous?.history ?? []), ...expired, ...recent], since, until, previous);
+        entry.since = since;
         entry.snapshot = {
-          recentLogs, history, logs: recentLogs === previous?.recentLogs ? previous.logs : [...recentLogs, ...history],
+          ...window,
           historyReady: !!previous?.historyReady, historyRefreshing: needsHistory,
-          totalWorkouts: previous?.historyReady ? recentLogs.length + history.length : undefined,
-          updatedAt: now(),
+          totalWorkouts: previous?.historyReady ? window.logs.length : undefined,
+          asOf, updatedAt: now(),
         };
         publish(entry);
         if (needsHistory) {
-          const older = await deps.fetch(uid, { before: entry.since, until, signal: controller.signal, timeoutMs: 60_000 });
+          const older = await deps.fetch(uid, { before: since, until, signal: controller.signal, timeoutMs: 60_000 });
           if (version !== entry.version || controller.signal.aborted) return;
-          // Preserve the array when the server returned unchanged training data.
-          const history = contentEqual(entry.snapshot.history, older) ? entry.snapshot.history : older;
+          const window = partitionLogs([...recent, ...older], since, until, entry.snapshot);
           entry.historyAt = now(); entry.dirtyHistory = false;
-          entry.snapshot = { ...entry.snapshot, history, logs: [...recentLogs, ...history], historyReady: true, historyRefreshing: false, totalWorkouts: recentLogs.length + history.length, updatedAt: now() };
+          entry.snapshot = { ...entry.snapshot, ...window, historyReady: true, historyRefreshing: false, totalWorkouts: window.logs.length, updatedAt: now() };
           publish(entry);
         }
       } catch (error) {
@@ -139,7 +160,10 @@ export function createStatisticsDataStore(deps: Dependencies) {
         const sinceMs = new Date(target.since).getTime();
         const recentOnly = event.eventType === 'INSERT' && newTime >= sinceMs || event.eventType === 'UPDATE' && newTime >= sinceMs && oldTime >= sinceMs || event.eventType === 'DELETE' && oldTime >= sinceMs;
         schedule(uid, target, !recentOnly);
-      }, () => schedule(uid, target, true));
+      }, () => schedule(uid, target, true), () => {
+        if (target.timer) return;
+        if (!target.snapshot || target.dirtyHistory || now() - target.snapshot.updatedAt >= ttl || now() - target.historyAt >= historyTtl) void refresh(uid, target);
+      });
       if (!target.snapshot || target.dirtyHistory || now() - target.snapshot.updatedAt >= ttl || now() - target.historyAt >= historyTtl) void refresh(uid, target);
       return () => {
         target.listeners.delete(listener);
@@ -161,6 +185,7 @@ export function createStatisticsDataStore(deps: Dependencies) {
 }
 
 const analysisCache = new WeakMap<StatisticsSnapshot, Map<string, WorkoutLog[]>>();
+const historyEvidenceCache = new WeakMap<WorkoutLog[], Map<string, WorkoutLog[]>>();
 /** Preserve the two strongest distinct performances plus flagged entries, with their real log IDs. */
 export function getStatisticsAnalysisLogs(snapshot: StatisticsSnapshot, ctx?: StrengthBodyContext | null): WorkoutLog[] {
   const body = resolveBodyContext(ctx).ctx;
@@ -168,9 +193,17 @@ export function getStatisticsAnalysisLogs(snapshot: StatisticsSnapshot, ctx?: St
   let cached = analysisCache.get(snapshot);
   if (!cached) { cached = new Map(); analysisCache.set(snapshot, cached); }
   const existing = cached.get(key); if (existing) return existing;
+  const logs = [...snapshot.recentLogs, ...getHistoricalEvidence(snapshot.history, body, key)];
+  cached.set(key, logs); return logs;
+}
+
+function getHistoricalEvidence(history: WorkoutLog[], body: StrengthBodyContext, key: string): WorkoutLog[] {
+  let cached = historyEvidenceCache.get(history);
+  if (!cached) { cached = new Map(); historyEvidenceCache.set(history, cached); }
+  const existing = cached.get(key); if (existing) return existing;
   const flaggedEntries: Array<{ log: WorkoutLog; exercise: WorkoutLog['exercises'][number] }> = [];
   const candidates = new Map<string, Array<{ log: WorkoutLog; exercise: WorkoutLog['exercises'][number]; value: number; excluded: boolean }>>();
-  for (const log of snapshot.history) for (const exercise of log.exercises ?? []) {
+  for (const log of history) for (const exercise of log.exercises ?? []) {
     const performance = resolveLoggedStrengthPerformance(exercise, body.bodyweightKg);
     if (!performance?.definition?.hasStrengthBenchmark || !performance.estimate.usableForStrength) continue;
     if (performance.plausibility.excludeFromScoring) { flaggedEntries.push({ log, exercise }); continue; }
@@ -188,15 +221,18 @@ export function getStatisticsAnalysisLogs(snapshot: StatisticsSnapshot, ctx?: St
     if (!target) { target = { ...log, exercises: [] }; byLog.set(log.id, target); }
     if (!target.exercises.includes(exercise)) target.exercises.push(exercise);
   });
-  const logs = [...snapshot.recentLogs, ...byLog.values()]; cached.set(key, logs); return logs;
+  const logs = [...byLog.values()];
+  if (cached.size >= 4) cached.clear();
+  cached.set(key, logs); return logs;
 }
 
 const calculationCache = new WeakMap<WorkoutLog[], Map<string, ReturnType<typeof calculateFullWorkoutAnalytics>>>();
 export function getStatisticsAnalytics(snapshot: StatisticsSnapshot, prs: Record<string, number>, days: number, ctx?: StrengthBodyContext | null) {
   const logs = getStatisticsAnalysisLogs(snapshot, ctx);
   let cached = calculationCache.get(logs); if (!cached) { cached = new Map(); calculationCache.set(logs, cached); }
-  const key = `${days}:${snapshot.updatedAt}:${JSON.stringify(ctx ?? null)}:${JSON.stringify(prs)}`;
+  const asOf = snapshot.asOf ?? snapshot.updatedAt;
+  const key = `${days}:${asOf}:${JSON.stringify(ctx ?? null)}:${JSON.stringify(prs)}`;
   const result = cached.get(key); if (result) return result;
-  const computed = calculateFullWorkoutAnalytics(logs, prs, days, ctx, new Date(snapshot.updatedAt));
+  const computed = calculateFullWorkoutAnalytics(logs, prs, days, ctx, new Date(asOf));
   if (cached.size >= 4) cached.clear(); cached.set(key, computed); return computed;
 }

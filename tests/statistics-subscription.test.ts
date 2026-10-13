@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import {supabase} from '../src/lib/supabase';
-import {statisticsDataStore,subscribeToStatisticsData} from '../src/api';
 import type {StatisticsSnapshot} from '../src/utils/statisticsData';
 globalThis.fetch=async()=>{throw Error('Unexpected network in subscription fixture');};
+const originalNow = Date.now; let clock = originalNow(); Date.now = () => clock;
+const {statisticsDataStore,subscribeToStatisticsData} = await import('../src/api');
 const row=(id:string,days:number,weight:number)=>({id,user_id:'owner',created_at:new Date(Date.now()-days*86400000).toISOString(),category:'Chest',exercises:[{id:'e',name:'卧推',type:'strength',sets:3,reps:8,weight}]});
 let rows=[row('recent',2,60),row('old',200,120)],reads=0;
 const registrations:Array<{filter:any;callback:(event:any)=>void}>=[];let status:(value:string)=>void=()=>{};
 const original={from:supabase.from,channel:supabase.channel,removeChannel:supabase.removeChannel};
+const originalWindow = globalThis.window, originalDocument = globalThis.document;
+const fixtureWindow = new EventTarget(), fixtureDocument = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+(globalThis as any).window = fixtureWindow; (globalThis as any).document = fixtureDocument;
 (supabase as any).from=()=>{let since='',before='',cursor='',limit=400;const q:any={select:()=>q,eq:()=>q,order:()=>q,lte:()=>q,abortSignal:()=>q,
  gte:(_:string,v:string)=>{since=v;return q;},lt:(key:string,v:string)=>{if(key==='id')cursor=v;else before=v;return q;},limit:(v:number)=>{limit=v;return q;},
  then:(resolve:any,reject:any)=>{reads++;return Promise.resolve({data:rows.filter(r=>(!since||r.created_at>=since)&&(!before||r.created_at<before)&&(!cursor||r.id<cursor)).sort((a,b)=>b.id.localeCompare(a.id)).slice(0,limit),error:null}).then(resolve,reject);}};return q;};
@@ -35,7 +39,14 @@ try{
  assert.equal(snapshots.at(-1)!.history.length,0,'Own profile decrement invalidates deleted PR history');
  const beforeReconnect=reads;status('CHANNEL_ERROR');status('SUBSCRIBED');await waitFor(()=>reads>beforeReconnect);
  await waitFor(()=>snapshots.at(-1)?.historyReady===true && !snapshots.at(-1)?.historyRefreshing);
+ const beforeForeground=reads;
+ fixtureWindow.dispatchEvent(new Event('focus'));await sleep(20);assert.equal(reads,beforeForeground,'Fresh foreground does not request data');
+ clock+=31_000;
+ fixtureDocument.visibilityState='hidden';fixtureDocument.dispatchEvent(new Event('visibilitychange'));await sleep(20);assert.equal(reads,beforeForeground);
+ fixtureDocument.visibilityState='visible';fixtureDocument.dispatchEvent(new Event('visibilitychange'));fixtureWindow.dispatchEvent(new Event('focus'));
+ await waitFor(()=>reads>beforeForeground);await waitFor(()=>snapshots.at(-1)?.updatedAt===clock);
+ assert.equal(reads,beforeForeground+2,'Expired foreground deduplicates focus/visibility and keeps fresh history');
  const beforeSecondReconnect=reads;status('CHANNEL_ERROR');status('SUBSCRIBED');await waitFor(()=>reads>beforeSecondReconnect);
- stop();statisticsDataStore.reset();
+ stop();statisticsDataStore.reset();const afterStop=reads;clock+=31_000;fixtureWindow.dispatchEvent(new Event('focus'));await sleep(150);assert.equal(reads,afterStop,'Unmount removes foreground listeners');
  console.log('PASS production statistics subscription: user-scoped channels, social filtering, semantic JSON comparison, cached recent edits, own delete detection and reconnect invalidation');
-}finally{Object.assign(supabase,original);statisticsDataStore.reset();}
+}finally{Object.assign(supabase,original);statisticsDataStore.reset();Date.now=originalNow;(globalThis as any).window=originalWindow;(globalThis as any).document=originalDocument;}

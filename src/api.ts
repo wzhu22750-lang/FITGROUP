@@ -1673,7 +1673,7 @@ export async function fetchWorkoutLogsForStatistics(
 
 export const statisticsDataStore = createStatisticsDataStore({
   fetch: fetchWorkoutLogsForStatistics,
-  listen: (uid, change, reconnect) => {
+  listen: (uid, change, reconnect, foreground) => {
     let subscribed = false;
     let interrupted = false;
     let profileCount = cachedUser?.uid === uid ? cachedUser.totalWorkouts : undefined;
@@ -1693,8 +1693,14 @@ export const statisticsDataStore = createStatisticsDataStore({
         if (status === 'SUBSCRIBED') { if (subscribed || interrupted) reconnect(); subscribed = true; interrupted = false; }
       });
     const online = () => reconnect();
-    if (typeof window !== 'undefined') window.addEventListener('online', online);
-    return () => { if (typeof window !== 'undefined') window.removeEventListener('online', online); void supabase.removeChannel(channel); };
+    const visible = () => { if (typeof document === 'undefined' || document.visibilityState === 'visible') foreground(); };
+    if (typeof window !== 'undefined') { window.addEventListener('online', online); window.addEventListener('focus', visible); }
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', visible);
+    return () => {
+      if (typeof window !== 'undefined') { window.removeEventListener('online', online); window.removeEventListener('focus', visible); }
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', visible);
+      void supabase.removeChannel(channel);
+    };
   },
 });
 export const subscribeToStatisticsData = (uid: string, data: (snapshot: StatisticsSnapshot) => void, error?: (error: Error) => void) => statisticsDataStore.subscribe(uid, data, error);

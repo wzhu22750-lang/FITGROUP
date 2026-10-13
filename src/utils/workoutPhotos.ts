@@ -37,21 +37,26 @@ export function trackUploadedPhoto(uid: string, reference: string, discard = fal
   saveQueue(uid, [...readQueue(uid).filter(item => item.reference !== reference), { reference, after: Date.now() + (discard ? 0 : 24 * 3600000) }]);
 }
 export function forgetUploadedPhoto(uid: string, reference: string) { saveQueue(uid, readQueue(uid).filter(item => item.reference !== reference)); }
-const cleanupFlights = new Map<string, Promise<void>>();
+const cleanupFlights = new Map<string, { task: Promise<void>; preserve: Set<string> }>();
 export async function cleanupWorkoutPhotos(uid: string, preserve: string[] = []) {
-  const existing = cleanupFlights.get(uid); if (existing) return existing;
+  const existing = cleanupFlights.get(uid);
+  if (existing) { preserve.forEach(reference => existing.preserve.add(reference)); return existing.task; }
+  const protectedReferences = new Set(preserve);
   const task = (async () => {
     const { data } = await supabase.auth.getSession();
     if (data.session?.user.id !== uid) return;
     for (const item of readQueue(uid)) {
       const path = workoutPhotoPath(item.reference);
-      if (!path?.startsWith(uid + '/') || item.after > Date.now() || preserve.includes(item.reference)) continue;
+      if (!path?.startsWith(uid + '/') || item.after > Date.now() || protectedReferences.has(item.reference)) continue;
       const current = await supabase.auth.getSession();
       if (current.data.session?.user.id !== uid) return;
+      // Joining callers and queue changes during auth checks can restore a draft.
+      const latest = readQueue(uid).find(candidate => candidate.reference === item.reference);
+      if (!latest || latest.after > Date.now() || protectedReferences.has(item.reference)) continue;
       // RLS refuses to delete an object still referenced by a saved workout.
-      const { error } = await supabase.storage.from('workouts').remove([path]);
-      if (!error) forgetUploadedPhoto(uid, item.reference);
+      const { data: removed, error } = await supabase.storage.from('workouts').remove([path]);
+      if (!error && removed?.some(object => object.name === path)) forgetUploadedPhoto(uid, item.reference);
     }
-  })().finally(() => { if (cleanupFlights.get(uid) === task) cleanupFlights.delete(uid); });
-  cleanupFlights.set(uid, task); return task;
+  })().finally(() => { if (cleanupFlights.get(uid)?.task === task) cleanupFlights.delete(uid); });
+  cleanupFlights.set(uid, { task, preserve: protectedReferences }); return task;
 }

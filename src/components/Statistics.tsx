@@ -331,7 +331,8 @@ export default function Statistics() {
   }, [userProfile?.sex, userProfile?.bodyweightKg]);
 
   // All modules use the same clock snapshot; only compute 7-day data on demand.
-  const referenceDate = useMemo(() => new Date(statisticsSnapshot?.updatedAt || Date.now()), [statisticsSnapshot?.updatedAt, workoutLogs]);
+  const referenceTime = statisticsSnapshot?.asOf ?? statisticsSnapshot?.updatedAt;
+  const referenceDate = useMemo(() => new Date(referenceTime ?? Date.now()), [referenceTime, workoutLogs]);
   const analysisLogs = useMemo(() => statisticsSnapshot ? getStatisticsAnalysisLogs(statisticsSnapshot, bodyContext) : workoutLogs, [statisticsSnapshot, bodyContext, workoutLogs]);
   const historyReady = statisticsSnapshot?.historyReady ?? logsReady;
   const historySummary = useMemo(() => summarizeWorkoutHistory(statisticsSnapshot?.logs ?? workoutLogs, referenceDate), [statisticsSnapshot?.logs, workoutLogs, referenceDate]);

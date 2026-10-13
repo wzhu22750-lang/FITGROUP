@@ -1,0 +1,180 @@
+{
+  "baselineCommit": "d73cf428d34726858399f0971f80af5709a54323",
+  "scope": "Controlled Node fixtures, 3 alternating runs; no real network, paint or Android measurement",
+  "nodeVersion": "v25.9.0",
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "evidencePreparation": {
+    "before": [
+      {
+        "historyRows": 5000,
+        "refreshes": 50,
+        "firstMs": 41.439,
+        "refreshMedianMs": 35.195,
+        "refreshP95Ms": 38.082
+      },
+      {
+        "historyRows": 5000,
+        "refreshes": 50,
+        "firstMs": 44.435,
+        "refreshMedianMs": 34.443,
+        "refreshP95Ms": 37.083
+      },
+      {
+        "historyRows": 5000,
+        "refreshes": 50,
+        "firstMs": 42.1,
+        "refreshMedianMs": 34.55,
+        "refreshP95Ms": 35.577
+      }
+    ],
+    "after": [
+      {
+        "historyRows": 5000,
+        "refreshes": 50,
+        "firstMs": 42.203,
+        "refreshMedianMs": 0.001,
+        "refreshP95Ms": 0.012
+      },
+      {
+        "historyRows": 5000,
+        "refreshes": 50,
+        "firstMs": 41.748,
+        "refreshMedianMs": 0.001,
+        "refreshP95Ms": 0.013
+      },
+      {
+        "historyRows": 5000,
+        "refreshes": 50,
+        "firstMs": 42.298,
+        "refreshMedianMs": 0.001,
+        "refreshP95Ms": 0.013
+      }
+    ]
+  },
+  "pageFixture": {
+    "before": [
+      {
+        "mode": "optimized",
+        "fixtureRows": 5000,
+        "simulatedPageLatencyMs": 5,
+        "cold": {
+          "requests": 16,
+          "bytes": 935099,
+          "firstMs": 42.21,
+          "fullMs": 181.74
+        },
+        "warm": {
+          "requests": 0,
+          "bytes": 0,
+          "firstMs": 0.02,
+          "fullMs": 1.2
+        },
+        "socialRequests": 0,
+        "analysisRows": 122,
+        "calculationMedianMs": 7.22
+      },
+      {
+        "mode": "optimized",
+        "fixtureRows": 5000,
+        "simulatedPageLatencyMs": 5,
+        "cold": {
+          "requests": 16,
+          "bytes": 935099,
+          "firstMs": 33.86,
+          "fullMs": 171.16
+        },
+        "warm": {
+          "requests": 0,
+          "bytes": 0,
+          "firstMs": 0.01,
+          "fullMs": 1.18
+        },
+        "socialRequests": 0,
+        "analysisRows": 122,
+        "calculationMedianMs": 7.19
+      },
+      {
+        "mode": "optimized",
+        "fixtureRows": 5000,
+        "simulatedPageLatencyMs": 5,
+        "cold": {
+          "requests": 16,
+          "bytes": 935099,
+          "firstMs": 37.65,
+          "fullMs": 180.51
+        },
+        "warm": {
+          "requests": 0,
+          "bytes": 0,
+          "firstMs": 0.01,
+          "fullMs": 1.19
+        },
+        "socialRequests": 0,
+        "analysisRows": 122,
+        "calculationMedianMs": 7.21
+      }
+    ],
+    "after": [
+      {
+        "mode": "optimized",
+        "fixtureRows": 5000,
+        "simulatedPageLatencyMs": 5,
+        "cold": {
+          "requests": 16,
+          "bytes": 935099,
+          "firstMs": 33.88,
+          "fullMs": 171.49
+        },
+        "warm": {
+          "requests": 0,
+          "bytes": 0,
+          "firstMs": 0.01,
+          "fullMs": 1.21
+        },
+        "socialRequests": 0,
+        "analysisRows": 122,
+        "calculationMedianMs": 8.29
+      },
+      {
+        "mode": "optimized",
+        "fixtureRows": 5000,
+        "simulatedPageLatencyMs": 5,
+        "cold": {
+          "requests": 16,
+          "bytes": 935099,
+          "firstMs": 34.16,
+          "fullMs": 174.88
+        },
+        "warm": {
+          "requests": 0,
+          "bytes": 0,
+          "firstMs": 0.01,
+          "fullMs": 1.23
+        },
+        "socialRequests": 0,
+        "analysisRows": 122,
+        "calculationMedianMs": 7.24
+      },
+      {
+        "mode": "optimized",
+        "fixtureRows": 5000,
+        "simulatedPageLatencyMs": 5,
+        "cold": {
+          "requests": 16,
+          "bytes": 935099,
+          "firstMs": 34.14,
+          "fullMs": 170.76
+        },
+        "warm": {
+          "requests": 0,
+          "bytes": 0,
+          "firstMs": 0.02,
+          "fullMs": 1.22
+        },
+        "socialRequests": 0,
+        "analysisRows": 122,
+        "calculationMedianMs": 7.17
+      }
+    ]
+  }
+}
