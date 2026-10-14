@@ -24,5 +24,19 @@ try {
   uid='other';await cleanupWorkoutPhotos('owner');assert.equal(removed.length,0,'A different account cannot drain owner queue');
   uid='owner';await cleanupWorkoutPhotos('owner');assert.deepEqual(removed,['owner/file.jpg']);
   trackUploadedPhoto('owner','https://photos.test/storage/v1/object/public/workouts/other/private.jpg',true);await cleanupWorkoutPhotos('owner');assert.equal(removed.length,1,'Cross-owner object cannot enter cleanup queue');
+  // Model the observed fixed-URL cache: no-store alone can return an old Blob
+  // after the backing object or its access has been removed.
+  const uncachedFrom = supabase.storage.from; let allowed = true; let cachedBlob: Blob | null = null;
+  const nonces: Array<string | undefined> = [];
+  (supabase.storage as any).from = (bucket: string) => ({ ...uncachedFrom.call(supabase.storage, bucket), download: async (_path: string, options: { cacheNonce?: string }, parameters: RequestInit) => {
+    assert.equal(parameters.cache, 'no-store'); nonces.push(options.cacheNonce);
+    if (!options.cacheNonce && cachedBlob) return { data: cachedBlob, error: null };
+    if (!allowed) return { data: null, error: new Error('403 revoked') };
+    cachedBlob = new Blob(['private']); return { data: cachedBlob, error: null };
+  } });
+  await downloadWorkoutPhoto(ref); allowed = false;
+  await assert.rejects(() => downloadWorkoutPhoto(ref), /revoked/, 'Fresh authorization cannot be bypassed by an old fixed-URL response');
+  assert.ok(nonces.every(nonce => typeof nonce === 'string' && nonce.length > 0));
+  assert.notEqual(nonces[0], nonces[1], 'Each explicit download has its own cache nonce');
   console.log('PASS photo privacy: authenticated downloads, access denial, cancellation, immutable upload, delayed orphan queue, draft preservation and user isolation');
 } finally { (supabase.storage as any).from=originalStorage;supabase.auth.getSession=originalSession; }

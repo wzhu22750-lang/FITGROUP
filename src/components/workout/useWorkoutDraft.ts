@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { WorkoutLog } from '../../types';
 import { createEditingDraft, createDraft, decodeDraft, draftStorageKey, WorkoutDraft } from '../../utils/workoutDraft';
+import { retainDraftPhoto } from '../../utils/workoutPhotos';
 
 const completedDrafts = new Set<string>();
 
@@ -21,10 +22,17 @@ export function useWorkoutDraft(owner: string, editingLog?: WorkoutLog) {
   const draftRef = useRef(draft);
   const [storageWarning, setStorageWarning] = useState(initial.warning);
   const [restored, setRestored] = useState(initial.restored);
+  const active = useRef(true);
+  useEffect(() => {
+    active.current = true;
+    const release = retainDraftPhoto(owner, () => draftRef.current.photoUrl || '');
+    return () => { active.current = false; release(); };
+  }, [owner]);
 
   // Persist in the edit event, not a debounce: tab changes/unmounts cannot lose the last edit.
   const commit = (next: WorkoutDraft) => {
     if (next.owner !== owner) throw new Error('草稿账号不匹配');
+    if (!active.current) return draftRef.current;
     const updated = { ...next, updatedAt: Date.now() };
     draftRef.current = updated;
     setDraft(updated);
@@ -41,11 +49,11 @@ export function useWorkoutDraft(owner: string, editingLog?: WorkoutLog) {
     return updated;
   };
   const update = (change: (current: WorkoutDraft) => WorkoutDraft) => {
-    if (draftRef.current.pending) return;
+    if (!active.current || draftRef.current.pending) return;
     commit(change(draftRef.current));
   };
   const finish = () => {
-    if (editingLog) return;
+    if (!active.current || editingLog) return;
     completedDrafts.add(draftRef.current.id);
     try { localStorage.removeItem(draftStorageKey(owner)); } catch { /* Server success must remain success. */ }
     if (typeof window !== 'undefined') {
@@ -53,6 +61,7 @@ export function useWorkoutDraft(owner: string, editingLog?: WorkoutLog) {
     }
   };
   const reset = () => {
+    if (!active.current) return;
     commit(editingLog ? createEditingDraft(owner, editingLog) : createDraft(owner));
     setRestored(false);
     if (typeof window !== 'undefined') {

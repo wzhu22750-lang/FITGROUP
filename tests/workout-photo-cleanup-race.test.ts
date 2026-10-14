@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { supabase } from '../src/lib/supabase';
 import { cleanupWorkoutPhotos, trackUploadedPhoto, forgetUploadedPhoto } from '../src/utils/workoutPhotos';
+import { createDraft, createDraftExercise, draftStorageKey } from '../src/utils/workoutDraft';
 
 const ref = 'https://photos.test/storage/v1/object/public/workouts/owner/draft.jpg';
 const queue = new Map<string, string>();
@@ -51,4 +52,35 @@ test('RLS-filtered empty deletion keeps the orphan queue available for later rec
     const pending = cleanupWorkoutPhotos('owner'); await f.waiting(); f.release(); await pending;
     assert.equal(JSON.parse(queue.get('fitgroup:photo-cleanup:v1:owner')!)[0].reference, ref);
   } finally { supabase.auth.getSession = original.session; supabase.storage.from = original.storage; }
+});
+
+test('independent cleanup calls preserve a persisted draft after the original flight ended', async () => {
+  const f = setup(); f.release();
+  try {
+    queue.set(draftStorageKey('owner'), JSON.stringify({ ...createDraft('owner'), photoUrl: ref }));
+    await cleanupWorkoutPhotos('owner', [ref]);
+    await cleanupWorkoutPhotos('owner');
+    assert.deepEqual(f.removed, [], 'Another entry point cannot delete the unfinished draft');
+    queue.delete(draftStorageKey('owner'));
+    await cleanupWorkoutPhotos('owner');
+    assert.deepEqual(f.removed, ['owner/draft.jpg'], 'Discarded drafts release eligible photos');
+  } finally { supabase.auth.getSession = original.session; supabase.storage.from = original.storage; }
+});
+
+test('uncertain submissions remain protected when the logger is not mounted', async () => {
+  const f = setup(); f.release();
+  try {
+    const exercise = { ...createDraftExercise({ name: '卧推', type: 'strength' }), weight: '60' };
+    queue.set(draftStorageKey('owner'), JSON.stringify({ ...createDraft('owner'), photoUrl: ref, exercises: [exercise], pending: true }));
+    await cleanupWorkoutPhotos('owner'); assert.deepEqual(f.removed, []);
+  } finally { supabase.auth.getSession = original.session; supabase.storage.from = original.storage; }
+});
+
+test('unreadable draft storage defers cleanup instead of assuming no draft exists', async () => {
+  const f = setup(); f.release();
+  const storage = (globalThis as any).localStorage;
+  try {
+    (globalThis as any).localStorage = { ...storage, getItem: (key: string) => { if (key === draftStorageKey('owner')) throw new Error('storage denied'); return storage.getItem(key); } };
+    await cleanupWorkoutPhotos('owner'); assert.deepEqual(f.removed, []);
+  } finally { (globalThis as any).localStorage = storage; supabase.auth.getSession = original.session; supabase.storage.from = original.storage; }
 });

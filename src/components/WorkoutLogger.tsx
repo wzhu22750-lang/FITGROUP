@@ -55,6 +55,13 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState('');
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const activeSession = useRef(true);
+  const photoRequest = useRef(0);
+  const uploadInFlight = useRef(false);
+  useEffect(() => {
+    activeSession.current = true;
+    return () => { activeSession.current = false; photoRequest.current++; uploadInFlight.current = false; };
+  }, []);
   const historyMap = useMemo(() => historyByExercise(history), [history]);
   const categories = draftCategories(draft);
   const completeCount = draft.exercises.filter(ex => !Object.keys(validateDraftExercise(ex)).length).length;
@@ -135,25 +142,45 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
 
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || uploadInFlight.current || submittingRef.current || draftRef.current.pending || getCurrentUser()?.uid !== owner) return;
+    const request = ++photoRequest.current;
+    const draftId = draftRef.current.id;
+    uploadInFlight.current = true;
     setPhotoError('');
     setIsUploadingPhoto(true);
     try {
-      const url = await uploadWorkoutPhoto(file, owner, draftRef.current.id);
+      const url = await uploadWorkoutPhoto(file, owner, draftId);
+      if (!activeSession.current || request !== photoRequest.current || draftRef.current.id !== draftId || draftRef.current.pending || getCurrentUser()?.uid !== owner) {
+        // The server may have finished an upload after the editing session ended.
+        trackUploadedPhoto(owner, url, true);
+        void cleanupWorkoutPhotos(owner).catch(() => {});
+        return;
+      }
       const previous = draftRef.current.photoUrl;
       if (previous && previous !== editing?.log.photoUrl) trackUploadedPhoto(owner, previous, true);
       update(current => ({ ...current, photoUrl: url }));
       void cleanupWorkoutPhotos(owner, [url]).catch(() => {});
       setNotice('训练照片已上传并附在本次记录中。');
     } catch (err) {
-      setPhotoError(err instanceof Error ? err.message : '照片上传失败，请重试');
+      if (activeSession.current && request === photoRequest.current && getCurrentUser()?.uid === owner) setPhotoError(err instanceof Error ? err.message : '照片上传失败，请重试');
     } finally {
-      setIsUploadingPhoto(false);
-      if (photoInputRef.current) photoInputRef.current.value = '';
+      if (activeSession.current && request === photoRequest.current) {
+        uploadInFlight.current = false;
+        setIsUploadingPhoto(false);
+        if (photoInputRef.current) photoInputRef.current.value = '';
+      }
     }
   };
 
+  const cancelPhotoUpload = () => {
+    photoRequest.current++;
+    uploadInFlight.current = false;
+    setIsUploadingPhoto(false);
+    if (photoInputRef.current) photoInputRef.current.value = '';
+  };
+
   const handleRemovePhoto = () => {
+    cancelPhotoUpload();
     const previous = draftRef.current.photoUrl;
     if (previous && previous !== editing?.log.photoUrl) trackUploadedPhoto(owner, previous, true);
     update(current => ({ ...current, photoUrl: '' }));
@@ -164,6 +191,7 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (submittingRef.current) return;
+    if (uploadInFlight.current) { setSubmitError('照片仍在上传，请完成后再提交。'); return; }
     const user = getCurrentUser();
     if (user?.uid !== owner) { setSubmitError('账号状态已变化，请重新进入打卡页。'); return; }
     if (offline) { setSubmitError(editing ? '当前离线，请联网后保存。修改暂留在当前窗口，请勿关闭。' : '当前离线，请联网后提交。训练内容仍保留在草稿中。'); return; }
@@ -241,7 +269,7 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
     }
     // Do not wait on a profile refresh after a successful write or report a navigation
     // failure as a save failure. The completed draft is removed only after server success.
-    if (saved && getCurrentUser()?.uid === owner) {
+    if (saved && activeSession.current && getCurrentUser()?.uid === owner) {
       if (editing && updatedLog) editing.onSuccess(updatedLog);
       else onSuccess();
     }
@@ -380,6 +408,7 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
                 </p>
               </div>
             )}
+            {isUploadingPhoto && <button type="button" className="btn-secondary text-xs min-h-[44px]" onClick={cancelPhotoUpload}>取消添加照片</button>}
             {photoError && <p className="text-xs font-bold text-red-600">{photoError}</p>}
             {draft.visibility === 'private' && (
               <p className="text-[10px] text-ink/60 bg-paper p-2 border border-ink/20">
@@ -397,7 +426,7 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
       {submitError && <p id="workout-submit-error" tabIndex={-1} className="workout-submit-error" role="alert">{submitError}</p>}
       <footer className="workout-submitbar">
         <div><strong>{completeCount} / {draft.exercises.length} <span>项已填写</span></strong><small>{offline ? '离线草稿' : visibilityLabel}</small></div>
-        <button type="submit" className="btn-neon" disabled={isSubmitting || offline || !draft.exercises.length} aria-busy={isSubmitting}>
+        <button type="submit" className="btn-neon" disabled={isSubmitting || isUploadingPhoto || offline || !draft.exercises.length} aria-busy={isSubmitting}>
           {isSubmitting ? '正在保存…' : draft.pending ? '重试提交' : editing ? '保存修改' : '完成打卡'}{!isSubmitting && <Send size={17} />}
         </button>
       </footer>
@@ -408,7 +437,7 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
         update(current => ({ ...current, exercises: mode === 'append' ? [...current.exercises, ...exercises] : exercises }));
         setExpandedId(exercises[0]?.id || ''); setRemoved(null); setShowErrors(false); setSheet(null); setNotice(`已${mode === 'append' ? '追加' : '沿用'} ${exercises.length} 个动作，请按本次实际训练调整。`);
       }} />}
-      {sheet === 'clear' && <WorkoutSheet title="清空本次草稿？" onClose={() => setSheet(null)} footer={<div className="grid grid-cols-2 gap-3"><button type="button" className="btn-secondary" onClick={() => setSheet(null)}>继续记录</button><button type="button" className="btn-primary" onClick={() => { if (!draftRef.current.pending && draftRef.current.photoUrl && draftRef.current.photoUrl !== editing?.log.photoUrl) { trackUploadedPhoto(owner, draftRef.current.photoUrl, true); void cleanupWorkoutPhotos(owner).catch(() => {}); } reset(); setSheet(null); setRemoved(null); setExpandedId(''); setSubmitError(''); setNotice(''); setShowErrors(false); }}>确认清空</button></div>}><p className="text-sm leading-relaxed">只清空此设备上本次未提交的动作和心得，不影响已发布的历史记录。清空后无法恢复。</p></WorkoutSheet>}
+      {sheet === 'clear' && <WorkoutSheet title="清空本次草稿？" onClose={() => setSheet(null)} footer={<div className="grid grid-cols-2 gap-3"><button type="button" className="btn-secondary" onClick={() => setSheet(null)}>继续记录</button><button type="button" className="btn-primary" onClick={() => { cancelPhotoUpload(); if (!draftRef.current.pending && draftRef.current.photoUrl && draftRef.current.photoUrl !== editing?.log.photoUrl) { trackUploadedPhoto(owner, draftRef.current.photoUrl, true); void cleanupWorkoutPhotos(owner).catch(() => {}); } reset(); setSheet(null); setRemoved(null); setExpandedId(''); setSubmitError(''); setNotice(''); setShowErrors(false); }}>确认清空</button></div>}><p className="text-sm leading-relaxed">只清空此设备上本次未提交的动作和心得，不影响已发布的历史记录。清空后无法恢复。</p></WorkoutSheet>}
     </form>
   );
 }

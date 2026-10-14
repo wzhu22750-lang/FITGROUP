@@ -1,0 +1,34 @@
+{
+  "timestamp": "2026-10-14T03:58:17.758Z",
+  "checks": [
+    "Workouts bucket is private",
+    "Owner uploads a real private PNG",
+    "Owner saves the private workout reference",
+    "Owner retrieves the original bytes",
+    "Other authenticated account cannot download",
+    "Other account cannot read the private log",
+    "Anonymous API cannot download",
+    "Legacy public URL cannot retrieve private bytes",
+    "Owner cleanup cannot delete a saved workout photo",
+    "Saved photo cannot be overwritten",
+    "Another account cannot delete the owner photo",
+    "Owner can delete the private fixture log",
+    "Abandoned file becomes removable after its log is removed"
+  ],
+  "cleanup": {
+    "logs": true,
+    "objects": true,
+    "users": true,
+    "profiles": true
+  },
+  "deletionEvidence": {
+    "removedLogCount": 1,
+    "removedObjectCount": 1,
+    "returnedPathMatches": true,
+    "fixedUrlBytes": 68,
+    "freshError": "StorageApiError",
+    "freshBytes": null,
+    "repeatedFixedUrlBytes": 68
+  },
+  "scope": "Actual HTTP/Auth/Storage + private saved-log RLS; no public feed fixture or browser/device test"
+}

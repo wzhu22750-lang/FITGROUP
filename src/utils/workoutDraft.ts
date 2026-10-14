@@ -1,6 +1,7 @@
 import { isLocalWorkoutTime, toLocalWorkoutTime } from './workoutTime';
 import { Exercise, WorkoutCategory, WorkoutLog, WorkoutVisibility } from '../types';
 import { estimateCardioCalories, inferLogCategories, PresetExercise } from '../constants/workoutPresets';
+export { draftStorageKey } from './workoutDraftStorage';
 
 export const MAX_WORKOUT_EXERCISES = 10;
 export type WeightMode = 'load' | 'bodyweight' | 'assisted';
@@ -36,7 +37,6 @@ export interface WorkoutDraft {
 export type ExerciseErrors = Partial<Record<NumericField | 'name', string>>;
 export const newDraftId = () => typeof crypto !== 'undefined' && crypto.randomUUID
   ? crypto.randomUUID() : `fg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-export const draftStorageKey = (owner: string) => `fitgroup:workout-draft:v1:${owner}`;
 export const exerciseKey = (ex: { name: string; type: string }) => `${ex.type}:${ex.name.trim().toLocaleLowerCase()}`;
 
 export function createDraft(owner: string): WorkoutDraft {

@@ -1,0 +1,29 @@
+{
+  "baselineCommit": "cd837b71d810b4a9eb9bfe6edecfe452f80bdff4",
+  "scope": "Same dependency tree and build public configuration; artifact bytes, not startup timing",
+  "before": {
+    "index-": {
+      "bytes": 162245,
+      "gzipBytes": 48187
+    },
+    "WorkoutLogger-": {
+      "bytes": 43968,
+      "gzipBytes": 14978
+    }
+  },
+  "after": {
+    "index-": {
+      "bytes": 162928,
+      "gzipBytes": 48452
+    },
+    "WorkoutLogger-": {
+      "bytes": 44959,
+      "gzipBytes": 15263
+    }
+  },
+  "duplicateUploadFixture": {
+    "beforeCalls": 2,
+    "afterCalls": 1,
+    "scope": "Actual React form handlers with mocked Storage upload; not production traffic"
+  }
+}

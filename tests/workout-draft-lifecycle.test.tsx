@@ -4,6 +4,8 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { useWorkoutDraft } from '../src/components/workout/useWorkoutDraft';
 import type { WorkoutLog } from '../src/types';
 import { createDraftExercise, draftStorageKey } from '../src/utils/workoutDraft';
+import { cleanupWorkoutPhotos, trackUploadedPhoto } from '../src/utils/workoutPhotos';
+import { supabase } from '../src/lib/supabase';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 const storage = new Map<string, string>();
@@ -67,5 +69,42 @@ try {
   assert.equal(storage.get(draftStorageKey('b')), existingDraft, 'Saving edits must not clear the new-workout draft');
   await act(async () => { session.reset(); });
   assert.equal(session.draft.note, 'original');
+  await act(async () => { tree.unmount(); tree = create(<Harness owner="late" />); });
+  await act(async () => { session.update(draft => ({ ...draft, note: 'old session' })); });
+  const disposed = session;
+  await act(async () => { tree.unmount(); tree = create(<Harness owner="late" />); });
+  await act(async () => { session.update(draft => ({ ...draft, note: 'new session' })); });
+  const latest = storage.get(draftStorageKey('late'));
+  await act(async () => { disposed.update(draft => ({ ...draft, photoUrl: 'late upload' })); });
+  assert.equal(storage.get(draftStorageKey('late')), latest, 'Late callbacks cannot overwrite a remounted draft');
+  disposed.finish();
+  assert.equal(storage.get(draftStorageKey('late')), latest, 'Late success cannot erase the new session draft');
+  const previousWindow = globalThis.window;
+  const events = new EventTarget(); let staleSignals = 0;
+  events.addEventListener('fitgroup:draft-state', () => staleSignals++);
+  (globalThis as any).window = events;
+  try { disposed.reset(); assert.equal(staleSignals, 0, 'Disposed reset cannot signal that a new session draft was cleared'); }
+  finally { (globalThis as any).window = previousWindow; }
+  const originals = { session: supabase.auth.getSession, storage: supabase.storage.from };
+  let cleanupOwner = 'late'; const removed: string[] = [];
+  (supabase.auth as any).getSession = async () => ({ data: { session: { user: { id: cleanupOwner } } } });
+  (supabase.storage as any).from = () => ({ getPublicUrl: (path: string) => ({ data: { publicUrl: `https://photos.test/storage/v1/object/public/workouts/${path}` } }), remove: async (paths: string[]) => { removed.push(...paths); return { data: paths.map(name => ({ name })), error: null }; } });
+  try {
+    const ref = 'https://photos.test/storage/v1/object/public/workouts/late/memory.jpg';
+    trackUploadedPhoto('late', ref, true); failStorage = true;
+    await act(async () => { session.update(draft => ({ ...draft, photoUrl: ref })); });
+    await cleanupWorkoutPhotos('late'); assert.deepEqual(removed, [], 'An unsaved in-memory photo survives unrelated cleanup');
+    failStorage = false;
+    await act(async () => { session.reset(); });
+    await cleanupWorkoutPhotos('late'); assert.deepEqual(removed, ['late/memory.jpg'], 'Reset releases in-memory protection');
+    await act(async () => { tree.unmount(); tree = create(<Harness owner="b" editingLog={editingLog} />); });
+    cleanupOwner = 'b';
+    const editRef = 'https://photos.test/storage/v1/object/public/workouts/b/edit.jpg';
+    trackUploadedPhoto('b', editRef, true);
+    await act(async () => { session.update(draft => ({ ...draft, photoUrl: editRef })); });
+    await cleanupWorkoutPhotos('b'); assert.equal(removed.length, 1, 'Editing photo is protected without overwriting the new-workout draft');
+    await act(async () => { tree.unmount(); tree = create(<Harness owner="b" />); });
+    await cleanupWorkoutPhotos('b'); assert.deepEqual(removed, ['late/memory.jpg', 'b/edit.jpg'], 'Closing the editor releases the abandoned upload');
+  } finally { failStorage = false; supabase.auth.getSession = originals.session; supabase.storage.from = originals.storage; }
   console.log('PASS workout draft lifecycle: remount restore, immutable retry, account isolation, storage errors, successful cleanup and reset');
 } finally { await act(async () => tree?.unmount()); }
