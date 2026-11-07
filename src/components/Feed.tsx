@@ -353,27 +353,29 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
         <p className="mt-2 text-sm text-ink/60 leading-relaxed">分享每一次突破，也为彼此的坚持喝彩。</p>
       </div>
       {/* ── Segmented Domain Tabs: 广场 / 小队 ── */}
-      <div className="feed-tabs" role="group" aria-label="动态范围">
-        <button
-          type="button"
-          onClick={() => setActiveDomain('public')}
-          className="feed-tab"
-          aria-pressed={activeDomain === 'public'}
-        >
-          <span>广场动态</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveDomain('team')}
-          onMouseEnter={preloadTeamDashboard}
-          onTouchStart={preloadTeamDashboard}
-          className="feed-tab"
-          aria-pressed={activeDomain === 'team'}
-        >
-          <span>好友小队</span>
-        </button>
-      </div>
-
+      { // 好友小队暂时停用，保留入口代码以便恢复。
+      //       <div className="feed-tabs" role="group" aria-label="动态范围">
+      //         <button
+      //           type="button"
+      //           onClick={() => setActiveDomain('public')}
+      //           className="feed-tab"
+      //           aria-pressed={activeDomain === 'public'}
+      //         >
+      //           <span>广场动态</span>
+      //         </button>
+      //         <button
+      //           type="button"
+      //           onClick={() => setActiveDomain('team')}
+      //           onMouseEnter={preloadTeamDashboard}
+      //           onTouchStart={preloadTeamDashboard}
+      //           className="feed-tab"
+      //           aria-pressed={activeDomain === 'team'}
+      //         >
+      //           <span>好友小队</span>
+      //         </button>
+      //       </div>
+      //
+      }
       {/* Offline Status Banner */}
       {isOffline && (
         <div className="bg-amber-100 border-2 border-amber-600 text-amber-900 px-3 py-2 text-xs font-bold flex items-center justify-between shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
@@ -464,18 +466,21 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
       )}
 
       {/* Domain 2: 小队 (Deferred until activated; retained mounted to prevent tearing down subscriptions) */}
-      {hasActivatedTeam && (
-        <div className={activeDomain === 'team' ? 'block' : 'hidden'}>
-          <Suspense fallback={
-            <div className="py-12 text-center space-y-2">
-              <Dumbbell size={24} className="text-ink/20 animate-spin inline-block" />
-              <p className="text-xs text-ink/40">加载小队数据…</p>
-            </div>
-          }>
-            <TeamDashboard onLogUpdated={handleLogUpdated} />
-          </Suspense>
-        </div>
-      )}
+      { // 暂停挂载小队页面。
+      //       {hasActivatedTeam && (
+      //         <div className={activeDomain === 'team' ? 'block' : 'hidden'}>
+      //           <Suspense fallback={
+      //             <div className="py-12 text-center space-y-2">
+      //               <Dumbbell size={24} className="text-ink/20 animate-spin inline-block" />
+      //               <p className="text-xs text-ink/40">加载小队数据…</p>
+      //             </div>
+      //           }>
+      //             <TeamDashboard onLogUpdated={handleLogUpdated} />
+      //           </Suspense>
+      //         </div>
+      //       )}
+      }
+
     </div>
   );
 }

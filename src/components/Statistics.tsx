@@ -467,106 +467,108 @@ export default function Statistics() {
           TIER 2: CAPACITY & STRENGTH (第二层：能力与力量)
           近期状态与力量
           ========================================================================= */}
-      {logsReady && <div className="space-y-3 pt-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-black uppercase tracking-wider bg-ink text-neon px-1.5 py-0.5 border border-ink">
-              训练表现
-            </span>
-            <h2 className="text-base font-black text-ink tracking-tight italic">近期状态与力量</h2>
-          </div>
-          <span className="text-[10px] font-mono text-ink/50 font-bold">近 28 天记录</span>
-        </div>
-
-        {/* Dual-Track Paradigm Separation Cards (训练状态 vs 极限力量) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          {/* Training State Card */}
-          <div className="card p-3.5 sm:p-4 bg-white border-2 border-ink">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] font-black text-ink/60 uppercase">🏃 训练状态 (近28天)</span>
-              <span className={`text-[10px] font-black px-1.5 py-0.2 border border-ink ${overallTrainingTier.badgeBg} ${overallTrainingTier.badgeText}`}>
-                {!logsReady ? '待加载' : overallTrainingScore === 0 ? '暂无抗阻训练' : overallTrainingTier.zh}
-              </span>
-            </div>
-            <div className="text-2xl font-black italic text-ink mb-1">
-              {logsReady ? overallTrainingScore : '—'} <span className="text-xs text-ink/50 not-italic">分</span>
-            </div>
-            <p className="text-[11px] text-ink/60 leading-tight">
-              综合反映近期抗阻训练投入，点击部位查看详细依据。
-            </p>
-          </div>
-
-          {/* Strength Level Card */}
-          <div className="card p-3.5 sm:p-4 bg-white border-2 border-ink">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] font-black text-ink/60 uppercase">🏋️ 极限力量水平</span>
-              <span className={`text-[10px] font-black px-1.5 py-0.2 border border-ink ${overallStrengthAssessment ? overallStrengthAssessment.tier.badgeBg : 'bg-paper text-ink'} ${overallStrengthAssessment ? overallStrengthAssessment.tier.badgeText : ''}`}>
-                {!historyReady ? '历史补齐中' : overallStrengthAssessment ? overallStrengthAssessment.tier.zh : '待测量'}
-              </span>
-            </div>
-            <div className="text-2xl font-black italic text-ink mb-1">
-              {historyReady && overallStrengthAssessment ? overallStrengthAssessment.score : '—'} <span className="text-xs text-ink/50 not-italic">分</span>
-            </div>
-            <p className="text-[11px] text-ink/60 leading-tight">
-              {!userProfile?.sex || !userProfile?.bodyweightKg ? '资料不全，部分标准使用通用参考；展开查看依据。' : '历史最佳表现对照力量基准；数据不足时显示待测量。'}
-            </p>
-          </div>
-        </div>
-
-        {/* Six-Dimension Capability Radar & Bar Chart */}
-        <button type="button" aria-expanded={abilityOpen} onClick={() => setAbilityOpen(value => !value)} className="btn-secondary min-h-11 w-full flex justify-between items-center">
-          部位表现、雷达图与评分标准 {abilityOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </button>
-        {abilityOpen && <Suspense fallback={<p role="status" className="p-4 text-xs">正在加载部位表现…</p>}>
-      {/* Incomplete Profile Banner — generic assessment disclosure */}
-      {(!userProfile?.sex || !userProfile?.bodyweightKg) && (
-        <div className="bg-white border-l-2 border-ink/40 p-3 sm:p-3.5 flex flex-wrap items-start justify-between gap-2.5">
-          <div className="flex items-start sm:items-center gap-2 min-w-0">
-            <Info size={18} className="text-ink shrink-0 mt-0.5 sm:mt-0" />
-            <p className="text-xs font-black text-ink leading-tight sm:leading-normal">
-              {userProfile?.sex && userProfile?.bodyweightKg
-                ? ''
-                : !userProfile?.sex && !userProfile?.bodyweightKg
-                  ? '未填写性别与体重，当前使用通用参考标准（男 70kg）估算力量水平，力量等级仅供参考'
-                  : userProfile?.sex
-                    ? '未填写体重，力量标准按 70kg 参考体重估算，等级置信度降低'
-                    : '未填写性别，力量标准按男性参考曲线估算，等级置信度降低'}
-            </p>
-          </div>
-          <span className="text-[10px] font-black bg-ink text-neon px-2 py-0.5 whitespace-nowrap shrink-0 border border-ink self-start sm:self-center">
-            {userProfile?.sex ? `${userProfile.sex === 'female' ? '女' : '男'} · 缺体重` : userProfile?.bodyweightKg ? `${userProfile.bodyweightKg}kg · 缺性别` : '通用参考标准'}
-          </span>
-        </div>
-      )}
-
-        <AbilityRadarCard
-          radarMode={radarMode}
-          setRadarMode={setRadarMode}
-          chartView={chartView}
-          setChartView={setChartView}
-          categoryDetails={analytics28d.categoryDetails}
-          hasAnyData={hasAnyData}
-          onSelectCategory={setSelectedCategoryForModal}
-          onOpenStandards={openStandards}
-        /></Suspense>}
-      </div>}
-
-      {/* =========================================================================
-          TIER 3: RECENT TRAINING & PROGRESS (第三层：近期训练与进步)
-          ========================================================================= */}
-      {logsReady && <TrainingTrendsCard
-        trends={trends}
-        selectedWeeks={selectedWeeks}
-        onSelectWeeks={setSelectedWeeks}
-        progression={progression}
-        volumeDistribution={analytics.volumeDistribution}
-        volumeTimeframe={volumeTimeframe}
-        onSelectVolumeTimeframe={setVolumeTimeframe}
-        categoryDetails={analytics.categoryDetails}
-        recentWorkoutsCount={analytics.recentWorkoutsCount}
-        recentSetsCount={analytics.recentSetsCount}
-      />}
-
+      { // 暂停展示评分、雷达图及训练趋势图，保留代码以便恢复。
+      //       {logsReady && <div className="space-y-3 pt-2">
+      //         <div className="flex flex-wrap items-center justify-between gap-2">
+      //           <div className="flex items-center gap-2">
+      //             <span className="text-[10px] font-black uppercase tracking-wider bg-ink text-neon px-1.5 py-0.5 border border-ink">
+      //               训练表现
+      //             </span>
+      //             <h2 className="text-base font-black text-ink tracking-tight italic">近期状态与力量</h2>
+      //           </div>
+      //           <span className="text-[10px] font-mono text-ink/50 font-bold">近 28 天记录</span>
+      //         </div>
+      //
+      //         {/* Dual-Track Paradigm Separation Cards (训练状态 vs 极限力量) */}
+      //         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+      //           {/* Training State Card */}
+      //           <div className="card p-3.5 sm:p-4 bg-white border-2 border-ink">
+      //             <div className="flex items-center justify-between mb-1.5">
+      //               <span className="text-[11px] font-black text-ink/60 uppercase">🏃 训练状态 (近28天)</span>
+      //               <span className={`text-[10px] font-black px-1.5 py-0.2 border border-ink ${overallTrainingTier.badgeBg} ${overallTrainingTier.badgeText}`}>
+      //                 {!logsReady ? '待加载' : overallTrainingScore === 0 ? '暂无抗阻训练' : overallTrainingTier.zh}
+      //               </span>
+      //             </div>
+      //             <div className="text-2xl font-black italic text-ink mb-1">
+      //               {logsReady ? overallTrainingScore : '—'} <span className="text-xs text-ink/50 not-italic">分</span>
+      //             </div>
+      //             <p className="text-[11px] text-ink/60 leading-tight">
+      //               综合反映近期抗阻训练投入，点击部位查看详细依据。
+      //             </p>
+      //           </div>
+      //
+      //           {/* Strength Level Card */}
+      //           <div className="card p-3.5 sm:p-4 bg-white border-2 border-ink">
+      //             <div className="flex items-center justify-between mb-1.5">
+      //               <span className="text-[11px] font-black text-ink/60 uppercase">🏋️ 极限力量水平</span>
+      //               <span className={`text-[10px] font-black px-1.5 py-0.2 border border-ink ${overallStrengthAssessment ? overallStrengthAssessment.tier.badgeBg : 'bg-paper text-ink'} ${overallStrengthAssessment ? overallStrengthAssessment.tier.badgeText : ''}`}>
+      //                 {!historyReady ? '历史补齐中' : overallStrengthAssessment ? overallStrengthAssessment.tier.zh : '待测量'}
+      //               </span>
+      //             </div>
+      //             <div className="text-2xl font-black italic text-ink mb-1">
+      //               {historyReady && overallStrengthAssessment ? overallStrengthAssessment.score : '—'} <span className="text-xs text-ink/50 not-italic">分</span>
+      //             </div>
+      //             <p className="text-[11px] text-ink/60 leading-tight">
+      //               {!userProfile?.sex || !userProfile?.bodyweightKg ? '资料不全，部分标准使用通用参考；展开查看依据。' : '历史最佳表现对照力量基准；数据不足时显示待测量。'}
+      //             </p>
+      //           </div>
+      //         </div>
+      //
+      //         {/* Six-Dimension Capability Radar & Bar Chart */}
+      //         <button type="button" aria-expanded={abilityOpen} onClick={() => setAbilityOpen(value => !value)} className="btn-secondary min-h-11 w-full flex justify-between items-center">
+      //           部位表现、雷达图与评分标准 {abilityOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+      //         </button>
+      //         {abilityOpen && <Suspense fallback={<p role="status" className="p-4 text-xs">正在加载部位表现…</p>}>
+      //       {/* Incomplete Profile Banner — generic assessment disclosure */}
+      //       {(!userProfile?.sex || !userProfile?.bodyweightKg) && (
+      //         <div className="bg-white border-l-2 border-ink/40 p-3 sm:p-3.5 flex flex-wrap items-start justify-between gap-2.5">
+      //           <div className="flex items-start sm:items-center gap-2 min-w-0">
+      //             <Info size={18} className="text-ink shrink-0 mt-0.5 sm:mt-0" />
+      //             <p className="text-xs font-black text-ink leading-tight sm:leading-normal">
+      //               {userProfile?.sex && userProfile?.bodyweightKg
+      //                 ? ''
+      //                 : !userProfile?.sex && !userProfile?.bodyweightKg
+      //                   ? '未填写性别与体重，当前使用通用参考标准（男 70kg）估算力量水平，力量等级仅供参考'
+      //                   : userProfile?.sex
+      //                     ? '未填写体重，力量标准按 70kg 参考体重估算，等级置信度降低'
+      //                     : '未填写性别，力量标准按男性参考曲线估算，等级置信度降低'}
+      //             </p>
+      //           </div>
+      //           <span className="text-[10px] font-black bg-ink text-neon px-2 py-0.5 whitespace-nowrap shrink-0 border border-ink self-start sm:self-center">
+      //             {userProfile?.sex ? `${userProfile.sex === 'female' ? '女' : '男'} · 缺体重` : userProfile?.bodyweightKg ? `${userProfile.bodyweightKg}kg · 缺性别` : '通用参考标准'}
+      //           </span>
+      //         </div>
+      //       )}
+      //
+      //         <AbilityRadarCard
+      //           radarMode={radarMode}
+      //           setRadarMode={setRadarMode}
+      //           chartView={chartView}
+      //           setChartView={setChartView}
+      //           categoryDetails={analytics28d.categoryDetails}
+      //           hasAnyData={hasAnyData}
+      //           onSelectCategory={setSelectedCategoryForModal}
+      //           onOpenStandards={openStandards}
+      //         /></Suspense>}
+      //       </div>}
+      //
+      //       {/* =========================================================================
+      //           TIER 3: RECENT TRAINING & PROGRESS (第三层：近期训练与进步)
+      //           ========================================================================= */}
+      //       {logsReady && <TrainingTrendsCard
+      //         trends={trends}
+      //         selectedWeeks={selectedWeeks}
+      //         onSelectWeeks={setSelectedWeeks}
+      //         progression={progression}
+      //         volumeDistribution={analytics.volumeDistribution}
+      //         volumeTimeframe={volumeTimeframe}
+      //         onSelectVolumeTimeframe={setVolumeTimeframe}
+      //         categoryDetails={analytics.categoryDetails}
+      //         recentWorkoutsCount={analytics.recentWorkoutsCount}
+      //         recentSetsCount={analytics.recentSetsCount}
+      //       />}
+      //
+      }
       {/* =========================================================================
           TIER 4: PROFESSIONAL ANALYSIS & PRs (详细分析 / 专业分析)
           ========================================================================= */}
@@ -606,17 +608,19 @@ export default function Statistics() {
       <CommunityLeaderboard entries={groupStats} />
 
       {/* Modals */}
-      <StandardsModal
-        isOpen={showStandardsModal}
-        onClose={closeStandards}
-        bodyContext={bodyContext}
-      />
-
-      <SubMuscleModal
-        category={selectedCategoryForModal}
-        detail={selectedCategoryDetail}
-        onClose={closeMuscle}
-      />
+      { // 暂停展示评分标准与部位详情弹窗。
+      //       <StandardsModal
+      //         isOpen={showStandardsModal}
+      //         onClose={closeStandards}
+      //         bodyContext={bodyContext}
+      //       />
+      //
+      //       <SubMuscleModal
+      //         category={selectedCategoryForModal}
+      //         detail={selectedCategoryDetail}
+      //         onClose={closeMuscle}
+      //       />
+      }
     </div>
   );
 }

@@ -22,7 +22,8 @@ import './workout/workout.css';
 interface WorkoutLoggerProps { onSuccess: () => void; }
 const visibilityOptions: { value: WorkoutVisibility; label: string; icon: typeof Globe }[] = [
   { value: 'public', label: '全员公开', icon: Globe },
-  { value: 'friends', label: '好友小队', icon: Users },
+  // 好友小队暂时停用，保留选项以便恢复。
+  // { value: 'friends', label: '好友小队', icon: Users },
   { value: 'private', label: '仅自己', icon: Lock },
 ];
 
@@ -65,7 +66,7 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
   const historyMap = useMemo(() => historyByExercise(history), [history]);
   const categories = draftCategories(draft);
   const completeCount = draft.exercises.filter(ex => !Object.keys(validateDraftExercise(ex)).length).length;
-  const visibilityLabel = visibilityOptions.find(option => option.value === draft.visibility)!.label;
+  const visibilityLabel = visibilityOptions.find(option => option.value === draft.visibility)?.label ?? '好友小队（原有可见范围）';
 
   useEffect(() => {
     let active = true;

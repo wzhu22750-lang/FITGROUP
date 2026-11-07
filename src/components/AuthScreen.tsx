@@ -56,7 +56,7 @@ export default function AuthScreen() {
             <p className="text-3xl md:text-4xl font-black leading-tight tracking-tight">每一次训练，<br /><span className="text-neon">都算数。</span></p>
             <p className="mt-3 text-sm leading-relaxed text-white/70">记录进步，和健友一起坚持。</p>
           </div>
-          <p className="hidden md:block text-xs font-bold text-white/60">训练记录 / 成长统计 / 好友小队</p>
+          <p className="hidden md:block text-xs font-bold text-white/60">训练记录 / 成长统计</p>
         </div>
         <div className="auth-form-panel">
         <h1 className="font-black text-2xl mb-2">
