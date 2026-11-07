@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import WorkoutTimePicker from '../src/components/workout/WorkoutTimePicker';
 import { toLocalWorkoutTime } from '../src/utils/workoutTime';

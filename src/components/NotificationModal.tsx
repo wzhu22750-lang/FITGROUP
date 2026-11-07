@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import {
-  fetchNotifications,
   subscribeToNotifications,
   markNotificationAsRead,
   markAllNotificationsAsRead,
@@ -12,15 +11,13 @@ import {
   Bell,
   Heart,
   MessageCircle,
-  Check,
   CheckCheck,
   Trash2,
   X,
   Clock,
   User as UserIcon,
-  Sparkles,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { pushBackHandler } from '../backStack';
 
 function formatCompactTime(timestamp?: string): string {

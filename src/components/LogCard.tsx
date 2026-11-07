@@ -10,8 +10,6 @@ import {
 } from '../api';
 import { WorkoutLog, WorkoutVisibility } from '../types';
 import {
-  parseCategories,
-  getCategoryBadgeColor,
   CATEGORY_META,
   inferLogCategories,
 } from '../constants/workoutPresets';
@@ -58,23 +56,6 @@ function formatCompactTime(timestamp?: string): string {
   const m = date.getMonth() + 1;
   const d = date.getDate();
   return `${m}月${d}日`;
-}
-
-/** Format exercise data with readable units */
-function formatExerciseData(ex: { type: string; weight?: number; sets?: number; reps?: number; duration?: number; distance?: number; calories?: number }): string {
-  if (ex.type === 'strength') {
-    const parts: string[] = [];
-    if (typeof ex.weight === 'number' && ex.weight !== 0) parts.push(`${Math.abs(ex.weight)} kg`);
-    if (ex.sets && ex.sets > 0) parts.push(`${ex.sets} 组`);
-    if (ex.reps && ex.reps > 0) parts.push(`${ex.reps} 次`);
-    return parts.join(' × ');
-  } else {
-    const parts: string[] = [];
-    if (ex.duration && ex.duration > 0) parts.push(`${ex.duration} 分钟`);
-    if (typeof ex.distance === 'number' && ex.distance > 0) parts.push(`${ex.distance} km`);
-    if (typeof ex.calories === 'number' && ex.calories > 0) parts.push(`${ex.calories} kcal`);
-    return parts.join(' · ');
-  }
 }
 
 interface LogCardProps {

@@ -1,4 +1,4 @@
-import { buildWorkoutLogUpdatePayload, classifyWorkoutLogError, executeWorkoutLogUpdate, formatWorkoutLogError, sanitizeExercisesForDb } from '../src/utils/workoutLogUpdate';
+import { buildWorkoutLogUpdatePayload, classifyWorkoutLogError, executeWorkoutLogUpdate, formatWorkoutLogError } from '../src/utils/workoutLogUpdate';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {

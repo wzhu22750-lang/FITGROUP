@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { registerHooks } from 'node:module';
-import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { supabase } from '../src/lib/supabase';
 import { createDraft, createDraftExercise, draftStorageKey } from '../src/utils/workoutDraft';

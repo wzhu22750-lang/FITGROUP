@@ -5,7 +5,7 @@
  * - Unread count and filtering logic
  */
 
-import { AppNotification, NotificationType } from '../src/types';
+import { AppNotification } from '../src/types';
 
 function assert(condition: boolean, msg: string) {
   if (!condition) {

@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import {
   subscribeToPublicWorkoutLogs,
   fetchPublicWorkoutLogs,
-  getCurrentUser,
 } from '../api';
 import { WorkoutLog } from '../types';
 import LogCard from './LogCard';
@@ -33,7 +32,6 @@ interface FeedProps {
 
 export default function Feed({ onNavigateToLog }: FeedProps) {
   const [activeDomain, setActiveDomain] = useState<FeedTab>('public');
-  const currentUser = getCurrentUser();
 
   // Public Feed State with SWR local cache
   const [publicLogs, setPublicLogs] = useState<WorkoutLog[]>(() =>
@@ -295,7 +293,7 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
     };
 
     if (activeDomain === 'public') {
-      const pVersion = ++publicFetchVersion.current;
+      publicFetchVersion.current += 1;
       void fetchPublicWorkoutLogs(30, { force: true })
         .catch((err) => {
           if (!isMounted.current || err.name === 'AbortError') return;
@@ -350,7 +348,6 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
     >
       <div className="feed-intro">
         <h1 className="text-2xl font-black tracking-tight">一起练，更有动力</h1>
-        <p className="mt-2 text-sm text-ink/60 leading-relaxed">分享每一次突破，也为彼此的坚持喝彩。</p>
       </div>
       {/* ── Segmented Domain Tabs: 广场 / 小队 ── */}
       { // 好友小队暂时停用，保留入口代码以便恢复。
@@ -376,6 +373,7 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
       //       </div>
       //
       }
+
       {/* Offline Status Banner */}
       {isOffline && (
         <div className="bg-amber-100 border-2 border-amber-600 text-amber-900 px-3 py-2 text-xs font-bold flex items-center justify-between shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
@@ -441,22 +439,6 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
             </div>
           ) : (
             <>
-              {onNavigateToLog && (
-                <div className="card p-3 sm:p-4 bg-white border-2 border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] flex items-center justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-black uppercase text-ink/50 tracking-wider">今日训练状态</p>
-                    <h3 className="text-sm font-black text-ink truncate mt-0.5">今天练了吗？记下你的下一次突破</h3>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onNavigateToLog}
-                    className="btn-neon text-xs py-2 px-3.5 flex items-center gap-1.5 shrink-0 cursor-pointer"
-                  >
-                    <Dumbbell size={14} />
-                    <span>立即打卡</span>
-                  </button>
-                </div>
-              )}
               {publicLogs.map((log) => (
                 <LogCard key={log.id} log={log} onLogUpdated={handleLogUpdated} />
               ))}
@@ -480,7 +462,6 @@ export default function Feed({ onNavigateToLog }: FeedProps) {
       //         </div>
       //       )}
       }
-
     </div>
   );
 }

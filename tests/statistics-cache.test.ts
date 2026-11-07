@@ -75,7 +75,7 @@ console.log('PASS historical evidence compression across bodyweights, assisted l
 // Exercise the production timeout infrastructure inside the progressive store.
 const { readRequest } = await import('../src/utils/request');
 let stuck=true;const timeoutErrors:Error[]=[];const timeoutValues:StatisticsSnapshot[]=[];
-const timeoutStore=createStatisticsDataStore({listen:()=>()=>{},fetch:(uid,options)=>readRequest('statistics-timeout-test',async signal=>{
+const timeoutStore=createStatisticsDataStore({listen:()=>()=>{},fetch:(_uid,options)=>readRequest('statistics-timeout-test',async signal=>{
   if(stuck) await new Promise<void>((_,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
   return [];
 },{signal:options.signal,timeoutMs:10})});

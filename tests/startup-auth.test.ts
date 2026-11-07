@@ -28,8 +28,6 @@ const {
   registerWithEmail,
   createWorkoutLog,
   isProfileReady,
-  waitForProfileReady,
-  getUserProfile,
 } = await import('../src/api');
 
 function testLog(passed: boolean, message: string) {
@@ -65,11 +63,9 @@ async function runTestSuite() {
     } as any);
 
     // Profile RPC never settles (hung)
-    let hungSignalCaptured: AbortSignal | null = null;
     supabase.rpc = (_fn: string) => {
       return {
-        abortSignal(sig: AbortSignal) {
-          hungSignalCaptured = sig;
+        abortSignal(_sig: AbortSignal) {
           return this;
         },
         then() {

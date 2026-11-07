@@ -3,8 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   calculateFullWorkoutAnalytics,
-  getTrainingStateTier,
-  getStrengthTier,
 } from '../src/utils/workoutAnalytics';
 import { WorkoutCategory, WorkoutLog } from '../src/types';
 

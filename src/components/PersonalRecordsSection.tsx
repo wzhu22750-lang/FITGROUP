@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { TrendingUp, ChevronDown, ChevronUp, Award } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { WorkoutCategory } from '../types';
@@ -41,7 +41,7 @@ export default function PersonalRecordsSection({ prs }: PersonalRecordsSectionPr
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <TrendingUp size={18} className="text-ink shrink-0" />
           <h3 className="font-bold text-ink italic text-sm sm:text-base whitespace-nowrap truncate">
-            巅峰档案 <span className="text-xs text-ink/50 font-normal not-italic ml-0.5">/ PR</span>
+            巅峰档案
           </h3>
         </div>
         <div className="flex items-center gap-2 shrink-0">

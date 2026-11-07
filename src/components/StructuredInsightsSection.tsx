@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Sparkles, ChevronDown, ChevronUp, CheckCircle, AlertCircle, Info } from 'lucide-react';
+import { useState } from 'react';
+import { Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { DeterministicInsight } from '../utils/progressAnalytics';
 
@@ -23,7 +23,7 @@ export default function StructuredInsightsSection({ insights }: StructuredInsigh
             <Sparkles size={15} />
           </div>
           <h3 className="font-bold text-ink text-xs sm:text-sm whitespace-nowrap truncate">
-            训练分析与建议 <span className="text-[11px] font-normal text-ink/50">/ 规则引擎</span>
+            训练分析与建议
           </h3>
         </div>
         <div className="flex items-center gap-2 shrink-0">

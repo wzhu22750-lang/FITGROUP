@@ -11,8 +11,6 @@ import {
   getNextMilestoneForValue,
   ScaledThresholds,
   REF_BW,
-  BW_CLAMP_MIN,
-  BW_CLAMP_MAX,
 } from '../constants/strengthStandards';
 import {
   CATEGORY_META,
@@ -38,7 +36,6 @@ import {
   EXERCISE_DEFINITIONS,
   ExerciseDefinition,
   LoadMode,
-  canonicalExerciseKey,
   resolveExerciseDefinition,
   normalizeExerciseName,
 } from '../constants/exerciseDefinitions';
@@ -1208,7 +1205,7 @@ export function calculateFullWorkoutAnalytics(
   const progressionRatios = new Map<SubMuscleGroup, number | null>();
   {
     const ratioAccumulator = new Map<SubMuscleGroup, { weighted: number; weight: number }>();
-    performancesByKey.forEach((candidates, key) => {
+    performancesByKey.forEach((candidates) => {
       const usable = candidates.filter((c) => !c.excludeFromScoring && c.estimated1RM > 0 && c.timestamp > 0);
       const currentBest = Math.max(0, ...usable.filter((c) => c.timestamp >= cutoffTime && c.timestamp <= now).map((c) => c.estimated1RM));
       const baselineBest = Math.max(0, ...usable.filter((c) => c.timestamp >= baselineCutoffTime && c.timestamp < cutoffTime).map((c) => c.estimated1RM));

@@ -1,8 +1,8 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { createTeam, joinTeamByCode } from '../api';
 import { Team } from '../types';
-import { DEFAULT_MAX_TEAM_MEMBERS, MIN_TEAM_MEMBERS, MAX_TEAM_MEMBERS_LIMIT } from '../constants/teamConfig';
-import { Users, Plus, KeyRound, X, Check, Copy, Sparkles } from 'lucide-react';
+import { DEFAULT_MAX_TEAM_MEMBERS } from '../constants/teamConfig';
+import { Users, KeyRound, X, Check, Copy } from 'lucide-react';
 import { motion } from 'motion/react';
 import { pushBackHandler } from '../backStack';
 

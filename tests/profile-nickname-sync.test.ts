@@ -6,7 +6,6 @@ import {
   setCachedMyLogs,
   getCachedMyLogs,
   updateCachedLogsProfile,
-  clearPublicFeedCache,
 } from '../src/utils/feedCache';
 import type { WorkoutLog } from '../src/types';
 

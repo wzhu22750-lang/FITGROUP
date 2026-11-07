@@ -13,7 +13,7 @@ import {
   resolveLoggedStrengthPerformance,
   resolveBodyContext,
 } from './strengthAssessment';
-import { CATEGORY_META, isCardioExercise, parseCategories } from '../constants/workoutPresets';
+import { isCardioExercise, parseCategories } from '../constants/workoutPresets';
 import { localWorkoutDateKey } from './workoutTime';
 import { STRENGTH_BENCHMARKS } from '../constants/strengthStandards';
 

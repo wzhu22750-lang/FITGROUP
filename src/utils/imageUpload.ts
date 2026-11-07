@@ -42,7 +42,6 @@ export async function compressImage(
     throw new Error('图片体积过大（超过 15MB），请选择较小的照片');
   }
 
-  const mime = file.type || 'image/jpeg';
   if (file.type && !ALLOWED_MIME_TYPES.has(file.type.toLowerCase())) {
     throw new Error('仅支持 JPG、PNG 或 WebP 格式的图片');
   }

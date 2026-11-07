@@ -432,7 +432,7 @@ export function getTierForBenchmarkValue(
   value: number,
   thresholds: ScaledThresholds
 ): StrengthLevelDefinition {
-  const [t1, t2, t3, t4, t5] = thresholds;
+  const [, t2, t3, t4, t5] = thresholds;
   if (value >= t5) return STRENGTH_TIERS.elite;
   if (value >= t4) return STRENGTH_TIERS.advanced;
   if (value >= t3) return STRENGTH_TIERS.intermediate;

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { ExportDataPage } from '../src/components/ExportDataPage';
 import { ToastProvider } from '../src/components/Toast';

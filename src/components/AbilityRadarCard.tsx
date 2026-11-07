@@ -240,7 +240,6 @@ function AbilityRadarCard({
                       <span className="font-black text-xs text-ink flex items-center gap-1.5 truncate">
                         <span className={`w-2.5 h-2.5 border border-ink ${meta.color}`} />
                         <span>{meta.zh}</span>
-                        <span className="text-[10px] text-ink/40 font-normal">({meta.en})</span>
                       </span>
                       <div className="flex items-center gap-1.5 shrink-0">
                         <span

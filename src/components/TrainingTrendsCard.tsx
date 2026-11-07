@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TrendingUp, Calendar, Zap, ArrowUpRight, Minus, ArrowDownRight, Sparkles } from 'lucide-react';
+import { TrendingUp, Calendar, Zap, Sparkles } from 'lucide-react';
 import { WorkoutCategory } from '../types';
 import {
   WeeklyTrendsSummary,

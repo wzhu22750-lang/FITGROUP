@@ -5,7 +5,7 @@
  * 3. Edit Workout log impact on full analytics, PRs, and volume calculation
  */
 
-import { WorkoutLog, WorkoutVisibility, WorkoutCategory } from '../src/types';
+import { WorkoutLog, WorkoutCategory } from '../src/types';
 import { calculateFullWorkoutAnalytics } from '../src/utils/workoutAnalytics';
 import { DEFAULT_MAX_TEAM_MEMBERS } from '../src/constants/teamConfig';
 

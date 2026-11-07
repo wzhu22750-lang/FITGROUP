@@ -24,9 +24,6 @@
 import { WorkoutCategory, WorkoutLog } from '../src/types';
 import {
   calculateFullWorkoutAnalytics,
-  computeMuscleBalance,
-  getStrengthTier,
-  getTrainingStateTier,
   bodyContextFromProfile,
 } from '../src/utils/workoutAnalytics';
 import {
@@ -34,9 +31,6 @@ import {
   computeExerciseProgression,
   generateDeterministicTrainingInsights,
 } from '../src/utils/progressAnalytics';
-import {
-  resolveExerciseDefinition,
-} from '../src/constants/exerciseDefinitions';
 
 function assert(condition: boolean, msg: string) {
   if (!condition) {

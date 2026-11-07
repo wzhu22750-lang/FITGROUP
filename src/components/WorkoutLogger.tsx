@@ -5,7 +5,7 @@ import { updateWorkoutLog, createWorkoutLog, fetchMyWorkoutLogs, getCurrentUser,
 import { WorkoutCategory, WorkoutLog, WorkoutVisibility } from '../types';
 import { CARDIO_REFERENCE_BODYWEIGHT_KG, CATEGORY_META } from '../constants/workoutPresets';
 import { formatWorkoutLogError } from '../utils/workoutLogUpdate';
-import { ChevronDown, Dumbbell, Globe, History, Lock, Plus, RotateCcw, Send, Users, WifiOff, Camera, Image as ImageIcon, X as CloseIcon, Loader2 } from 'lucide-react';
+import { ChevronDown, Globe, History, Lock, Plus, RotateCcw, Send, Users, WifiOff, Camera, X as CloseIcon, Loader2 } from 'lucide-react';
 import {
   draftCategories, DraftExercise, exerciseKey, historyByExercise, MAX_WORKOUT_EXERCISES,
   patchDraftExercise, toRecordedExercise, validateDraftExercise,
@@ -39,7 +39,7 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
   onSuccess: (log: WorkoutLog) => void;
   onBusy: (busy: boolean) => void;
 } }) {
-  const { draft, draftRef, update, commit, finish, reset, restored, storageWarning } = useWorkoutDraft(owner, editing?.log);
+  const { draft, draftRef, update, commit, finish, reset, storageWarning } = useWorkoutDraft(owner, editing?.log);
   const [expandedId, setExpandedId] = useState(draft.exercises[0]?.id || '');
   const [sheet, setSheet] = useState<'add' | 'history' | 'clear' | null>(null);
   const [history, setHistory] = useState<WorkoutLog[]>([]);
@@ -278,20 +278,8 @@ export function WorkoutSession({ owner, onSuccess, editing }: WorkoutLoggerProps
 
   return (
     <form className={`workout-logger${editing ? ' workout-logger-edit' : ''}`} onSubmit={handleSubmit} noValidate aria-label={editing ? '编辑训练' : '记录训练'}>
-      <header className={`workout-intro ${draft.exercises.length ? 'has-entries' : ''}`}>
-        <div className="flex items-start justify-between gap-3">
-          <div><p className="workout-kicker">YOUR NEXT REP</p><h1>{editing ? '调整这次训练。' : '今天，练点什么？'}</h1></div>
-          <span className="workout-intro-mark" aria-hidden="true"><Dumbbell size={25} /></span>
-        </div>
-        <div className="workout-save-state" role="status">
-          <span><span className="workout-status-dot" />{editing ? '保存后更新原记录，不会重复打卡' : storageWarning ? '草稿保存受限' : draft.pending ? '等待确认提交' : draft.exercises.length || draft.note ? '草稿已保存在此设备' : '边练边记，随时回来继续'}</span>
-          {!editing && (draft.exercises.length > 0 || draft.note) && !draft.pending && <button type="button" onClick={() => setSheet('clear')}>清空</button>}
-        </div>
-      </header>
-
       {storageWarning && <p role="alert" className="workout-warning">{storageWarning}</p>}
       {offline && <p className="workout-warning flex items-center gap-2"><WifiOff size={16} />{editing ? '当前离线，修改暂留在当前窗口，联网后再保存。' : '离线可继续记草稿，联网后再提交。'}</p>}
-      {restored && !draft.pending && <p className="workout-helper">已恢复未完成的训练，继续修改即可。草稿不会自动发布。</p>}
       {draft.pending && <p className="workout-warning">{isSubmitting ? '正在提交，请稍候…' : '上次提交尚未确认，内容暂时锁定。点击「重试提交」确认结果，避免重复打卡。'}</p>}
 
       <fieldset disabled={isSubmitting || draft.pending} className="workout-fields">

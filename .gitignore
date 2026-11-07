@@ -25,6 +25,8 @@ pb_migrations/
 pocketbase
 
 # Tooling & local artifacts
+.mimosa/
+output/
 .playwright-mcp/
 .playwright-cli/
 cf_output.txt

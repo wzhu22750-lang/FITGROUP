@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import React from 'react';
 import {create,act, type ReactTestRenderer} from 'react-test-renderer';
 import WorkoutPhoto from '../src/components/WorkoutPhoto';
 import {supabase} from '../src/lib/supabase';

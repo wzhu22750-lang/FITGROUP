@@ -1,5 +1,4 @@
 import { useStatisticsDialog } from './useStatisticsDialog';
-import React from 'react';
 import { X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { WorkoutCategory } from '../types';

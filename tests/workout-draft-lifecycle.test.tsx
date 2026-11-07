@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { useWorkoutDraft } from '../src/components/workout/useWorkoutDraft';
 import type { WorkoutLog } from '../src/types';

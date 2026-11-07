@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getCurrentUser, updateUserProfileFn, submitFeedbackFn, fetchUserFeedbacksFn, subscribeToMyWorkoutLogs, fetchMyWorkoutLogs, uploadUserAvatar } from '../api';
 import { supabase } from '../lib/supabase';
 import {
@@ -9,11 +9,9 @@ import {
   Bell,
   ChevronLeft,
   Check,
-  MessageSquarePlus,
   Send,
   ChevronDown,
   ChevronUp,
-  Info,
   Trash2,
   Lock,
   Mail,
@@ -21,11 +19,8 @@ import {
   CheckCircle2,
   Clock,
   FileQuestion,
-  HelpCircle as QuestionIcon,
   Download,
-  Activity,
   Dumbbell,
-  Layers,
   Edit3,
   ClipboardList,
   Camera,
@@ -205,7 +200,7 @@ export default function Profile({ user, onLogout, unreadCount = 0, onOpenNotific
       )}
 
       {page === 'security' && (
-        <SecurityPage user={activeUser} onBack={() => setPage('main')} onLogout={onLogout} />
+        <SecurityPage user={activeUser} onBack={() => setPage('main')} />
       )}
     </AnimatePresence>
   );
@@ -953,7 +948,7 @@ function HelpFeedbackPage({ user, onBack }: { user: any; onBack: () => void }) {
    Security & Account Page
    ========================================================================= */
 
-function SecurityPage({ user, onBack, onLogout }: { user: any; onBack: () => void; onLogout?: () => void }) {
+function SecurityPage({ user, onBack }: { user: any; onBack: () => void }) {
   const [sendingReset, setSendingReset] = useState(false);
   const { showToast } = useToast();
 

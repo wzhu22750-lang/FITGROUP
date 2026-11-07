@@ -246,13 +246,11 @@ console.log('\n--- Testing Lazy Tab Loading State Machine ---');
 
 // Test 9: Lazy Tab Activation contract
 class TabActivationSimulator {
-  private activeDomain: 'public' | 'team' | 'my' = 'public';
   private hasActivatedMy = false;
   private myFetchCount = 0;
   private teamFetchCount = 0;
 
   switchTab(domain: 'public' | 'team' | 'my') {
-    this.activeDomain = domain;
     if (domain === 'my' && !this.hasActivatedMy) {
       this.hasActivatedMy = true;
       this.myFetchCount++;

@@ -26,7 +26,6 @@ import {
   BW_CLAMP_MAX,
   REF_BW,
   STRENGTH_BENCHMARKS,
-  STRENGTH_TIERS,
   StrengthBenchmark,
   StrengthLevelDefinition,
   getStrengthTier,
@@ -73,7 +72,7 @@ const BW_EXTERNAL_MODES: LoadMode[] = ['bodyweight_plus_external'];
  */
 export function resolvePerformanceLoad(
   definition: ExerciseDefinition | undefined,
-  exerciseName: string,
+  _exerciseName: string,
   externalLoad: number,
   bodyweightKg: number = REF_BW
 ): PerformanceLoad {

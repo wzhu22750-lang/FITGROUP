@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  getUserTeams,
   subscribeToUserTeams,
   getTeamDashboard,
   subscribeToTeamDashboard,
@@ -32,11 +31,9 @@ import {
   Activity,
   Zap,
   Sparkles,
-  Award,
   Target,
   Trophy,
   Share2,
-  Calendar,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -53,7 +50,6 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
   const [storedTeamLogs, setTeamLogs] = useState<WorkoutLog[]>([]);
   const [logsGeneration, setLogsGeneration] = useState(-1);
   const [loadingTeams, setLoadingTeams] = useState(true);
-  const [loadingDashboard, setLoadingDashboard] = useState(false);
   const [teamsError, setTeamsError] = useState('');
   const [dashboardError, setDashboardError] = useState('');
   const [teamLogsError, setTeamLogsError] = useState('');
@@ -153,7 +149,6 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
       return;
     }
 
-    setLoadingDashboard(true);
     const unsub = subscribeToTeamDashboard(
       selectedTeamId,
       (data) => {
@@ -162,12 +157,10 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
         setDashboardGeneration(selectionGeneration);
         setDashboardData(data);
         setDashboardError('');
-        setLoadingDashboard(false);
       },
       (error) => {
         if (!active || !isSelectionCurrent()) return;
         setDashboardError(error.message || '小队数据加载失败');
-        setLoadingDashboard(false);
       }
     );
 
@@ -424,7 +417,6 @@ export default function TeamDashboard({ onLogUpdated }: TeamDashboardProps) {
   }
 
   const currentTeam = teams.find((t) => t.id === selectedTeamId) || teams[0];
-  const isTeamOwner = Boolean(currentUser && currentTeam?.createdBy === currentUser.uid);
 
   return (
     <div className="space-y-6">

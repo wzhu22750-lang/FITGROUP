@@ -9,7 +9,7 @@ const originalStorage=supabase.storage.from, originalSession=supabase.auth.getSe
 (supabase.auth as any).getSession=async()=>({data:{session:{user:{id:uid}}}});
 (supabase.storage as any).from=()=>({getPublicUrl:(path:string)=>({data:{publicUrl:`https://photos.test/storage/v1/object/public/workouts/${path}`}}),
   upload:async(path:string,_blob:Blob,options:any)=>{assert.equal(options.upsert,false);uploads++;return{data:{path},error:null};},
-  download:async(path:string)=>({data:new Blob(['photo']),error:deny?new Error('403 forbidden'):null}),
+  download:async(_path:string)=>({data:new Blob(['photo']),error:deny?new Error('403 forbidden'):null}),
   remove:async(paths:string[])=>{removed.push(...paths);return{data:paths.map(name=>({name})),error:null};},
 });
 try {

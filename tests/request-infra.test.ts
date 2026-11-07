@@ -2,7 +2,6 @@ import assert from 'node:assert';
 import {
   readRequest,
   withCallerSignal,
-  SingleFlight,
   REQUEST_TIMEOUT_MS,
 } from '../src/utils/request';
 import { customFetch } from '../src/lib/supabase';
@@ -480,7 +479,7 @@ console.log('--- Testing Central Fetch Deadlines & No Write Retries ---');
   let writeCallCount = 0;
 
   // Mock global fetch to simulate a network error on a write
-  globalThis.fetch = async (input: any, init?: any) => {
+  globalThis.fetch = async (_input: any, init?: any) => {
     const method = (init?.method || 'GET').toUpperCase();
     if (method === 'POST') {
       writeCallCount++;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, lazy, Suspense, useCallback } from 'react';
+import { useState, useEffect, useMemo, lazy, Suspense, useCallback } from 'react';
 import TrainingOverview from './TrainingOverview';
 const AbilityRadarCard = lazy(() => import('./AbilityRadarCard'));
 import TrainingTrendsCard from './TrainingTrendsCard';
@@ -16,13 +16,10 @@ import {
 } from '../api';
 import { UserProfile, WorkoutCategory, WorkoutLog } from '../types';
 import {
-  Activity,
-  Sparkles,
   ChevronDown,
   ChevronUp,
   Info,
 } from 'lucide-react';
-import { motion } from 'motion/react';
 import {
   calculateFullWorkoutAnalytics,
   getStrengthTier,
@@ -36,7 +33,6 @@ import {
 } from '../utils/progressAnalytics';
 import { getStatisticsAnalysisLogs, getStatisticsAnalytics, type StatisticsSnapshot } from '../utils/statisticsData';
 import { summarizeWorkoutHistory } from '../utils/trainingPresentation';
-import { CATEGORY_META } from '../constants/workoutPresets';
 
 export default function Statistics() {
   const cached = getCurrentUser();
@@ -382,18 +378,6 @@ export default function Statistics() {
     return generateDeterministicTrainingInsights(analytics28d, progression, trends);
   }, [analytics28d, progression, trends]);
 
-  const keyFeedback = useMemo(() => {
-    const clear = progression.find(item => item.verdict === 'clear_progress');
-    const possible = progression.find(item => item.verdict === 'possible_progress');
-    const progress = clear ?? possible;
-    return {
-      title: progress ? `${progress.exerciseName} · ${clear ? '明显进步' : '可能进步'}` : analytics28d.recentWorkoutsCount > 0 ? `近 28 天记录了 ${analytics28d.recentWorkoutsCount} 次训练` : '先记录，再看变化',
-      description: progress?.evidence ?? `近 28 天完成 ${analytics28d.recentSetsCount} 组抗阻训练；${analytics28d.categoryDetails.Cardio.cardioMetrics?.effectiveMinutes ?? 0} 分钟有效有氧。`,
-      badge: progress ? (clear ? '多日证据' : '待验证') : '记录概览', badgeBg: clear ? 'bg-neon text-ink' : 'bg-paper text-ink',
-      action: clear ? '下次在相同动作条件下记录，确认能稳定完成当前组次数后再调整负荷。' : possible ? '继续记录这个动作的实际组次数与负荷，确认提高能否重复。' : deterministicInsights.find(item => item.level === 'suggestion')?.action ?? '先保持记录习惯，积累同动作、同条件的多个训练日。',
-    };
-  }, [progression, analytics28d, deterministicInsights]);
-
   const hasAnyData =
     (userProfile?.totalWorkouts && userProfile.totalWorkouts > 0) ||
     workoutLogs.length > 0 ||
@@ -447,27 +431,11 @@ export default function Statistics() {
       {historyReady && statisticsSnapshot?.historyRefreshing && <p role="status" className="text-xs font-bold text-ink/60">历史记录正在更新，先显示上次的结果。</p>}
       {!historyReady && <p role="status" className="text-xs font-bold text-ink/60">近期数据已就绪，历史 PR 正在补齐。</p>}
 
-      {/* 1.6 Tier 1 Key Interpretive Feedback / 近期训练反馈 */}
-      <div className="card p-4 sm:p-5 bg-white border-2 border-ink shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <div className="flex items-center gap-1.5">
-            <Sparkles size={16} className="text-ink" />
-            <h4 className="text-xs font-black uppercase tracking-wider text-ink/70">近期训练反馈</h4>
-          </div>
-          <span className={`text-[10px] font-black px-2 py-0.5 border border-ink ${keyFeedback.badgeBg}`}>
-            {keyFeedback.badge}
-          </span>
-        </div>
-        <h3 className="text-base font-black text-ink mb-1">{keyFeedback.title}</h3>
-        <p className="text-xs text-ink/70 leading-relaxed font-medium">{keyFeedback.description}</p>
-        <p className="mt-3 pt-3 border-t-2 border-ink text-xs font-bold leading-relaxed"><span className="bg-neon px-1">下一步</span> {keyFeedback.action}</p>
-      </div>
-
       {/* =========================================================================
           TIER 2: CAPACITY & STRENGTH (第二层：能力与力量)
           近期状态与力量
           ========================================================================= */}
-      { // 暂停展示评分、雷达图及训练趋势图，保留代码以便恢复。
+      { // 暂停展示：评分、雷达图及训练趋势图；取消以下行注释可恢复。
       //       {logsReady && <div className="space-y-3 pt-2">
       //         <div className="flex flex-wrap items-center justify-between gap-2">
       //           <div className="flex items-center gap-2">
@@ -569,6 +537,7 @@ export default function Statistics() {
       //       />}
       //
       }
+
       {/* =========================================================================
           TIER 4: PROFESSIONAL ANALYSIS & PRs (详细分析 / 专业分析)
           ========================================================================= */}
@@ -608,7 +577,7 @@ export default function Statistics() {
       <CommunityLeaderboard entries={groupStats} />
 
       {/* Modals */}
-      { // 暂停展示评分标准与部位详情弹窗。
+      { // 暂停展示：评分标准与部位详情弹窗；取消以下行注释可恢复。
       //       <StandardsModal
       //         isOpen={showStandardsModal}
       //         onClose={closeStandards}
@@ -621,6 +590,7 @@ export default function Statistics() {
       //         onClose={closeMuscle}
       //       />
       }
+
     </div>
   );
 }

@@ -73,14 +73,6 @@ type TeamRow = {
   created_at: string;
 };
 
-type TeamMemberRow = {
-  id: string;
-  team_id: string;
-  user_id: string;
-  role: string;
-  joined_at: string;
-};
-
 type CommentRow = {
   id: string;
   log_id: string;
@@ -269,57 +261,6 @@ async function currentAuthUser(): Promise<User | null> {
     return sessionData.session.user;
   }
   return null;
-}
-
-function createRefreshScheduler<T>(
-  fetcher: () => Promise<T>,
-  onData: (value: T) => void,
-  onError: ((error: Error) => void) | undefined,
-  fallbackMessage: string,
-  debounceMs = 120,
-) {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let version = 0;
-  let disposed = false;
-  let inFlight = false;
-  let refreshPending = false;
-
-  const execute = () => {
-    if (disposed) return;
-    if (inFlight) { refreshPending = true; return; }
-    inFlight = true;
-    const requestedVersion = ++version;
-    void Promise.resolve().then(fetcher)
-      .then((value) => {
-        if (!disposed && requestedVersion === version) onData(value);
-      })
-      .catch((error) => {
-        if (!disposed && requestedVersion === version) {
-          onError?.(error instanceof Error ? error : new Error(fallbackMessage));
-        }
-      })
-      .finally(() => {
-        inFlight = false;
-        if (refreshPending && !disposed) { refreshPending = false; pull(); }
-      });
-  };
-
-  const pull = () => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = undefined;
-      execute();
-    }, debounceMs);
-  };
-
-  const dispose = () => {
-    disposed = true;
-    version += 1;
-    if (timer) clearTimeout(timer);
-  };
-
-  execute();
-  return { pull, dispose };
 }
 
 async function getMyProfileRow(signal?: AbortSignal): Promise<ProfileRow | null> {

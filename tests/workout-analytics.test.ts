@@ -9,13 +9,11 @@ import { WorkoutCategory, WorkoutLog, StrengthBodyContext } from '../src/types';
 import {
   resolveExerciseMuscles,
   calculateStandardizedScore,
-  getStrengthTier,
   getNextMilestone,
   calculateFullWorkoutAnalytics,
   findExerciseStandard,
   estimateOneRepMax,
   bodyContextFromProfile,
-  calculateEffectiveLoad,
   validateExercisePerformance,
   calculateCardioExerciseMetrics,
   calculateCardioScore,
@@ -40,7 +38,6 @@ import {
   getTrainingStateTier,
   TRAINING_STATE_TIERS,
 } from '../src/constants/strengthStandards';
-import { CATEGORY_META } from '../src/constants/workoutPresets';
 import {
   SubMuscleGroup,
   SUB_MUSCLE_TRAINING_TARGETS,
